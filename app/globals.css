@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 240 10% 4%;
+  --foreground: 0 0% 98%;
+  --card: 240 10% 6%;
+  --card-2: 240 10% 8%;
+  --popover: 240 10% 6%;
+  --popover-foreground: 0 0% 98%;
+  --secondary: 240 10% 10%;
+  --muted: 240 10% 12%;
+  --muted-foreground: 240 8% 60%;
+  --border: 240 10% 16%;
+  --input: 240 10% 14%;
+  --ring: 270 60% 60%;
+  --accent: 270 65% 62%;
+  --accent-foreground: 270 20% 12%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --sidebar: 240 10% 5%;
+  --sidebar-foreground: 0 0% 95%;
+  --sidebar-accent: 270 65% 62%;
+  --sidebar-ring: 240 10% 18%;
+  --radius: 0.65rem;
+  --font-inter: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+[data-theme='emerald'] {
+  --accent: 160 60% 50%;
+  --accent-foreground: 160 20% 10%;
+  --sidebar-accent: 160 60% 50%;
+  --ring: 160 60% 50%;
+}
+
+/* ===== Slider: custom range with filled track + pill badge ===== */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  background: hsl(var(--muted));
+  border-radius: 999px;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: hsl(var(--accent));
+  border: 2px solid hsl(var(--background));
+  margin-top: -6px;
+  box-shadow: 0 0 0 1px hsl(var(--accent) / 0.4);
+  transition:
+    transform 0.15s ease-out,
+    box-shadow 0.15s ease-out;
+}
+input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 4px hsl(var(--accent) / 0.18);
+}
+input[type='range']::-moz-range-track {
+  height: 6px;
+  background: hsl(var(--muted));
+  border-radius: 999px;
+}
+input[type='range']::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: hsl(var(--accent));
+  border: 2px solid hsl(var(--background));
+  box-shadow: 0 0 0 1px hsl(var(--accent) / 0.4);
+}
+
+/* filled track via linear-gradient on the track */
+.slider-track {
+  background: linear-gradient(
+    to right,
+    hsl(var(--accent)) var(--slider-pct, 0%),
+    hsl(var(--muted)) var(--slider-pct, 0%)
+  );
+}
+
+/* ===== Toggle / pill switch ===== */
+.toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 42px;
+  height: 22px;
+  border-radius: 999px;
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  transition: background 0.18s ease-out;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition:
+    transform 0.18s ease-out,
+    background 0.18s ease-out;
+}
+.toggle[data-state='checked'],
+.toggle[aria-checked='true'] {
+  background: hsl(var(--accent));
+}
+.toggle[data-state='checked']::after,
+.toggle[aria-checked='true']::after {
+  transform: translateX(20px);
+}
+
+/* ===== Card surface ===== */
+.card {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
+    0 8px 24px -12px rgba(0, 0, 0, 0.6);
+}
+.card-2 {
+  background: hsl(var(--card-2));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+/* ===== Scrollbar ===== */
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 999px;
+}
+.scroll-thin::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* ===== Shimmer skeleton ===== */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--muted-foreground)) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+  border-radius: inherit;
+}
+
+/* ===== Focus ring ===== */
+.focus-ring:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* ===== Number tick micro-animations ===== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,107 @@
+# StockForge AI — local compose stack.
+#
+#   docker compose up -d
+#
+# Services:
+#   db       PostgreSQL 18 (auth, schema, jobs)
+#   redis    BullMQ / session store backing
+#   web      Next.js app (dev or standalone build)
+#   worker   BullMQ worker — consumes metadata / image-prompt / analytics jobs
+#   pgadmin  Optional: browse the database (commented out)
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: genmetaai-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: genmetaai
+      POSTGRES_USER: mrdisable
+      POSTGRES_PASSWORD: mrdisable
+    ports:
+      - '5440:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U mrdisable -d genmetaai']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: genmetaai-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: genmetaai-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - '3000:3000'
+    env_file: .env
+    environment:
+      DATABASE_URL: 'postgresql://mrdisable:mrdisable@db:5440/genmetaai'
+      REDIS_URL: 'redis://redis:6379'
+      NEXTAUTH_URL: 'http://localhost:3000'
+      NEXT_PUBLIC_APP_URL: 'http://localhost:3000'
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: genmetaai-worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: 'postgresql://mrdisable:mrdisable@db:5440/genmetaai'
+      REDIS_URL: 'redis://redis:6379'
+      NEXTAUTH_URL: 'http://localhost:3000'
+      NEXT_PUBLIC_APP_URL: 'http://localhost:3000'
+    command: ['node', 'lib/queue/worker.js']
+
+  # MinIO - Local S3-compatible storage for development
+  minio:
+    image: minio/minio:RELEASE.2024-09-13T20-26-02Z
+    container_name: genmetaai-minio
+    restart: unless-stopped
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  db-data:
+  redis-data:
+  minio-data:

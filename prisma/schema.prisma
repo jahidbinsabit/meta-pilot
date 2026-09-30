@@ -1,0 +1,584 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_token     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model AdobeAnalyticsQuery {
+  id         String   @id @default(cuid())
+  userId     String
+  queryType  String
+  queryValue String
+  resultData Json?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([queryType])
+  @@index([userId])
+}
+
+model AiCallLog {
+  id               String   @id @default(cuid())
+  toolSlug         String
+  provider         String
+  model            String
+  latencyMs        Int
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  success          Boolean
+  errorMessage     String?
+  responseSchema   String?
+  parsedOk         Boolean
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([provider])
+  @@index([success])
+  @@index([toolSlug])
+}
+
+model AiProviderConfig {
+  id                  String   @id @default(cuid())
+  provider            String   @unique
+  apiKey              String?
+  modelDefault        String?
+  customApiUrl        String?
+  customHeaders       Json?
+  apiType             String   @default("openai")
+  costPer1kIn         Float    @default(0)
+  costPer1kOut        Float    @default(0)
+  maxTokens           Int      @default(2048)
+  enabled             Boolean  @default(true)
+  priority            Int      @default(0)
+  isActiveForToolSlug Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  updatedBy           String?
+
+  @@index([enabled])
+  @@index([priority])
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String   @unique
+  name      String
+  scopes    String[]
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([revoked])
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminId    String
+  action     String
+  targetType String
+  targetId   String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
+  @@index([targetId])
+  @@index([targetType])
+}
+
+model CreditPackage {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  credits   Int
+  priceBDT  Int      @default(0)
+  priceUSD  Float    @default(0)
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+model CreditTransaction {
+  id              String       @id @default(cuid())
+  userId          String
+  amount          Int
+  type            CreditTxType
+  reason          String?
+  relatedToolSlug String?
+  metadata        Json?
+  createdAt       DateTime     @default(now())
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([relatedToolSlug])
+  @@index([type])
+  @@index([userId])
+}
+
+model CreditWallet {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  balance          Int       @default(0)
+  lastDailyGrantAt DateTime?
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lastDailyGrantAt])
+  @@index([userId])
+}
+
+model EmailVerification {
+  id        String    @id @default(cuid())
+  userId    String
+  email     String
+  otp       String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([expiresAt])
+  @@index([userId])
+}
+
+model GeneratedMetadata {
+  id           String   @id @default(cuid())
+  userId       String
+  provider     String
+  model        String
+  originalUrl  String?
+  originalName String?
+  title        String
+  description  String
+  keywords     String[]
+  altText      String?
+  metadataJson Json
+  promptUsed   String
+  tokensUsed   Int      @default(0)
+  costCents    Int      @default(0)
+  status       String   @default("COMPLETED")
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([provider])
+  @@index([userId])
+}
+
+model GeneratorSettings {
+  id                 String   @id @default("default")
+  titleLength        Int      @default(60)
+  titleMin           Int      @default(20)
+  titleMax           Int      @default(120)
+  descriptionLength  Int      @default(180)
+  includeDescription Boolean  @default(true)
+  keywordsCount      Int      @default(12)
+  keywordsMin        Int      @default(5)
+  keywordsMax        Int      @default(49)
+  prefix             String?
+  suffix             String?
+  negativeTitleWords String[]
+  negativeKeywords   String[]
+  defaultPrefix      String?
+  defaultSuffix      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model HomepageContent {
+  id          String   @id @default(cuid())
+  sectionKey  String   @unique
+  contentJson Json
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+model Job {
+  id        String   @id @default(cuid())
+  type      String
+  status    String   @default("QUEUED")
+  payload   Json?
+  result    Json?
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([type])
+}
+
+model Membership {
+  id                String           @id @default(cuid())
+  userId            String
+  planId            String
+  status            MembershipStatus @default(ACTIVE)
+  startedAt         DateTime         @default(now())
+  renewsAt          DateTime?
+  cancelAtPeriodEnd Boolean          @default(false)
+  plan              Plan             @relation(fields: [planId], references: [id])
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([renewsAt])
+  @@index([status])
+  @@index([userId])
+}
+
+model Notification {
+  id          String               @id @default(cuid())
+  title       String
+  body        String
+  ctaLabel    String?
+  ctaUrl      String?
+  audience    NotificationAudience @default(ALL)
+  planTiers   Json?
+  startsAt    DateTime?
+  endsAt      DateTime?
+  isActive    Boolean              @default(true)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  createdById String?
+
+  @@index([audience])
+  @@index([endsAt])
+  @@index([isActive])
+  @@index([startsAt])
+}
+
+model Order {
+  id          String   @id @default(cuid())
+  userId      String
+  provider    String
+  amountCents Int
+  currency    String
+  status      String   @default("PENDING")
+  stripeId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([provider])
+  @@index([status])
+  @@index([stripeId])
+  @@index([userId])
+}
+
+model Payment {
+  id                      String        @id @default(cuid())
+  userId                  String
+  method                  PaymentMethod
+  amountBDT               Int           @default(0)
+  amountUSD               Float         @default(0)
+  status                  PaymentStatus @default(PENDING)
+  transactionRef          String?
+  gatewayPayload          Json?
+  planIdOrCreditPackageId String?
+  reviewedByAdminId       String?
+  reviewedAt              DateTime?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  user                    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([method])
+  @@index([planIdOrCreditPackageId])
+  @@index([status])
+  @@index([transactionRef])
+  @@index([userId])
+}
+
+model PaymentGatewayConfig {
+  id              String   @id @default(cuid())
+  gatewayKey      String   @unique
+  displayName     String
+  isEnabled       Boolean  @default(false)
+  isManual        Boolean  @default(false)
+  credentialsJson Json?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isEnabled])
+  @@index([sortOrder])
+}
+
+model Plan {
+  id                        String       @id @default(cuid())
+  name                      String
+  tier                      PlanTier     @unique
+  monthlyPriceBDT           Int          @default(0)
+  monthlyPriceUSD           Float        @default(0)
+  creditsIncluded           Int          @default(0)
+  dailyFreeCredits          Int          @default(0)
+  adobeAnalyticsResultLimit Int          @default(0)
+  features                  Json         @default("{}")
+  isActive                  Boolean      @default(true)
+  sortOrder                 Int          @default(0)
+  createdAt                 DateTime     @default(now())
+  updatedAt                 DateTime     @updatedAt
+  memberships               Membership[]
+
+  @@index([isActive])
+  @@index([sortOrder])
+  @@index([tier])
+}
+
+model PromptStylePreset {
+  id                String   @id @default(cuid())
+  slug              String   @unique
+  label             String
+  systemInstruction String
+  sortOrder         Int      @default(0)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  sessionToken String   @unique
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SiteSettings {
+  id                    String   @id @default("default")
+  siteName              String   @default("StockForge AI")
+  tagline               String?
+  metaTitle             String?
+  metaDescription       String?
+  ogImageUrl            String?
+  twitterHandle         String?
+  gaMeasurementId       String?
+  gscVerification       String?
+  gscVerificationMethod String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
+model ToolCreditCost {
+  id        String   @id @default(cuid())
+  toolSlug  String   @unique
+  cost      Int      @default(1)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([toolSlug])
+}
+
+model ToolJob {
+  id             String    @id @default(cuid())
+  userId         String
+  toolSlug       String
+  status         JobStatus @default(QUEUED)
+  inputFileUrls  Json      @default("[]")
+  outputData     Json?
+  creditsCharged Int       @default(0)
+  aiProviderUsed String?
+  errorMessage   String?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([completedAt])
+  @@index([createdAt])
+  @@index([status])
+  @@index([toolSlug])
+  @@index([userId])
+}
+
+model ToolRegistry {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  name            String
+  description     String
+  icon            String   @default("Wrench")
+  category        String   @default("utility")
+  route           String?
+  creditCost      Int      @default(1)
+  isFree          Boolean  @default(false)
+  isEnabled       Boolean  @default(true)
+  enabledForTiers Json?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([category])
+  @@index([isEnabled])
+  @@index([sortOrder])
+}
+
+model ToolUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  tool      String
+  metadata  Json
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([tool])
+  @@index([userId])
+}
+
+model User {
+  id                    String                @id @default(cuid())
+  name                  String?
+  email                 String                @unique
+  emailVerified         DateTime?
+  image                 String?
+  role                  UserRole              @default(USER)
+  membership            MembershipType        @default(FREE)
+  credits               Int                   @default(0)
+  status                UserStatus            @default(ACTIVE)
+  passwordHash          String?
+  stripeId              String?
+  deletedAt             DateTime?
+  deletedPurgeAt        DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  accounts              Account[]
+  adobeAnalyticsQueries AdobeAnalyticsQuery[]
+  apiKeys               ApiKey[]
+  creditTransactions    CreditTransaction[]
+  creditWallet          CreditWallet?
+  emailVerifications    EmailVerification[]
+  generatedMetadata     GeneratedMetadata[]
+  memberships           Membership[]
+  orders                Order[]
+  payments              Payment[]
+  sessions              Session[]
+  toolJobs              ToolJob[]
+  toolUsages            ToolUsage[]
+
+  @@index([deletedAt])
+  @@index([deletedPurgeAt])
+  @@index([email])
+  @@index([role])
+}
+
+model VerificationToken {
+  id         Int      @id @default(autoincrement())
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum CreditTxType {
+  DAILY_GRANT
+  PURCHASE
+  SPEND
+  ADMIN_ADJUSTMENT
+  REFUND
+  CREDIT
+  BONUS
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETE
+  FAILED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  EXPIRED
+  CANCELED
+}
+
+enum MembershipType {
+  FREE
+  PRO
+  PLUS
+  AGENCY
+  ENTERPRISE
+}
+
+enum NotificationAudience {
+  ALL
+  FREE
+  PRO
+  PLUS
+  AGENCY
+  ENTERPRISE
+}
+
+enum PaymentMethod {
+  BKASH_MANUAL
+  NAGAD_MANUAL
+  STRIPE
+  OTHER_GATEWAY
+}
+
+enum PaymentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  COMPLETED
+}
+
+enum PlanTier {
+  FREE
+  PRO
+  PLUS
+  AGENCY
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}

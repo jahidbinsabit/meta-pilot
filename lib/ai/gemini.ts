@@ -1,0 +1,137 @@
+/**
+ * Gemini adapter (PROMPT 12).
+ *
+ * Uses the Gemini REST API directly so we can pass a `response_schema` for
+ * structured JSON output. Schema enforcement is requested via
+ * `response_mime_type: application/json` + `response_schema`; the Zod parse
+ * in `BaseAdapter` is the final gate (Gemini can still emit prose around the
+ * schema, or fail the schema entirely).
+ */
+
+import { zodToJsonSchema } from '@/lib/ai/json-schema';
+import { BaseAdapter } from '@/lib/ai/base';
+import type { AiRequest } from '@/lib/ai/types';
+
+export class GeminiAdapter extends BaseAdapter {
+  readonly id = 'gemini' as const;
+  readonly name = 'Google Gemini';
+
+  constructor(
+    private apiKey: string,
+    private modelDefault: string,
+  ) {
+    super();
+  }
+
+  protected override defaultModelName(): string {
+    return this.modelDefault;
+  }
+
+  async doGenerate(req: AiRequest): Promise<{
+    text: string;
+    promptTokens: number;
+    completionTokens: number;
+    finishReason?: string;
+  }> {
+    const model = req.model || this.modelDefault;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+
+    const parts: any[] = [];
+    if (req.systemPrompt) parts.push({ text: req.systemPrompt });
+    parts.push({ text: req.userPrompt });
+
+    const images = req.imageUrls ?? [];
+    for (const url of images) {
+      const { data, mimeType } = await toInlineImage(url);
+      parts.push({ inline_data: { mime_type: mimeType, data } });
+    }
+
+    const generationConfig: any = {
+      maxOutputTokens: req.maxTokens ?? 8192,
+      temperature: req.temperature ?? 0.7,
+    };
+
+    if (req.responseSchema) {
+      generationConfig.response_mime_type = 'application/json';
+      generationConfig.response_schema = zodToJsonSchema(req.responseSchema);
+    } else {
+      generationConfig.response_mime_type = 'text/plain';
+    }
+
+    const body = {
+      contents: [{ role: 'user', parts }],
+      generationConfig,
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Gemini API ${res.status}: ${err.slice(0, 400)}`);
+    }
+
+    const data = await res.json();
+    const candidate = data?.candidates?.[0];
+    const candidateParts: any[] = candidate?.content?.parts || [];
+    
+    // Extract non-thought text parts (Gemini 2.5/3.x models emit thought parts when thinking is enabled)
+    const textParts = candidateParts
+      .filter((p: any) => !p.thought && typeof p.text === 'string')
+      .map((p: any) => p.text)
+      .join('');
+    
+    const text = textParts || candidateParts[0]?.text || '';
+    if (!text) {
+      throw new Error(
+        `Gemini returned no generated content (finish reason: ${candidate?.finishReason ?? 'unknown'}).`,
+      );
+    }
+    const usage = data?.usageMetadata;
+    return {
+      text,
+      promptTokens: usage?.promptTokenCount ?? 0,
+      completionTokens: usage?.candidatesTokenCount ?? 0,
+      finishReason: data?.candidates?.[0]?.finishReason,
+    };
+  }
+
+  async healthcheck(): Promise<boolean> {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`,
+      );
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * Accept either a data: URL (`data:image/png;base64,...`) or a remote URL.
+ * Gemini wants inline base64, so remote URLs are fetched and inlined.
+ */
+async function toInlineImage(url: string): Promise<{ data: string; mimeType: string }> {
+  const match = /^data:([^;]+);base64,(.+)$/i.exec(url);
+  if (match) return { mimeType: match[1], data: match[2] };
+  if (/^https?:\/\//i.test(url)) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Gemini image fetch failed: ${res.status}`);
+    const mime = res.headers.get('content-type') || 'image/jpeg';
+    const buf = Buffer.from(await res.arrayBuffer());
+    try {
+      const { resizeImage } = await import('@/lib/generator/images');
+      const resized = await resizeImage(buf, mime, 1024, 80);
+      return { mimeType: resized.mime, data: resized.buffer.toString('base64') };
+    } catch {
+      return { mimeType: mime.split(';')[0].trim(), data: buf.toString('base64') };
+    }
+  }
+  throw new Error(
+    `Gemini adapter requires a data-URL or http(s) image URL, got: ${url.slice(0, 60)}`,
+  );
+}
