@@ -50,23 +50,29 @@ async function grantDailyFreeIfDue(userId: string) {
 
 export const authOptions: any = {
   adapter: PrismaAdapter(prisma),
+  // NextAuth v5 reads AUTH_SECRET (falls back to NEXTAUTH_SECRET).
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
+  // Required on Vercel / custom domains so Auth.js trusts the Host header.
+  trustHost: true,
   providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          prompt: 'consent',
-          access_type: 'offline',
-          response_type: 'code',
-        },
-      },
-      // Fix for "issuer missing" error in NextAuth v5
-      issuer: 'https://accounts.google.com',
-      wellKnown: 'https://accounts.google.com/.well-known/openid-configuration',
-      // Allow linking Google account to existing email
-      allowDangerousEmailAccountLinking: true,
-    }),
+    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            authorization: {
+              params: {
+                prompt: 'consent',
+                access_type: 'offline',
+                response_type: 'code',
+              },
+            },
+            issuer: 'https://accounts.google.com',
+            wellKnown: 'https://accounts.google.com/.well-known/openid-configuration',
+            allowDangerousEmailAccountLinking: true,
+          }),
+        ]
+      : []),
     CredentialsProvider({
       name: 'Email & Password',
       credentials: {

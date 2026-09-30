@@ -7,6 +7,8 @@ import { ToastProvider } from '@/components/ui/toast';
 import { AuthSessionProvider } from '@/components/auth-session-provider';
 import { prisma } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 const inter = Inter({ 
   subsets: ['latin'], 
   variable: '--font-inter',

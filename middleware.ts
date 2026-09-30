@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { decode } from 'next-auth/jwt';
 
-const SECRET = process.env.NEXTAUTH_SECRET!;
+const SECRET = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET!;
 
 /** Pull the session JWT out of the request cookies (both cookie names are
  *  emitted by next-auth v5 depending on the session cookie config). */

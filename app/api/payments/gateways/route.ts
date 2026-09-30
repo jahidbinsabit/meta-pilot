@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { buildCheckoutGateways } from '@/lib/payments/public';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const gateways = await prisma.paymentGatewayConfig.findMany({

@@ -1,11 +1,10 @@
 import { Worker } from 'bullmq';
-import { connection } from '@/lib/queue/client';
+import { getConnection } from '@/lib/queue/client';
 import { prisma } from '@/lib/db';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
 import { deductCredits, addCredits } from '@/lib/credits/engine';
-import { metadataQueue, imagePromptQueue, analyticsQueue } from '@/lib/queue/client';
 
 // ---------------------------------------------------------------------------
 // Metadata worker
@@ -175,10 +174,15 @@ async function handleAnalytics(job: any) {
 let workers: Worker[] = [];
 
 export function startWorkers() {
+  const conn = getConnection();
+  if (!conn) {
+    console.warn('[queue] Redis is not configured; skipping workers');
+    return [];
+  }
   workers = [
-    new Worker('metadata', handleMetadata, { connection, concurrency: 2 }),
-    new Worker('image-prompt', handleImagePrompt, { connection, concurrency: 2 }),
-    new Worker('analytics', handleAnalytics, { connection, concurrency: 4 }),
+    new Worker('metadata', handleMetadata, { connection: conn, concurrency: 2 }),
+    new Worker('image-prompt', handleImagePrompt, { connection: conn, concurrency: 2 }),
+    new Worker('analytics', handleAnalytics, { connection: conn, concurrency: 4 }),
   ];
 
   for (const w of workers) {

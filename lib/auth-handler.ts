@@ -19,7 +19,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth(authOptions);
  * the token with the latest role/membership/credits.
  */
 export async function refreshSessionJWT(req?: Request) {
-  const secret = process.env.NEXTAUTH_SECRET;
+  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
   if (!secret) return false;
   // `auth()` returns the decoded session; we instead decode the raw cookie
   // so we can re-encode it with fresh claims.

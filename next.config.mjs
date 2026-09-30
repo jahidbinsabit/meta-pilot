@@ -1,4 +1,22 @@
 /** @type {import('next').NextConfig} */
+
+// NextAuth v5 reads AUTH_SECRET; keep NEXTAUTH_SECRET working as an alias.
+if (!process.env.AUTH_SECRET && process.env.NEXTAUTH_SECRET) {
+  process.env.AUTH_SECRET = process.env.NEXTAUTH_SECRET;
+}
+if (!process.env.AUTH_URL && process.env.NEXTAUTH_URL) {
+  process.env.AUTH_URL = process.env.NEXTAUTH_URL;
+}
+
+// Prisma validates DATABASE_URL at first query. During `next build` on Vercel
+// the URL may be unset / a placeholder, which would crash static generation.
+const isBuild =
+  process.env.NEXT_PHASE === 'phase-production-build' ||
+  process.env.NEXT_PHASE === 'phase-development-build';
+if (isBuild && (!process.env.DATABASE_URL || !/^postgres(ql)?:\/\//i.test(process.env.DATABASE_URL))) {
+  process.env.DATABASE_URL = 'postgresql://build:build@127.0.0.1:5432/build';
+}
+
 const nextConfig = {
   reactStrictMode: true,
   eslint: {
@@ -27,3 +45,4 @@ const nextConfig = {
 };
 
 export default nextConfig;
+

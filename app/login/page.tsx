@@ -19,6 +19,23 @@ function LoginPage() {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get('error');
+    if (!authError) return;
+    if (authError === 'Configuration') {
+      setError(
+        'Auth is misconfigured. Set AUTH_SECRET (or NEXTAUTH_SECRET) and NEXTAUTH_URL=https://metapilot.reflecters.com in Vercel, then redeploy.',
+      );
+    } else if (authError === 'OAuthAccountNotLinked') {
+      setError('This email is already registered. Sign in with email and password, then link Google.');
+    } else if (authError === 'AccessDenied') {
+      setError('Google sign-in was denied.');
+    } else if (authError !== 'CredentialsSignin') {
+      setError(`Sign-in failed (${authError}).`);
+    }
+  }, []);
+
   async function onCredentials(e: React.FormEvent) {
     e.preventDefault();
     if (busy) return;

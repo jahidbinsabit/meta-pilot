@@ -15,7 +15,7 @@ const IV_LEN = 12;
 const TAG_LEN = 16;
 
 function getKey(): Buffer | null {
-  const raw = process.env.SECRET_KEY || process.env.NEXTAUTH_SECRET;
+  const raw = process.env.SECRET_KEY || process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
   if (!raw) return null;
   return crypto.createHash('sha256').update(raw).digest();
 }
