@@ -175,7 +175,7 @@ async function main() {
     create: {
       provider: 'gemini',
       apiKey: encryptSecret(process.env.GEMINI_API_KEY || ''),
-      modelDefault: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      modelDefault: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
       enabled: true,
       updatedBy: admin.id,
     },

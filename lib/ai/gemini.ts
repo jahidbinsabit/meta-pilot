@@ -33,7 +33,10 @@ export class GeminiAdapter extends BaseAdapter {
     completionTokens: number;
     finishReason?: string;
   }> {
-    const model = req.model || this.modelDefault;
+    let model = req.model || this.modelDefault || 'gemini-3.8-flash';
+    if (model === 'gemini-2.0-flash') {
+      model = 'gemini-3.8-flash';
+    }
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
 
     const parts: any[] = [];

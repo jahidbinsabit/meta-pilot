@@ -307,13 +307,17 @@ export function AiProvidersClient({ configs: initialConfigs }: { configs: any[] 
       const saved = await res.json();
       // Keep hasKey from server response; clear apiKey so the input stays blank
       // (the placeholder "••••••••" signals a key is stored when hasKey is true)
-      setConfigs((prev) =>
-        prev.map((c) =>
-          c.provider === provider
-            ? { ...saved, apiKey: '', hasKey: !!saved.hasKey }
-            : c
-        )
-      );
+      setConfigs((prev) => {
+        const exists = prev.some((c) => c.provider === provider);
+        if (exists) {
+          return prev.map((c) =>
+            c.provider === provider
+              ? { ...c, ...saved, apiKey: '', hasKey: !!saved.hasKey }
+              : c
+          );
+        }
+        return [...prev, { ...saved, apiKey: '', hasKey: !!saved.hasKey }];
+      });
 
       setEditing((prev) => {
         const next = { ...prev };
@@ -424,7 +428,7 @@ export function AiProvidersClient({ configs: initialConfigs }: { configs: any[] 
       list.unshift({
         provider: 'gemini',
         enabled: true,
-        modelDefault: 'gemini-2.0-flash',
+        modelDefault: 'gemini-3.5-flash-lite',
         costPer1kIn: 0.00015,
         costPer1kOut: 0.0006,
         maxTokens: 2048,
@@ -604,7 +608,7 @@ export function AiProvidersClient({ configs: initialConfigs }: { configs: any[] 
                   </label>
                   {p === 'gemini' ? (
                     <select
-                      value={e.modelDefault || 'gemini-2.0-flash'}
+                      value={e.modelDefault && e.modelDefault !== 'gemini-2.0-flash' ? e.modelDefault : 'gemini-3.5-flash-lite'}
                       onChange={(ev) =>
                         setEditing({ ...editing, [p]: { ...e, modelDefault: ev.target.value } })
                       }

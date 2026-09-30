@@ -65,12 +65,16 @@ export async function getProviderConfig(provider: string): Promise<ProviderConfi
   const clean = provider.trim().toLowerCase();
   const cfg = await prisma.aiProviderConfig.findUnique({ where: { provider: clean } });
   if (cfg) {
+    let model = cfg.modelDefault || '';
+    if (clean === 'gemini' && (!model || model === 'gemini-2.0-flash')) {
+      model = 'gemini-3.8-flash';
+    }
     return {
       provider: cfg.provider,
       enabled: cfg.enabled,
       // A non-empty DB key is authoritative. Environment keys are fallback only.
       apiKey: cfg.apiKey || getEnvironmentApiKey(clean),
-      modelDefault: cfg.modelDefault || '',
+      modelDefault: model,
       customApiUrl: cfg.customApiUrl || undefined,
       customHeaders: (cfg.customHeaders as Record<string, string>) || undefined,
       apiType: cfg.apiType || 'openai',
@@ -85,7 +89,7 @@ export async function getProviderConfig(provider: string): Promise<ProviderConfi
       provider: 'gemini',
       enabled: true,
       apiKey: process.env.GEMINI_API_KEY,
-      modelDefault: 'gemini-2.0-flash',
+      modelDefault: 'gemini-3.8-flash',
       costPer1kIn: Number(process.env.GEMINI_COST_IN || 0),
       costPer1kOut: Number(process.env.GEMINI_COST_OUT || 0),
       maxTokens: 2048,
