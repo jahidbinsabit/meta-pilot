@@ -23,25 +23,56 @@ export async function refreshSessionJWT(req?: Request) {
   if (!secret) return false;
   // `auth()` returns the decoded session; we instead decode the raw cookie
   // so we can re-encode it with fresh claims.
-  const cookieName =
+  const cookieHeader =
     (req as any)?.headers?.get('cookie') ??
     (typeof Request !== 'undefined' && req instanceof Request ? req.headers.get('cookie') : '');
-  if (!cookieName) return false;
+  if (!cookieHeader) return false;
   const cookies = Object.fromEntries(
-    cookieName.split(';').map((c: string) => {
+    cookieHeader.split(';').map((c: string) => {
       const [k, ...v] = c.split('=');
       return [k.trim(), decodeURIComponent(v.join('=').trim())];
     }),
   );
-  const tokenValue = cookies['__Secure-authjs.session-token'] ?? cookies['authjs.session-token'];
+
+  const cookieNames = [
+    '__Secure-authjs.session-token',
+    'authjs.session-token',
+    '__Secure-next-auth.session-token',
+    'next-auth.session-token',
+  ];
+
+  let cookieName = '';
+  let tokenValue = '';
+  for (const name of cookieNames) {
+    if (cookies[name]) {
+      cookieName = name;
+      tokenValue = cookies[name];
+      break;
+    }
+  }
+
   if (!tokenValue) return false;
-  const decoded = await decode({
-    token: tokenValue,
-    secret,
-    // Auth.js derives the encryption key from the session cookie name; this
-    // must match or the JWT won't decrypt.
-    salt: 'authjs.session-token',
-  });
+
+  let decoded: any = null;
+  try {
+    decoded = await decode({
+      token: tokenValue,
+      secret,
+      salt: cookieName,
+    });
+  } catch {
+    for (const salt of cookieNames) {
+      if (salt === cookieName) continue;
+      try {
+        decoded = await decode({ token: tokenValue, secret, salt });
+        if (decoded) {
+          cookieName = salt;
+          break;
+        }
+      } catch {}
+    }
+  }
+
   if (!decoded?.sub) return false;
   const user = await (
     await import('@/lib/db')
@@ -70,8 +101,8 @@ export async function refreshSessionJWT(req?: Request) {
       credits: user.credits,
     },
     secret,
-    salt: 'authjs.session-token',
-    maxAge: 30 * 24 * 60 * 60, // 30 days (increased from 30 minutes)
+    salt: cookieName,
+    maxAge: 30 * 24 * 60 * 60, // 30 days
   });
   return newToken;
 }

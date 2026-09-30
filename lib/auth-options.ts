@@ -82,7 +82,7 @@ export const authOptions: any = {
       async authorize(credentials: any) {
         if (!credentials?.email || !credentials?.password) return null;
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
+          where: { email: String(credentials.email).trim().toLowerCase() },
         });
         if (!user) return null;
         const hash = (user as any).passwordHash as string | null;
@@ -115,69 +115,14 @@ export const authOptions: any = {
     signIn: '/login',
     error: '/login',
   },
-  // Cookie configuration for development (fixes PKCE issues)
-  cookies: {
-    sessionToken: {
-      name: `${process.env.NODE_ENV === 'production' ? '__Secure-' : ''}authjs.session-token`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 30 * 24 * 60 * 60, // 30 days
-      },
-    },
-    callbackUrl: {
-      name: `${process.env.NODE_ENV === 'production' ? '__Secure-' : ''}authjs.callback-url`,
-      options: {
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-      },
-    },
-    csrfToken: {
-      name: `${process.env.NODE_ENV === 'production' ? '__Host-' : ''}authjs.csrf-token`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-      },
-    },
-    pkceCodeVerifier: {
-      name: `${process.env.NODE_ENV === 'production' ? '__Secure-' : ''}authjs.pkce.code_verifier`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 60 * 60, // 1 hour (increased from 15 minutes)
-      },
-    },
-    state: {
-      name: `${process.env.NODE_ENV === 'production' ? '__Secure-' : ''}authjs.state`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 60 * 15, // 15 minutes
-      },
-    },
-    nonce: {
-      name: `${process.env.NODE_ENV === 'production' ? '__Secure-' : ''}authjs.nonce`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-      },
-    },
-  },
   callbacks: {
     async jwt({ token, user, account }: any) {
       // First sign-in: `user` is the raw provider-returned object.
       if (user?.id) {
+        token.sub = user.id;
+        token.email = user.email;
+        token.name = user.name;
+
         // Google account linking: if the Google email matches an existing
         // user who hasn't linked Google yet, link the account to them.
         if (account?.provider === 'google' && user.email) {
@@ -200,6 +145,7 @@ export const authOptions: any = {
               },
             });
             user.id = existing.id;
+            token.sub = existing.id;
           }
         }
         const dbUser = await prisma.user.findUnique({
@@ -221,7 +167,7 @@ export const authOptions: any = {
           token.credits = dbUser.credits;
           token.sub = dbUser.id;
           // Run the daily grant on every login.
-          await grantDailyFreeIfDue(dbUser.id);
+          await grantDailyFreeIfDue(dbUser.id).catch(() => {});
         }
       }
       return token;

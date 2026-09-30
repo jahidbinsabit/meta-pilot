@@ -4,12 +4,53 @@ import { decode } from 'next-auth/jwt';
 
 const SECRET = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET!;
 
-/** Pull the session JWT out of the request cookies (both cookie names are
- *  emitted by next-auth v5 depending on the session cookie config). */
-function getSessionCookie(req: NextRequest): string | null {
-  const secureCookie = req.cookies.get('__Secure-authjs.session-token')?.value;
-  if (secureCookie) return secureCookie;
-  return req.cookies.get('authjs.session-token')?.value ?? null;
+const COOKIE_NAMES = [
+  '__Secure-authjs.session-token',
+  'authjs.session-token',
+  '__Secure-next-auth.session-token',
+  'next-auth.session-token',
+];
+
+/** Pull the session JWT out of the request cookies */
+function getSessionCookie(req: NextRequest): { name: string; value: string } | null {
+  for (const name of COOKIE_NAMES) {
+    const value = req.cookies.get(name)?.value;
+    if (value) return { name, value };
+  }
+  return null;
+}
+
+async function decodeSessionToken(tokenValue: string, cookieName: string) {
+  if (!SECRET) return null;
+
+  // 1. Try decoding with the exact cookie name (standard in Auth.js / NextAuth v5)
+  try {
+    const token = await decode({
+      token: tokenValue,
+      secret: SECRET,
+      salt: cookieName,
+    });
+    if (token) return token;
+  } catch {
+    // Try fallback salts
+  }
+
+  // 2. Try alternative known salts if exact cookie name failed
+  const fallbackSalts = COOKIE_NAMES.filter((s) => s !== cookieName);
+  for (const salt of fallbackSalts) {
+    try {
+      const token = await decode({
+        token: tokenValue,
+        secret: SECRET,
+        salt,
+      });
+      if (token) return token;
+    } catch {
+      // Continue trying
+    }
+  }
+
+  return null;
 }
 
 export async function middleware(req: NextRequest) {
@@ -22,21 +63,10 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const tokenValue = getSessionCookie(req);
+  const sessionCookie = getSessionCookie(req);
   let token: any = null;
-  if (tokenValue) {
-    try {
-      token = await decode({
-        token: tokenValue,
-        secret: SECRET,
-        // Must match the cookie name Auth.js used to derive the key.
-        salt: 'authjs.session-token',
-      });
-    } catch (error) {
-      // Log authentication failures for debugging
-      console.error('[middleware] Token decode failed:', error);
-      token = null;
-    }
+  if (sessionCookie) {
+    token = await decodeSessionToken(sessionCookie.value, sessionCookie.name);
   }
 
   // Not signed in → send to login.
@@ -58,3 +88,4 @@ export const config = {
   // Match every dashboard + admin route so the edge runs for them.
   matcher: ['/dashboard/:path*', '/admin/:path*'],
 };
+
