@@ -60,3 +60,11 @@ lerna-debug.log*
 !/public/uploads/.gitkeep
 /minio_data/
 
+# Temporary / test scripts & backups
+*.backup
+*.bak
+test-*.js
+seed-run.js
+*.csv
+
+
