@@ -25,7 +25,12 @@ export async function generateMetadata(): Promise<Metadata> {
         description:
           settings.metaDescription ||
           'Generate AI metadata (title, description, keywords) for Adobe Stock, Shutterstock, Vecteezy and more. Get Adobe Stock market analytics and a suite of creative micro-tools.',
-        metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'),
+        metadataBase: new URL(
+          process.env.NEXT_PUBLIC_APP_URL ||
+            process.env.NEXTAUTH_URL ||
+            process.env.AUTH_URL ||
+            'https://metapilot.reflecters.com',
+        ),
         openGraph: {
           title: settings.metaTitle || 'StockForge AI',
           description:
