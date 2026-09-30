@@ -12,7 +12,8 @@ interface ToggleProps extends Omit<React.ComponentPropsWithoutRef<typeof Switch.
 
 const Toggle = React.forwardRef<React.ComponentRef<typeof Switch.Root>, ToggleProps>(
   ({ label, description, id, checked, onChange, ...props }, ref) => {
-    const toggleId = id || React.useId();
+    const generatedId = React.useId();
+    const toggleId = id || generatedId;
     return (
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-col">

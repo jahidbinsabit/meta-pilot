@@ -34,7 +34,7 @@ export class CustomAdapter extends BaseAdapter {
   }
 
   private normalizeUrl(rawUrl: string): string {
-    let url = (rawUrl || '').trim().replace(/\/+$/, '');
+    const url = (rawUrl || '').trim().replace(/\/+$/, '');
     if (!url) {
       return 'https://api.openai.com/v1/chat/completions';
     }
