@@ -160,11 +160,61 @@ export const authOptions: any = {
           },
         });
         if (dbUser) {
+          const trialRaw = process.env.TRIAL_CREDITS;
+          const trial = trialRaw !== undefined && trialRaw !== '' ? Number(trialRaw) : 20;
+          const initialCredits = isNaN(trial) || trial < 0 ? 20 : trial;
+
+          // Check if wallet exists or if it was initialized with 0 credits and no transactions
+          const wallet = await prisma.creditWallet.findUnique({ where: { userId: dbUser.id } });
+          let userCredits = wallet?.balance ?? dbUser.credits;
+
+          if (!wallet) {
+            await prisma.creditWallet.create({
+              data: { userId: dbUser.id, balance: initialCredits },
+            });
+            await prisma.user.update({
+              where: { id: dbUser.id },
+              data: { credits: initialCredits },
+            });
+            if (initialCredits > 0) {
+              await prisma.creditTransaction.create({
+                data: {
+                  userId: dbUser.id,
+                  amount: initialCredits,
+                  type: 'BONUS',
+                  reason: 'welcome_trial',
+                },
+              });
+            }
+            userCredits = initialCredits;
+          } else if (wallet.balance === 0 && dbUser.credits === 0) {
+            const txCount = await prisma.creditTransaction.count({ where: { userId: dbUser.id } });
+            if (txCount === 0 && initialCredits > 0) {
+              await prisma.creditWallet.update({
+                where: { userId: dbUser.id },
+                data: { balance: initialCredits },
+              });
+              await prisma.user.update({
+                where: { id: dbUser.id },
+                data: { credits: initialCredits },
+              });
+              await prisma.creditTransaction.create({
+                data: {
+                  userId: dbUser.id,
+                  amount: initialCredits,
+                  type: 'BONUS',
+                  reason: 'welcome_trial',
+                },
+              });
+              userCredits = initialCredits;
+            }
+          }
+
           const activeMembership =
             dbUser.memberships[0]?.plan?.tier || dbUser.membership || 'FREE';
           token.role = dbUser.role;
           token.membershipPlan = activeMembership;
-          token.credits = dbUser.credits;
+          token.credits = userCredits;
           token.sub = dbUser.id;
           // Run the daily grant on every login.
           await grantDailyFreeIfDue(dbUser.id).catch(() => {});
@@ -188,22 +238,24 @@ export const authOptions: any = {
         // First-login bootstrap: wallet + Free membership.
         // `CreditWallet.balance` is the source of truth; the credit engine
         // mirrors it onto `User.credits` on every movement.
-        const trial = Number(process.env.TRIAL_CREDITS || 0);
+        const trialRaw = process.env.TRIAL_CREDITS;
+        const trial = trialRaw !== undefined && trialRaw !== '' ? Number(trialRaw) : 20;
+        const initialCredits = isNaN(trial) || trial < 0 ? 20 : trial;
+
         await prisma.user.update({
           where: { id: user.id },
-          data: { membership: 'FREE' },
+          data: { membership: 'FREE', credits: initialCredits },
         });
         await prisma.creditWallet.upsert({
           where: { userId: user.id },
-          update: { balance: trial },
-          create: { userId: user.id, balance: trial },
+          update: { balance: initialCredits },
+          create: { userId: user.id, balance: initialCredits },
         });
         // Mirror onto User.credits so the session token / dashboard read
         // the same value the wallet holds.
-        await prisma.user.update({ where: { id: user.id }, data: { credits: trial } });
-        if (trial > 0) {
+        if (initialCredits > 0) {
           await prisma.creditTransaction.create({
-            data: { userId: user.id, amount: trial, type: 'CREDIT', reason: 'welcome_trial' },
+            data: { userId: user.id, amount: initialCredits, type: 'BONUS', reason: 'welcome_trial' },
           });
         }
       }

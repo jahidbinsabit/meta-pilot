@@ -27,6 +27,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'email_taken' }, { status: 409 });
     }
 
+    const trialRaw = process.env.TRIAL_CREDITS;
+    const trial = trialRaw !== undefined && trialRaw !== '' ? Number(trialRaw) : 20;
+    const initialCredits = isNaN(trial) || trial < 0 ? 20 : trial;
+
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
       data: {
@@ -35,28 +39,22 @@ export async function POST(req: Request) {
         passwordHash,
         role: 'USER',
         membership: 'FREE',
-        credits: 0,
+        credits: initialCredits,
       },
     });
 
-    // First-login bootstrap: 0-balance wallet + Free membership.
+    // First-login bootstrap: wallet + Free membership.
     // `CreditWallet.balance` is the source of truth; mirror it onto
     // `User.credits` so the session token and dashboard agree.
     await prisma.creditWallet.upsert({
       where: { userId: user.id },
-      update: {},
-      create: { userId: user.id, balance: 0 },
+      update: { balance: initialCredits },
+      create: { userId: user.id, balance: initialCredits },
     });
 
-    const trial = Number(process.env.TRIAL_CREDITS || 0);
-    if (trial > 0) {
-      await prisma.creditWallet.update({
-        where: { userId: user.id },
-        data: { balance: trial },
-      });
-      await prisma.user.update({ where: { id: user.id }, data: { credits: trial } });
+    if (initialCredits > 0) {
       await prisma.creditTransaction.create({
-        data: { userId: user.id, amount: trial, type: 'CREDIT', reason: 'welcome_trial' },
+        data: { userId: user.id, amount: initialCredits, type: 'BONUS', reason: 'welcome_trial' },
       });
     }
 
