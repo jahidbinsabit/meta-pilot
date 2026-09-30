@@ -115,17 +115,102 @@ export class GeminiAdapter extends BaseAdapter {
 }
 
 /**
- * Accept either a data: URL (`data:image/png;base64,...`) or a remote URL.
- * Gemini wants inline base64, so remote URLs are fetched and inlined.
+ * Accept either a data: URL (`data:image/png;base64,...`), local /uploads path, /api/s3/<key>, raw key, or a remote URL.
+ * Gemini wants inline base64, so URLs and keys are resolved and inlined.
  */
 async function toInlineImage(url: string): Promise<{ data: string; mimeType: string }> {
+  if (!url || typeof url !== 'string') {
+    throw new Error('Image URL is required');
+  }
+
+  // 1. Data URL
   const match = /^data:([^;]+);base64,(.+)$/i.exec(url);
   if (match) return { mimeType: match[1], data: match[2] };
-  if (/^https?:\/\//i.test(url)) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Gemini image fetch failed: ${res.status}`);
-    const mime = res.headers.get('content-type') || 'image/jpeg';
-    const buf = Buffer.from(await res.arrayBuffer());
+
+  let buf: Buffer | null = null;
+  let mime = 'image/jpeg';
+
+  // 2. Local uploads path (/uploads/... or http(s)://.../uploads/...)
+  const uploadsMatch = url.match(/\/uploads\/([^?#]+)/);
+  if (uploadsMatch) {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const filename = decodeURIComponent(uploadsMatch[1]);
+      const filePath = path.join(process.cwd(), 'public', 'uploads', filename);
+      buf = await fs.readFile(filePath);
+      const ext = filename.split('.').pop()?.toLowerCase() || 'jpeg';
+      const mimeMap: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        webp: 'image/webp',
+        gif: 'image/gif',
+      };
+      mime = mimeMap[ext] || 'image/jpeg';
+    } catch (err) {
+      console.warn('[toInlineImage] local file read failed:', err);
+    }
+  }
+
+  // 3. Internal S3 proxy URL (/api/s3/... or http(s)://.../api/s3/...)
+  if (!buf) {
+    const s3Match = url.match(/\/api\/s3\/(.+)$/);
+    if (s3Match) {
+      try {
+        const rawKey = decodeURIComponent(s3Match[1]);
+        const { downloadFile } = await import('@/lib/s3/client');
+        buf = await downloadFile(rawKey);
+        const ext = rawKey.split('.').pop()?.toLowerCase() || 'jpeg';
+        const mimeMap: Record<string, string> = {
+          png: 'image/png',
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          webp: 'image/webp',
+          gif: 'image/gif',
+        };
+        mime = mimeMap[ext] || 'image/jpeg';
+      } catch (err) {
+        console.warn('[toInlineImage] direct S3 download failed:', err);
+      }
+    }
+  }
+
+  // 4. Raw S3 key (uploads/... or previews/...)
+  if (!buf && (url.startsWith('uploads/') || url.startsWith('previews/'))) {
+    try {
+      const { downloadFile } = await import('@/lib/s3/client');
+      buf = await downloadFile(url);
+      const ext = url.split('.').pop()?.toLowerCase() || 'jpeg';
+      const mimeMap: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        webp: 'image/webp',
+        gif: 'image/gif',
+      };
+      mime = mimeMap[ext] || 'image/jpeg';
+    } catch (err) {
+      console.warn('[toInlineImage] raw key download failed:', err);
+    }
+  }
+
+  // 5. External HTTP(S) URL
+  if (!buf && /^https?:\/\//i.test(url)) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        mime = res.headers.get('content-type') || 'image/jpeg';
+        buf = Buffer.from(await res.arrayBuffer());
+      } else {
+        console.warn(`[toInlineImage] fetch ${url} returned ${res.status}`);
+      }
+    } catch (err) {
+      console.warn('[toInlineImage] remote fetch failed:', err);
+    }
+  }
+
+  if (buf) {
     try {
       const { resizeImage } = await import('@/lib/generator/images');
       const resized = await resizeImage(buf, mime, 1024, 80);
@@ -134,7 +219,8 @@ async function toInlineImage(url: string): Promise<{ data: string; mimeType: str
       return { mimeType: mime.split(';')[0].trim(), data: buf.toString('base64') };
     }
   }
+
   throw new Error(
-    `Gemini adapter requires a data-URL or http(s) image URL, got: ${url.slice(0, 60)}`,
+    `Gemini adapter could not resolve image from: ${url.slice(0, 80)}`,
   );
 }
