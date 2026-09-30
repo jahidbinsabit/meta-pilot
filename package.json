@@ -11,7 +11,7 @@
     "lint": "next lint",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "db:seed": "ts-node prisma/seed.ts",
+    "db:seed": "ts-node -r tsconfig-paths/register -O '{\"module\":\"commonjs\",\"moduleResolution\":\"node\"}' prisma/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
