@@ -7,11 +7,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const session = await getServerSession();
   if (!session?.user?.email) redirect('/login');
 
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } });
+  const [user, siteSettings] = await Promise.all([
+    prisma.user.findUnique({ where: { email: session.user.email } }),
+    prisma.siteSettings.findUnique({ where: { id: 'default' } }).catch(() => null),
+  ]);
+
   if (!user || user.role !== 'ADMIN') redirect('/dashboard');
 
+  const siteName = siteSettings?.siteName || 'StockForge AI';
+
   return (
-    <AdminShell user={{ name: user.name, email: user.email, role: user.role }}>
+    <AdminShell
+      siteName={siteName}
+      user={{ name: user.name, email: user.email, role: user.role }}
+    >
       {children}
     </AdminShell>
   );

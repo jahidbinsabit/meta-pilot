@@ -51,9 +51,11 @@ const NAV = [
 export function AdminShell({
   children,
   user,
+  siteName = 'StockForge AI',
 }: {
   children: React.ReactNode;
   user: { name?: string | null; email: string; role: string };
+  siteName?: string;
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = React.useState(false);
@@ -71,7 +73,14 @@ export function AdminShell({
             <Shield className="h-5 w-5" />
           </div>
           {!collapsed && (
-            <span className="font-display text-lg font-semibold tracking-tight">Admin</span>
+            <div className="flex flex-col min-w-0 leading-tight">
+              <span className="font-display text-sm font-semibold tracking-tight truncate">
+                {siteName}
+              </span>
+              <span className="text-[10px] font-medium uppercase tracking-wider text-accent">
+                Admin Console
+              </span>
+            </div>
           )}
         </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5 py-2">

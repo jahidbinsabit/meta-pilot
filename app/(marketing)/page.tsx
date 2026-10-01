@@ -622,33 +622,6 @@ export default async function HomePage() {
           </div>
         </section>
       )}
-
-      {/* ====== FOOTER ====== */}
-      <footer className="border-t border-border">
-        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
-            <div className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-accent" />
-              <span className="font-display font-semibold">StockForge AI</span>
-            </div>
-            <nav className="flex gap-6 text-sm text-muted-foreground">
-              <Link href="/pricing" className="hover:text-foreground transition-colors">
-                Pricing
-              </Link>
-              <Link href="/about" className="hover:text-foreground transition-colors">
-                About
-              </Link>
-              <Link href="/privacy" className="hover:text-foreground transition-colors">
-                Privacy
-              </Link>
-              <Link href="/terms" className="hover:text-foreground transition-colors">
-                Terms
-              </Link>
-            </nav>
-            <p className="text-sm text-muted-foreground">© 2026 StockForge AI</p>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

@@ -99,27 +99,33 @@ export default async function DashboardLayout({ children }: { children: React.Re
     console.error('Failed to sync wallet credits in dashboard layout:', err);
   }
 
-  const notifications = await prisma.notification.findMany({
-    where: {
-      isActive: true,
-      AND: [
-        { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
-        { OR: [{ endsAt: null }, { endsAt: { gte: new Date() } }] },
-        { OR: [{ audience: 'ALL' }, { audience: activePlanTier.toUpperCase() as any }] },
-      ],
-    },
-    orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      title: true,
-      body: true,
-      ctaLabel: true,
-      ctaUrl: true,
-    },
-  });
+  const [notifications, siteSettings] = await Promise.all([
+    prisma.notification.findMany({
+      where: {
+        isActive: true,
+        AND: [
+          { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
+          { OR: [{ endsAt: null }, { endsAt: { gte: new Date() } }] },
+          { OR: [{ audience: 'ALL' }, { audience: activePlanTier.toUpperCase() as any }] },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        body: true,
+        ctaLabel: true,
+        ctaUrl: true,
+      },
+    }),
+    prisma.siteSettings.findUnique({ where: { id: 'default' } }).catch(() => null),
+  ]);
+
+  const siteName = siteSettings?.siteName || 'StockForge AI';
 
   return (
     <AppShell
+      siteName={siteName}
       user={{
         name: user.name,
         email: user.email,

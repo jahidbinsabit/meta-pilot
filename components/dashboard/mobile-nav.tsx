@@ -38,10 +38,12 @@ export function MobileNav({
   open,
   onClose,
   user,
+  siteName = 'StockForge',
 }: {
   open: boolean;
   onClose: () => void;
   user: { name?: string | null; email: string; credits: number; membership: string; role: string };
+  siteName?: string;
 }) {
   const pathname = usePathname();
   const { credits } = useCredits();
@@ -70,8 +72,8 @@ export function MobileNav({
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
                   <Zap className="h-5 w-5" />
                 </div>
-                <span className="font-display text-lg font-semibold tracking-tight">
-                  StockForge
+                <span className="font-display text-lg font-semibold tracking-tight truncate">
+                  {siteName}
                 </span>
               </div>
               <button

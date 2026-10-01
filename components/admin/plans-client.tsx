@@ -78,7 +78,10 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error('Failed to update plan');
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || 'Failed to update plan');
+      }
       return res.json() as Promise<Plan>;
     },
     onSuccess: (updated) => {
@@ -86,7 +89,7 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
       setEditing(null);
       toast({ title: 'Plan updated', variant: 'success' });
     },
-    onError: () => toast({ title: 'Failed to update plan', variant: 'error' }),
+    onError: (e: Error) => toast({ title: e.message || 'Failed to update plan', variant: 'error' }),
   });
 
   const deleteMutation = useMutation({
@@ -245,16 +248,19 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                           <Input
                             type="number"
                             value={ep.adobeAnalyticsResultLimit}
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              const raw = e.target.value;
                               setEditing({
                                 ...ep,
-                                adobeAnalyticsResultLimit: parseInt(e.target.value) || 0,
-                              })
-                            }
+                                adobeAnalyticsResultLimit: raw === '' ? 0 : parseInt(raw, 10),
+                              });
+                            }}
                             className="h-8 w-20 text-right"
                           />
                         ) : (
-                          plan.adobeAnalyticsResultLimit.toLocaleString()
+                          plan.adobeAnalyticsResultLimit === -1
+                            ? 'Unlimited'
+                            : plan.adobeAnalyticsResultLimit.toLocaleString()
                         )}
                       </td>
                       <td className="py-3 pr-4 text-center">
@@ -403,14 +409,18 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="aalimit">AA Limit</Label>
+                <Label htmlFor="aalimit">AA Limit (-1 for unlimited)</Label>
                 <Input
                   id="aalimit"
                   type="number"
                   value={draft.adobeAnalyticsResultLimit}
-                  onChange={(e) =>
-                    setDraft({ ...draft, adobeAnalyticsResultLimit: parseInt(e.target.value) || 0 })
-                  }
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setDraft({
+                      ...draft,
+                      adobeAnalyticsResultLimit: raw === '' ? 0 : parseInt(raw, 10),
+                    });
+                  }}
                 />
               </div>
             </div>

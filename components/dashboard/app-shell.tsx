@@ -15,6 +15,7 @@ import {
 
 interface AppShellProps {
   children: React.ReactNode;
+  siteName?: string;
   user: {
     name?: string | null;
     email: string;
@@ -26,7 +27,12 @@ interface AppShellProps {
   notifications?: DashboardNotification[];
 }
 
-export function AppShell({ children, user, notifications = [] }: AppShellProps) {
+export function AppShell({
+  children,
+  siteName = 'StockForge AI',
+  user,
+  notifications = [],
+}: AppShellProps) {
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
@@ -40,7 +46,12 @@ export function AppShell({ children, user, notifications = [] }: AppShellProps) 
           transition={{ duration: 0.22, ease: 'easeOut' }}
           className="hidden shrink-0 flex-col border-r border-border bg-sidebar lg:flex"
         >
-          <Sidebar collapsed={collapsed} onCollapse={setCollapsed} user={user} />
+          <Sidebar
+            collapsed={collapsed}
+            onCollapse={setCollapsed}
+            user={user}
+            siteName={siteName}
+          />
         </motion.aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -63,7 +74,12 @@ export function AppShell({ children, user, notifications = [] }: AppShellProps) 
         </div>
 
         {/* Mobile nav */}
-        <MobileNav open={mobileOpen} onClose={() => setMobileOpen(false)} user={user} />
+        <MobileNav
+          open={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          user={user}
+          siteName={siteName}
+        />
       </div>
     </CreditsProvider>
   );

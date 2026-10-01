@@ -11,7 +11,8 @@ const createSchema = z.object({
   monthlyPriceBDT: z.number().int().min(0),
   creditsIncluded: z.number().int().min(0),
   dailyFreeCredits: z.number().int().min(0),
-  adobeAnalyticsResultLimit: z.number().int().min(0),
+  adobeAnalyticsResultLimit: z.number().int().min(-1),
+  features: z.record(z.any()).optional(),
   isActive: z.boolean().default(true),
   sortOrder: z.number().int().default(0),
 });

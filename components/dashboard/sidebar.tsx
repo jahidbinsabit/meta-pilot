@@ -47,10 +47,12 @@ export function Sidebar({
   collapsed,
   onCollapse,
   user,
+  siteName = 'StockForge',
 }: {
   collapsed: boolean;
   onCollapse: (v: boolean) => void;
   user: { name?: string | null; email: string; credits: number; membership: string; role: string };
+  siteName?: string;
 }) {
   const pathname = usePathname();
   const { credits } = useCredits();
@@ -70,7 +72,9 @@ export function Sidebar({
           <Zap className="h-5 w-5" />
         </div>
         {!collapsed && (
-          <span className="font-display text-lg font-semibold tracking-tight">StockForge</span>
+          <span className="font-display text-lg font-semibold tracking-tight truncate">
+            {siteName}
+          </span>
         )}
       </div>
 

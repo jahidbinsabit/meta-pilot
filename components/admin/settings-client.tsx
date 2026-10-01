@@ -1,12 +1,14 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Toggle } from '@/components/ui/toggle';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/toast';
 import { AdobeAnalyticsLimits } from '@/components/admin/adobe-analytics-limits';
 import { Server, Shield, Bell, Globe, Save, Loader2 } from 'lucide-react';
 
@@ -41,6 +43,8 @@ export function SettingsClient({
     gscVerification: initialSettings?.gscVerification ?? '',
   });
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const toast = useToast();
 
   const saveMutation = useMutation({
     mutationFn: async (data: Partial<SiteSettings>) => {
@@ -54,6 +58,11 @@ export function SettingsClient({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['site-settings'] });
+      router.refresh();
+      toast({ title: 'Settings saved', variant: 'success' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Failed to save settings', description: err.message, variant: 'error' });
     },
   });
 

@@ -4,11 +4,13 @@ import { prisma } from '@/lib/db';
 import { z } from 'zod';
 
 const updateSchema = z.object({
+  name: z.string().min(1).optional(),
   monthlyPriceUSD: z.number().min(0).optional(),
   monthlyPriceBDT: z.number().int().min(0).optional(),
   creditsIncluded: z.number().int().min(0).optional(),
   dailyFreeCredits: z.number().int().min(0).optional(),
-  adobeAnalyticsResultLimit: z.number().int().min(0).optional(),
+  adobeAnalyticsResultLimit: z.number().int().min(-1).optional(),
+  features: z.record(z.any()).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 });
