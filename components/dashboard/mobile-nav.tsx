@@ -34,17 +34,19 @@ const NAV: Array<{ label: string; href: string; icon: any; badge?: string; admin
   { label: 'Admin', href: '/admin', icon: Shield, admin: true },
 ];
 
+interface MobileNavProps {
+  open: boolean;
+  onClose: () => void;
+  user: { name?: string | null; email: string; credits: number; membership: string; role: string };
+  siteName?: string;
+}
+
 export function MobileNav({
   open,
   onClose,
   user,
   siteName = 'StockForge',
-}: {
-  open: boolean;
-  onClose: () => void;
-  user: { name?: string | null; email: string; credits: number; membership: string; role: string };
-  siteName?: string;
-}) {
+}: MobileNavProps) {
   const pathname = usePathname();
   const { credits } = useCredits();
   const isAdmin = user.role === 'ADMIN';

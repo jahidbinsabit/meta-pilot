@@ -48,15 +48,17 @@ const NAV = [
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ];
 
+interface AdminShellProps {
+  children: React.ReactNode;
+  user: { name?: string | null; email: string; role: string };
+  siteName?: string;
+}
+
 export function AdminShell({
   children,
   user,
   siteName = 'StockForge AI',
-}: {
-  children: React.ReactNode;
-  user: { name?: string | null; email: string; role: string };
-  siteName?: string;
-}) {
+}: AdminShellProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = React.useState(false);
 
