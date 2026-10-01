@@ -4,6 +4,8 @@ import getServerSession from '@/lib/server-session';
 import { buildCheckoutGateways } from '@/lib/payments/public';
 import { BillingCheckout } from '@/components/dashboard/billing-checkout';
 
+export const dynamic = 'force-dynamic';
+
 export default async function BillingPage() {
   const session = await getServerSession();
   if (!session?.user?.email) redirect('/login');

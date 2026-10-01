@@ -45,7 +45,7 @@ export function ManualPaymentForm({
   const [copiedNumber, setCopiedNumber] = React.useState(false);
   const [copiedAmount, setCopiedAmount] = React.useState(false);
 
-  const gatewayKey = gateway.gatewayKey.toLowerCase();
+  const gatewayKey = (gateway?.gatewayKey || '').toLowerCase();
   const isBkash = gatewayKey.includes('bkash');
   const isNagad = gatewayKey.includes('nagad');
   const isRocket = gatewayKey.includes('rocket');
@@ -56,7 +56,7 @@ export function ManualPaymentForm({
       ? 'Nagad' 
       : isRocket 
         ? 'Rocket' 
-        : gateway.displayName;
+        : (gateway?.displayName || 'Gateway');
 
   const ussdCode = isBkash 
     ? '*247#' 
@@ -66,24 +66,38 @@ export function ManualPaymentForm({
         ? '*322#' 
         : '';
 
-  const isMerchant = gateway.accountType?.toLowerCase() === 'merchant';
-  const cleanAmountNumber = formattedAmount.replace(/[^\d.]/g, '');
+  const isMerchant = gateway?.accountType?.toLowerCase() === 'merchant';
+  const cleanAmountNumber = (formattedAmount || '').replace(/[^\d.]/g, '');
 
   const handleCopyNumber = () => {
-    if (!gateway.receivingNumber) return;
-    navigator.clipboard.writeText(gateway.receivingNumber);
-    setCopiedNumber(true);
-    setTimeout(() => setCopiedNumber(false), 2000);
+    if (!gateway?.receivingNumber) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(gateway.receivingNumber).then(() => {
+          setCopiedNumber(true);
+          setTimeout(() => setCopiedNumber(false), 2000);
+        }).catch(() => {});
+      }
+    } catch {
+      // Ignore clipboard write error
+    }
   };
 
   const handleCopyAmount = () => {
     if (!cleanAmountNumber) return;
-    navigator.clipboard.writeText(cleanAmountNumber);
-    setCopiedAmount(true);
-    setTimeout(() => setCopiedAmount(false), 2000);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(cleanAmountNumber).then(() => {
+          setCopiedAmount(true);
+          setTimeout(() => setCopiedAmount(false), 2000);
+        }).catch(() => {});
+      }
+    } catch {
+      // Ignore clipboard write error
+    }
   };
 
-  const isFormValid = senderNumber.trim().length >= 8 && transactionId.trim().length >= 4;
+  const isFormValid = (senderNumber || '').trim().length >= 8 && (transactionId || '').trim().length >= 4;
 
   return (
     <div className="space-y-3.5 text-left">
@@ -108,11 +122,11 @@ export function ManualPaymentForm({
                   {providerName}
                 </span>
                 <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                  {gateway.accountType || (isMerchant ? 'Merchant' : 'Personal')}
+                  {gateway?.accountType || (isMerchant ? 'Merchant' : 'Personal')}
                 </span>
               </div>
               
-              {gateway.receivingNumber ? (
+              {gateway?.receivingNumber ? (
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="font-mono text-sm font-bold tracking-wide text-foreground">
                     {gateway.receivingNumber}
@@ -131,7 +145,7 @@ export function ManualPaymentForm({
                   </button>
                 </div>
               ) : (
-                <p className="text-[11px] text-muted-foreground">Manual Number</p>
+                <p className="text-[11px] text-muted-foreground">ম্যানুয়াল নম্বর শীঘ্রই যুক্ত হবে</p>
               )}
             </div>
           </div>
@@ -202,7 +216,7 @@ export function ManualPaymentForm({
               ৩
             </span>
             <span>
-              প্রাপক নম্বর হিসেবে <strong className="font-mono text-foreground font-semibold">{gateway.receivingNumber || 'উপরের নম্বরটি'}</strong> লিখুন।
+              প্রাপক নম্বর হিসেবে <strong className="font-mono text-foreground font-semibold">{gateway?.receivingNumber || 'উপরের নম্বরটি'}</strong> লিখুন।
             </span>
           </li>
 
@@ -211,7 +225,7 @@ export function ManualPaymentForm({
               ৪
             </span>
             <span>
-              পরিমাণ <strong className="text-foreground font-semibold">{formattedAmount}</strong> টাকা দিয়ে পিন কনফার্ম করুন।
+              পরিমাণ <strong className="text-foreground font-semibold">{formattedAmount}</strong> দিয়ে পিন কনফার্ম করুন।
             </span>
           </li>
 
@@ -225,7 +239,7 @@ export function ManualPaymentForm({
           </li>
         </ol>
 
-        {gateway.instructions && (
+        {gateway?.instructions && (
           <p className="mt-1 text-[11px] text-muted-foreground bg-muted/50 rounded p-1.5 border border-border/40">
             <strong>নোট:</strong> {gateway.instructions}
           </p>

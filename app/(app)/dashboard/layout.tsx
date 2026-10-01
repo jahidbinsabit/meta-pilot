@@ -89,13 +89,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
     displayCredits = wallet.balance;
   }
 
+  const rawTier = String(activePlanTier || 'FREE').toUpperCase();
+  const validAudiences = ['FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'];
+  const audienceFilter = validAudiences.includes(rawTier) ? rawTier : 'FREE';
+
   const notifications = await prisma.notification.findMany({
     where: {
       isActive: true,
       AND: [
         { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
         { OR: [{ endsAt: null }, { endsAt: { gte: new Date() } }] },
-        { OR: [{ audience: 'ALL' }, { audience: activePlanTier.toUpperCase() as any }] },
+        { OR: [{ audience: 'ALL' }, { audience: audienceFilter as any }] },
       ],
     },
     orderBy: { createdAt: 'desc' },

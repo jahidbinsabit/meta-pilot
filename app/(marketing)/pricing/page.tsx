@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db';
 import { buildCheckoutGateways } from '@/lib/payments/public';
 import { PricingPlans } from '@/components/marketing/pricing-plans';
 
+export const dynamic = 'force-dynamic';
+
 export async function generateMetadata(): Promise<Metadata> {
   try {
     const settings = await prisma.siteSettings.findUnique({ where: { id: 'default' } });

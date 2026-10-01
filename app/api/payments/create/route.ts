@@ -5,6 +5,9 @@ import { paymentMethodFromGateway, toPublicGateway } from '@/lib/payments/public
 import { getStripe } from '@/lib/payments/stripe';
 import { createId } from '@/lib/id';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser();
@@ -46,6 +49,7 @@ export async function POST(req: Request) {
       payload = { type: 'credits', packageId, packageName: pkg.name, credits: pkg.credits };
     } else if (amountCents && credits) {
       amountUSD = amountCents / 100;
+      amountBDT = Math.round(amountUSD * 120);
       productName = `${credits} StockForge credits`;
       payload = { type: 'credits', credits };
     } else {
@@ -53,8 +57,15 @@ export async function POST(req: Request) {
     }
 
     const providerKey = String(provider || 'stripe').toLowerCase();
+    const baseKey = providerKey.split('_')[0];
     const dbGateway = await prisma.paymentGatewayConfig.findFirst({
-      where: { OR: [{ gatewayKey: provider }, { gatewayKey: providerKey }] },
+      where: {
+        OR: [
+          { gatewayKey: provider },
+          { gatewayKey: providerKey },
+          { gatewayKey: { contains: baseKey } },
+        ],
+      },
     });
 
     const isStripe = providerKey.includes('stripe');
