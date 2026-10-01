@@ -14,6 +14,24 @@ const inter = Inter({
   fallback: ['system-ui', 'arial']
 });
 
+function safeMetadataBase(): URL {
+  const candidates = [
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.NEXTAUTH_URL,
+    process.env.AUTH_URL,
+    'https://metapilot.reflecters.com',
+  ];
+  for (const raw of candidates) {
+    if (raw && typeof raw === 'string') {
+      try {
+        const formatted = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+        return new URL(formatted);
+      } catch {}
+    }
+  }
+  return new URL('https://metapilot.reflecters.com');
+}
+
 export async function generateMetadata(): Promise<Metadata> {
   try {
     const settings = await getSiteSettings();
@@ -23,12 +41,7 @@ export async function generateMetadata(): Promise<Metadata> {
         description:
           settings.metaDescription ||
           'Generate AI metadata (title, description, keywords) for Adobe Stock, Shutterstock, Vecteezy and more. Get Adobe Stock market analytics and a suite of creative micro-tools.',
-        metadataBase: new URL(
-          process.env.NEXT_PUBLIC_APP_URL ||
-            process.env.NEXTAUTH_URL ||
-            process.env.AUTH_URL ||
-            'https://metapilot.reflecters.com',
-        ),
+        metadataBase: safeMetadataBase(),
         openGraph: {
           title: settings.metaTitle || 'StockForge AI',
           description:
@@ -50,7 +63,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: 'StockForge AI — AI Metadata for Stock Content Creators',
     description:
       'Generate AI metadata (title, description, keywords) for Adobe Stock, Shutterstock, Vecteezy and more. Get Adobe Stock market analytics and a suite of creative micro-tools.',
-    metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'),
+    metadataBase: safeMetadataBase(),
     openGraph: {
       title: 'StockForge AI',
       description: 'AI metadata generator for stock-content creators.',
