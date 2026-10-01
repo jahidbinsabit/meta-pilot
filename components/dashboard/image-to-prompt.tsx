@@ -16,6 +16,7 @@ import {
   FileText,
   FileSpreadsheet,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import {
@@ -240,7 +241,11 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
                   : `${costPerImage} credit per image`}
               </span>
               <Button onClick={() => generate.mutate()} disabled={!canGenerate}>
-                <Sparkles className="h-4 w-4" />
+                {generate.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
                 {generate.isPending
                   ? 'Generating…'
                   : `Generate ${readyFiles.length > 1 ? `${readyFiles.length} prompts` : 'prompt'}`}

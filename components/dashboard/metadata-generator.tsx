@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { useCredits } from '@/components/dashboard/credits-provider';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ import {
   Send,
   Layers,
   Info,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -96,6 +97,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
 
   const toast = useToast();
+  const queryClient = useQueryClient();
   const { credits } = useCredits();
 
   // Persist last-used settings per user (localStorage + server backup).
@@ -412,6 +414,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
         platform: r.platform || selectedPlatform,
       }));
       setRows(mapped);
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
       const failed = mapped.filter((r) => r.status === 'failed').length;
       if (failed > 0) {
         toast({
@@ -424,6 +427,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
       }
     },
     onError: (e: any) => {
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
       toast({ title: 'Generation failed', description: e.message, variant: 'error' });
     },
   });
@@ -681,7 +685,11 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                 onClick={() => generate.mutate()}
                 disabled={!canGenerate}
               >
-                <Sparkles className="h-4 w-4" />
+                {generate.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
                 {generate.isPending
                   ? `Generating for ${currentPlatformConfig.shortLabel}…`
                   : `Generate ${currentPlatformConfig.shortLabel} Metadata${readyCount > 1 ? ` (${readyCount})` : ''}`}

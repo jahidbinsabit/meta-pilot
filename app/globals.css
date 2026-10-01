@@ -34,6 +34,21 @@
   --ring: 160 60% 50%;
 }
 
+/* ===== Fast & Responsive Button Interactions ===== */
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
 /* ===== Slider: custom range with filled track + pill badge ===== */
 input[type='range'] {
   -webkit-appearance: none;
