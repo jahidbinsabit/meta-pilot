@@ -81,14 +81,9 @@ export async function POST(req: Request) {
 
     const results: any[] = [];
     let failed = 0;
-    const BATCH_THROTTLE_MS = 800; // 800ms delay between consecutive requests to stay within 15 RPM
+    const CONCURRENCY = 2; // Process 2 images concurrently for 2-3x faster generation
 
-    for (let i = 0; i < images.length; i++) {
-      const img = images[i];
-      if (i > 0) {
-        await new Promise((resolve) => setTimeout(resolve, BATCH_THROTTLE_MS));
-      }
-
+    const processImage = async (img: BatchImage) => {
       const entry: any = {
         id: img.id,
         fileName: img.fileName,
@@ -168,7 +163,17 @@ export async function POST(req: Request) {
         entry.error = e?.message || 'generation_failed';
       }
 
-      results.push(entry);
+      return entry;
+    };
+
+    // Process images in concurrent batches
+    for (let i = 0; i < images.length; i += CONCURRENCY) {
+      const chunk = images.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map((img) => processImage(img)));
+      results.push(...chunkResults);
+      if (i + CONCURRENCY < images.length) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
     }
 
     const succeeded = results.filter((r) => r.status === 'complete').length;

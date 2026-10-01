@@ -5,9 +5,7 @@ import './globals.css';
 import { QueryProvider } from '@/components/query-provider';
 import { ToastProvider } from '@/components/ui/toast';
 import { AuthSessionProvider } from '@/components/auth-session-provider';
-import { prisma } from '@/lib/db';
-
-export const dynamic = 'force-dynamic';
+import { getSiteSettings } from '@/lib/site-settings';
 
 const inter = Inter({ 
   subsets: ['latin'], 
@@ -18,7 +16,7 @@ const inter = Inter({
 
 export async function generateMetadata(): Promise<Metadata> {
   try {
-    const settings = await prisma.siteSettings.findUnique({ where: { id: 'default' } });
+    const settings = await getSiteSettings();
     if (settings) {
       return {
         title: settings.metaTitle || 'StockForge AI — AI Metadata for Stock Content Creators',
@@ -59,14 +57,6 @@ export async function generateMetadata(): Promise<Metadata> {
       type: 'website',
     },
   };
-}
-
-async function getSiteSettings() {
-  try {
-    return await prisma.siteSettings.findUnique({ where: { id: 'default' } });
-  } catch {
-    return null;
-  }
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

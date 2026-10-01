@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { requireApiAdmin } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { z } from 'zod';
@@ -46,6 +47,12 @@ export async function PATCH(req: Request) {
     create: { id: 'default', siteName: 'StockForge AI', ...parsed.data },
     update: { ...parsed.data, updatedAt: new Date() },
   });
+
+  try {
+    revalidateTag('site-settings');
+  } catch {
+    /* ignore in non-cache contexts */
+  }
 
   await prisma.auditLog.create({
     data: {

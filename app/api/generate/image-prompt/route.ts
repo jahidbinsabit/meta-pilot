@@ -115,14 +115,9 @@ export async function POST(req: Request) {
 
     const results: any[] = [];
     let failed = 0;
-    const BATCH_THROTTLE_MS = 800; // 800ms delay between consecutive requests to stay within RPM limits
+    const CONCURRENCY = 2; // Process 2 images concurrently for ultra-fast generation
 
-    for (let i = 0; i < images.length; i++) {
-      const img = images[i];
-      if (i > 0) {
-        await new Promise((resolve) => setTimeout(resolve, BATCH_THROTTLE_MS));
-      }
-
+    const processImage = async (img: PromptImage) => {
       const entry: any = {
         id: img.id,
         fileName: img.fileName,
@@ -141,9 +136,6 @@ export async function POST(req: Request) {
         const { data, mime } = await toBase64(img);
         const imageUrl = `data:${mime};base64,${data}`;
 
-        // The adapter enforces the schema at the provider level and parses
-        // + validates the response server-side. `parsed` is typed or null —
-        // a schema mismatch is logged and refunded, never thrown.
         let result = (
           await generateWithAI({
             toolSlug: TOOL_SLUG,
@@ -157,8 +149,6 @@ export async function POST(req: Request) {
           })
         ).parsed as ImagePromptResult | null;
 
-        // One retry with a stricter JSON-only instruction, mirroring the
-        // batch generator's malformed-JSON recovery.
         if (!result) {
           result = (
             await generateWithAI({
@@ -188,7 +178,17 @@ export async function POST(req: Request) {
         entry.error = e?.message || 'generation_failed';
       }
 
-      results.push(entry);
+      return entry;
+    };
+
+    // Process images in concurrent batches
+    for (let i = 0; i < images.length; i += CONCURRENCY) {
+      const chunk = images.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map((img) => processImage(img)));
+      results.push(...chunkResults);
+      if (i + CONCURRENCY < images.length) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
     }
 
     // Auto-refund every failed image — never charge for a failed generation.

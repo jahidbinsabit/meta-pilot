@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/db';
+import { getSiteSettings } from '@/lib/site-settings';
 import { Navbar } from '@/components/marketing/navbar';
 import { Footer } from '@/components/marketing/footer';
 
@@ -7,9 +7,7 @@ export default async function MarketingLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const siteSettings = await prisma.siteSettings
-    .findUnique({ where: { id: 'default' } })
-    .catch(() => null);
+  const siteSettings = await getSiteSettings();
   const siteName = siteSettings?.siteName || 'StockForge AI';
 
   return (
