@@ -21,6 +21,7 @@ import {
   Download,
   Mail,
   ChevronDown,
+  Settings,
   X,
   Plus,
   Send,
@@ -93,6 +94,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
   const [exportCategory, setExportCategory] = React.useState('');
   const [exportReleases, setExportReleases] = React.useState('');
   const [sendEmail, setSendEmail] = React.useState(false);
+  const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [showExportPanel, setShowExportPanel] = React.useState(false);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
 
@@ -1016,6 +1018,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
 
         {/* Right: controls rail */}
         <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+          {/* Controls Card - Title Length only */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -1055,162 +1058,191 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                   className="mt-2"
                 />
               </div>
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    <Lock className="h-3 w-3" />
-                    Description Length
-                  </label>
-                  {!includeDescription && (
-                    <Badge variant="secondary" className="text-[10px] text-muted-foreground">
-                      Disabled
-                    </Badge>
-                  )}
-                </div>
-                <p
-                  className={cn(
-                    'mt-1 rounded-lg border px-3 py-2 font-mono text-xs transition-colors',
-                    includeDescription
-                      ? 'border-border bg-card-2 text-muted-foreground'
-                      : 'border-border/50 bg-card-2/50 text-muted-foreground/50 line-through',
-                  )}
-                >
-                  {settings.descriptionLength} chars (~{Math.round(settings.descriptionLength / 6)}{' '}
-                  words)
-                </p>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Keywords Count
-                  </label>
-                  <span className="font-mono text-xs text-foreground">
-                    {settings.keywordsCount} tags
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5">
-                  <span>Min: {currentPlatformConfig.limits.keywordsMin}</span>
-                  <span className="text-accent font-medium">
-                    Rec: {currentPlatformConfig.limits.recommendedKeywordsCount}
-                  </span>
-                  <span>Max: {currentPlatformConfig.limits.keywordsMax}</span>
-                </div>
-                <Slider
-                  value={[settings.keywordsCount]}
-                  min={currentPlatformConfig.limits.keywordsMin}
-                  max={currentPlatformConfig.limits.keywordsMax}
-                  step={1}
-                  onValueChange={(v) => {
-                    const keywordsCount = v[0];
-                    setSettings((s) => ({ ...s, keywordsCount }));
-                    persistSettings({ keywordsCount });
-                  }}
-                  className="mt-2"
-                />
-              </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Options</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Toggle
-                  label="Description"
-                  checked={includeDescription}
-                  onCheckedChange={(v) => {
-                    setIncludeDescription(v);
-                    persistSettings({ includeDescription: v });
-                  }}
-                />
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {includeDescription
-                    ? 'AI will generate a stock description/caption for each image.'
-                    : 'Disabled. Only title and keywords will be generated.'}
-                </p>
-              </div>
+          {/* Advanced Settings - Collapsible */}
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex w-full items-center justify-between rounded-lg border border-border bg-card-2 px-3 py-2.5 text-sm font-medium transition-colors hover:bg-card hover:border-accent/40"
+            >
+              <span className="flex items-center gap-2">
+                <Settings className="h-4 w-4 text-accent" />
+                Advanced
+              </span>
+              <ChevronDown
+                className={cn('h-4 w-4 text-muted-foreground transition-transform',
+                  showAdvanced && 'rotate-180')}
+              />
+            </button>
 
-              <div>
-                <Toggle
-                  label="Prefix"
-                  checked={prefixEnabled}
-                  onCheckedChange={(v) => {
-                    setPrefixEnabled(v);
-                    persistSettings({ prefix: v ? prefixText : '' });
-                  }}
-                />
-                {prefixEnabled && (
-                  <Input
-                    value={prefixText}
-                    onChange={(e) => {
-                      setPrefixText(e.target.value);
-                      persistSettings({ prefix: e.target.value });
-                    }}
-                    placeholder="Prepended to every title"
-                    className="mt-2"
-                  />
-                )}
-              </div>
+            {showAdvanced && (
+              <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
+                {/* Description Length */}
+                <Card>
+                  <CardContent className="p-4 space-y-5">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          <Lock className="h-3 w-3" />
+                          Description Length
+                        </label>
+                        {!includeDescription && (
+                          <Badge variant="secondary" className="text-[10px] text-muted-foreground">
+                            Disabled
+                          </Badge>
+                        )}
+                      </div>
+                      <p
+                        className={cn(
+                          'mt-1 rounded-lg border px-3 py-2 font-mono text-xs transition-colors',
+                          includeDescription
+                            ? 'border-border bg-card-2 text-muted-foreground'
+                            : 'border-border/50 bg-card-2/50 text-muted-foreground/50 line-through',
+                        )}
+                      >
+                        {settings.descriptionLength} chars (~{Math.round(settings.descriptionLength / 6)}{' '}
+                        words)
+                      </p>
+                    </div>
 
-              <div>
-                <Toggle
-                  label="Suffix"
-                  checked={suffixEnabled}
-                  onCheckedChange={(v) => {
-                    setSuffixEnabled(v);
-                    persistSettings({ suffix: v ? suffixText : '' });
-                  }}
-                />
-                {suffixEnabled && (
-                  <Input
-                    value={suffixText}
-                    onChange={(e) => {
-                      setSuffixText(e.target.value);
-                      persistSettings({ suffix: e.target.value });
-                    }}
-                    placeholder="Appended to every title"
-                    className="mt-2"
-                  />
-                )}
-              </div>
+                    {/* Keywords Count */}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          Keywords Count
+                        </label>
+                        <span className="font-mono text-xs text-foreground">
+                          {settings.keywordsCount} tags
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5">
+                        <span>Min: {currentPlatformConfig.limits.keywordsMin}</span>
+                        <span className="text-accent font-medium">
+                          Rec: {currentPlatformConfig.limits.recommendedKeywordsCount}
+                        </span>
+                        <span>Max: {currentPlatformConfig.limits.keywordsMax}</span>
+                      </div>
+                      <Slider
+                        value={[settings.keywordsCount]}
+                        min={currentPlatformConfig.limits.keywordsMin}
+                        max={currentPlatformConfig.limits.keywordsMax}
+                        step={1}
+                        onValueChange={(v) => {
+                          const keywordsCount = v[0];
+                          setSettings((s) => ({ ...s, keywordsCount }));
+                          persistSettings({ keywordsCount });
+                        }}
+                        className="mt-2"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
 
-              <div>
-                <Toggle
-                  label="Negative Title Words"
-                  checked={negWordsEnabled}
-                  onCheckedChange={setNegWordsEnabled}
-                />
-                {negWordsEnabled && (
-                  <TagInput
-                    values={negWords}
-                    onAdd={(v) => addTag('negWords', v)}
-                    onRemove={(i) => removeTag('negWords', i)}
-                    placeholder="Word to avoid in titles"
-                  />
-                )}
-              </div>
+                {/* Options */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Options</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <Toggle
+                        label="Description"
+                        checked={includeDescription}
+                        onCheckedChange={(v) => {
+                          setIncludeDescription(v);
+                          persistSettings({ includeDescription: v });
+                        }}
+                      />
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {includeDescription
+                          ? 'AI will generate a stock description/caption for each image.'
+                          : 'Disabled. Only title and keywords will be generated.'}
+                      </p>
+                    </div>
 
-              <div>
-                <Toggle
-                  label="Negative Keywords"
-                  checked={negKwsEnabled}
-                  onCheckedChange={setNegKwsEnabled}
-                />
-                {negKwsEnabled && (
-                  <TagInput
-                    values={negKws}
-                    onAdd={(v) => addTag('negKws', v)}
-                    onRemove={(i) => removeTag('negKws', i)}
-                    placeholder="Keyword to avoid"
-                  />
-                )}
+                    <div>
+                      <Toggle
+                        label="Prefix"
+                        checked={prefixEnabled}
+                        onCheckedChange={(v) => {
+                          setPrefixEnabled(v);
+                          persistSettings({ prefix: v ? prefixText : ''  });
+                        }}
+                      />
+                      {prefixEnabled && (
+                        <Input
+                          value={prefixText}
+                          onChange={(e) => {
+                            setPrefixText(e.target.value);
+                            persistSettings({ prefix: e.target.value });
+                          }}
+                          placeholder="Prepended to every title"
+                          className="mt-2"
+                        />
+                      )}
+                    </div>
+
+                    <div>
+                      <Toggle
+                        label="Suffix"
+                        checked={suffixEnabled}
+                        onCheckedChange={(v) => {
+                          setSuffixEnabled(v);
+                          persistSettings({ suffix: v ? suffixText : ''  });
+                        }}
+                      />
+                      {suffixEnabled && (
+                        <Input
+                          value={suffixText}
+                          onChange={(e) => {
+                            setSuffixText(e.target.value);
+                            persistSettings({ suffix: e.target.value });
+                          }}
+                          placeholder="Appended to every title"
+                          className="mt-2"
+                        />
+                      )}
+                    </div>
+
+                    <div>
+                      <Toggle
+                        label="Negative Title Words"
+                        checked={negWordsEnabled}
+                        onCheckedChange={setNegWordsEnabled}
+                      />
+                      {negWordsEnabled && (
+                        <TagInput
+                          values={negWords}
+                          onAdd={(v) => addTag('negWords', v)}
+                          onRemove={(i) => removeTag('negWords', i)}
+                          placeholder="Word to avoid in titles"
+                        />
+                      )}
+                    </div>
+
+                    <div>
+                      <Toggle
+                        label="Negative Keywords"
+                        checked={negKwsEnabled}
+                        onCheckedChange={setNegKwsEnabled}
+                      />
+                      {negKwsEnabled && (
+                        <TagInput
+                          values={negKws}
+                          onAdd={(v) => addTag('negKws', v)}
+                          onRemove={(i) => removeTag('negKws', i)}
+                          placeholder="Keyword to avoid"
+                        />
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
+            )}
+          </div>
         </div>
       </div>
     </div>
