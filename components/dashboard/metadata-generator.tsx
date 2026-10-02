@@ -1058,6 +1058,37 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                   className="mt-2"
                 />
               </div>
+
+              {/* Keywords Count */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Keywords Count
+                  </label>
+                  <span className="font-mono text-xs text-foreground">
+                    {settings.keywordsCount} tags
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5">
+                  <span>Min: {currentPlatformConfig.limits.keywordsMin}</span>
+                  <span className="text-accent font-medium">
+                    Rec: {currentPlatformConfig.limits.recommendedKeywordsCount}
+                  </span>
+                  <span>Max: {currentPlatformConfig.limits.keywordsMax}</span>
+                </div>
+                <Slider
+                  value={[settings.keywordsCount]}
+                  min={currentPlatformConfig.limits.keywordsMin}
+                  max={currentPlatformConfig.limits.keywordsMax}
+                  step={1}
+                  onValueChange={(v) => {
+                    const keywordsCount = v[0];
+                    setSettings((s) => ({ ...s, keywordsCount }));
+                    persistSettings({ keywordsCount });
+                  }}
+                  className="mt-2"
+                />
+              </div>
             </CardContent>
           </Card>
 
@@ -1106,37 +1137,6 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                         {settings.descriptionLength} chars (~{Math.round(settings.descriptionLength / 6)}{' '}
                         words)
                       </p>
-                    </div>
-
-                    {/* Keywords Count */}
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                          Keywords Count
-                        </label>
-                        <span className="font-mono text-xs text-foreground">
-                          {settings.keywordsCount} tags
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5">
-                        <span>Min: {currentPlatformConfig.limits.keywordsMin}</span>
-                        <span className="text-accent font-medium">
-                          Rec: {currentPlatformConfig.limits.recommendedKeywordsCount}
-                        </span>
-                        <span>Max: {currentPlatformConfig.limits.keywordsMax}</span>
-                      </div>
-                      <Slider
-                        value={[settings.keywordsCount]}
-                        min={currentPlatformConfig.limits.keywordsMin}
-                        max={currentPlatformConfig.limits.keywordsMax}
-                        step={1}
-                        onValueChange={(v) => {
-                          const keywordsCount = v[0];
-                          setSettings((s) => ({ ...s, keywordsCount }));
-                          persistSettings({ keywordsCount });
-                        }}
-                        className="mt-2"
-                      />
                     </div>
                   </CardContent>
                 </Card>
