@@ -19,7 +19,6 @@ if (isBuild && (!process.env.DATABASE_URL || !/^postgres(ql)?:\/\//i.test(proces
 
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ['sharp'],
   compress: true,
   poweredByHeader: false,
   eslint: {
@@ -38,6 +37,7 @@ const nextConfig = {
     ],
   },
   experimental: {
+    serverComponentsExternalPackages: ['sharp'],
     optimizePackageImports: ['lucide-react', '@tanstack/react-query', 'framer-motion', 'date-fns'],
     serverActions: { bodySizeLimit: '10mb' },
   },
