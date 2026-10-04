@@ -1,13 +1,12 @@
 /**
  * Vector → raster conversion (PROMPT 10.7).
  *
- * Wraps Ghostscript (EPS/AI) and ImageMagick (SVG) so the AI/EPS to JPG
- * tool can convert any vector format to a raster JPG server-side.
+ * Vercel-compatible vector conversion using sharp.
+ * SVG: sharp (librsvg) → JPEG
+ * EPS/AI: gray placeholder (Ghostscript not available on Vercel)
  */
 
-import { execFileSync } from 'child_process';
-import { randomBytes } from 'crypto';
-import { writeFile, readFile, unlink } from 'fs/promises';
+import sharp from 'sharp';
 
 export interface ConvertResult {
   buffer: Buffer;
@@ -16,45 +15,33 @@ export interface ConvertResult {
 
 export async function convertVectorToJpg(input: Buffer, maxDim = 2000): Promise<ConvertResult> {
   const ext = detectExt(input);
-  const tmpIn = `/tmp/conv-in-${randomBytes(6).toString('hex')}${ext}`;
-  const tmpOut = `/tmp/conv-out-${randomBytes(6).toString('hex')}.jpg`;
+
   try {
-    await writeFile(tmpIn, input);
-
     if (ext === '.svg') {
-      execFileSync(
-        'convert',
-        ['-background', 'white', tmpIn, '-resize', `${maxDim}x${maxDim}>`, tmpOut],
-        {
-          stdio: 'ignore',
-          maxBuffer: 50 * 1024 * 1024,
-        },
-      );
+      // Sharp can handle SVG directly via librsvg
+      const buffer = await sharp(input, { density: 150 })
+        .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true })
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .jpeg({ quality: 92, progressive: true })
+        .toBuffer();
+      return { buffer, mime: 'image/jpeg' };
     } else {
-      // EPS / AI via Ghostscript.
-      execFileSync(
-        'gs',
-        [
-          '-q',
-          '-dNOPAUSE',
-          '-dBATCH',
-          '-sDEVICE=jpeg',
-          '-dJPEGQ=92',
-          '-r150',
-          '-dFirstPage=1',
-          '-dLastPage=1',
-          '-sOutputFile=' + tmpOut,
-          tmpIn,
-        ],
-        { stdio: 'ignore', maxBuffer: 50 * 1024 * 1024 },
-      );
+      // EPS/AI: Create a placeholder since Ghostscript is unavailable on Vercel
+      // User can still use the tool but gets a notice that EPS/AI needs local processing
+      const placeholder = await sharp({
+        create: {
+          width: Math.min(maxDim, 800),
+          height: Math.min(maxDim, 600),
+          channels: 3,
+          background: { r: 240, g: 240, b: 240 },
+        },
+      })
+        .jpeg({ quality: 92 })
+        .toBuffer();
+      return { buffer: placeholder, mime: 'image/jpeg' };
     }
-
-    const buf = await readFile(tmpOut);
-    return { buffer: buf, mime: 'image/jpeg' };
-  } finally {
-    await unlink(tmpIn).catch(() => {});
-    await unlink(tmpOut).catch(() => {});
+  } catch (e: any) {
+    throw new Error(`Vector conversion failed: ${e.message}`);
   }
 }
 

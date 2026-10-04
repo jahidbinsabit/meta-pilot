@@ -1,51 +1,70 @@
 /**
  * Background removal (PROMPT 10.1).
  *
- * Deterministic, server-side algorithm that produces a transparent PNG:
- * sample the four corner colours, then make any pixel within a fuzz
- * tolerance of any corner colour fully transparent. This is a simple
- * "chroma-key from the border" approach — effective for product shots on
- * plain backgrounds and fully verifiable (no hidden model behaviour).
+ * Vercel-compatible background removal using sharp + manual pixel analysis.
+ * Samples corner colors and makes similar pixels transparent (chroma-key).
  */
 
-import { execFileSync } from 'child_process';
-import { randomBytes } from 'crypto';
-import { writeFile, readFile, unlink } from 'fs/promises';
+import sharp from 'sharp';
 
 export async function removeBackground(input: Buffer): Promise<Buffer> {
-  const tmpIn = `/tmp/bg-in-${randomBytes(6).toString('hex')}.png`;
-  const tmpOut = `/tmp/bg-out-${randomBytes(6).toString('hex')}.png`;
   try {
-    await writeFile(tmpIn, input);
-
-    // Normalize to PNG.
-    execFileSync('convert', [tmpIn, 'png:' + tmpIn + '.norm.png'], {
-      stdio: 'ignore',
-      maxBuffer: 50 * 1024 * 1024,
-    });
-
-    const norm = tmpIn + '.norm.png';
-    const corners = sampleCorners(norm);
-    const args = [norm];
-    for (const c of corners) {
-      args.push('-fuzz', '12%', '-transparent', c);
+    // Get image info and pixel data
+    const image = sharp(input);
+    const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { width, height, channels } = info;
+    
+    if (channels !== 4) {
+      throw new Error('Expected RGBA image data');
     }
-    args.push(tmpOut);
-    execFileSync('convert', args, { stdio: 'ignore', maxBuffer: 50 * 1024 * 1024 });
 
-    return await readFile(tmpOut);
-  } finally {
-    await unlink(tmpIn).catch(() => {});
-    await unlink(tmpIn + '.norm.png').catch(() => {});
-    await unlink(tmpOut).catch(() => {});
+    // Sample corner pixels for background color detection
+    const corners = [
+      getPixelRGBA(data, 0, 0, width, channels),                    // top-left
+      getPixelRGBA(data, width - 1, 0, width, channels),           // top-right  
+      getPixelRGBA(data, 0, height - 1, width, channels),          // bottom-left
+      getPixelRGBA(data, width - 1, height - 1, width, channels),  // bottom-right
+    ];
+
+    // Create new buffer with transparent background
+    const newData = Buffer.from(data);
+    const fuzzThreshold = 30; // ~12% of 255
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const pixel = getPixelRGBA(data, x, y, width, channels);
+        
+        // Check if pixel matches any corner color (within fuzz tolerance)
+        const matchesCorner = corners.some(corner => 
+          Math.abs(pixel.r - corner.r) <= fuzzThreshold &&
+          Math.abs(pixel.g - corner.g) <= fuzzThreshold &&
+          Math.abs(pixel.b - corner.b) <= fuzzThreshold
+        );
+
+        if (matchesCorner) {
+          // Make pixel transparent
+          const idx = (y * width + x) * channels + 3; // alpha channel
+          newData[idx] = 0;
+        }
+      }
+    }
+
+    // Create PNG with transparent background
+    return sharp(newData, { 
+      raw: { width, height, channels: 4 } 
+    }).png().toBuffer();
+
+  } catch (e: any) {
+    throw new Error(`Background removal failed: ${e.message}`);
   }
 }
 
-function sampleCorners(path: string): string[] {
-  const out = execFileSync(
-    'identify',
-    ['-format', '%[pixel:p{0,0}] %[pixel:p{w-1,0}] %[pixel:p{0,h-1}] %[pixel:p{w-1,h-1}]', path],
-    { encoding: 'utf-8', maxBuffer: 1024 },
-  );
-  return out.trim().split(/\s+/).filter(Boolean);
+function getPixelRGBA(data: Buffer, x: number, y: number, width: number, channels: number) {
+  const idx = (y * width + x) * channels;
+  return {
+    r: data[idx],
+    g: data[idx + 1], 
+    b: data[idx + 2],
+    a: data[idx + 3] || 255
+  };
 }
