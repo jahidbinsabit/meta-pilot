@@ -20,6 +20,9 @@ import { compressImageForUpload } from '@/lib/tools/client-image';
 const ACCEPT = ['.jpg', '.jpeg', '.png', '.svg', '.eps', '.ai'];
 const VECTOR = new Set(['.svg', '.eps', '.ai']);
 
+// Temporarily disable vector conversion to fix 413 errors
+const DISABLE_VECTOR_CONVERSION = true;
+
 export function fileExt(name: string): string {
   return ('.' + (name.split('.').pop() || '')).toLowerCase();
 }
@@ -113,7 +116,7 @@ export function ImageUploader({
     patch(meta.id, { status: 'analyzing', progress: 15 });
     const ext = fileExt(file.name);
     try {
-      if (VECTOR.has(ext)) {
+      if (VECTOR.has(ext) && !DISABLE_VECTOR_CONVERSION) {
         // For large vector files, skip server rasterization and upload directly to S3
         // User will see the original file instead of a PNG preview
         let uploadFile = file;
