@@ -146,6 +146,10 @@ async function toInlineImage(url: string): Promise<{ data: string; mimeType: str
         jpeg: 'image/jpeg',
         webp: 'image/webp',
         gif: 'image/gif',
+        // Vector files rasterized to PNG — keep as PNG for AI vision
+        svg: 'image/png',
+        eps: 'image/png',
+        ai: 'image/png',
       };
       mime = mimeMap[ext] || 'image/jpeg';
     } catch (err) {
@@ -168,6 +172,9 @@ async function toInlineImage(url: string): Promise<{ data: string; mimeType: str
           jpeg: 'image/jpeg',
           webp: 'image/webp',
           gif: 'image/gif',
+          svg: 'image/png',
+          eps: 'image/png',
+          ai: 'image/png',
         };
         mime = mimeMap[ext] || 'image/jpeg';
       } catch (err) {
@@ -188,6 +195,9 @@ async function toInlineImage(url: string): Promise<{ data: string; mimeType: str
         jpeg: 'image/jpeg',
         webp: 'image/webp',
         gif: 'image/gif',
+        svg: 'image/png',
+        eps: 'image/png',
+        ai: 'image/png',
       };
       mime = mimeMap[ext] || 'image/jpeg';
     } catch (err) {

@@ -63,7 +63,12 @@ export async function POST(req: Request) {
         : await rasterizeVectorToPng(input, ext as '.eps' | '.ai');
 
     const { buffer, mime } = await resizeImage(raster, 'image/png', 1600);
-    const { key, url } = await storePreview(user.id, file.name, buffer, mime);
+    // Replace original vector extension (.eps/.ai/.svg) with .png so the S3
+    // key correctly reflects the rasterized PNG content. Without this the key
+    // ends up as e.g. "previews/.../myfile.eps" which confuses Gemini's
+    // extension-based MIME detection and causes vision API failures.
+    const pngName = file.name.replace(/\.[^.]+$/, '') + '.png';
+    const { key, url } = await storePreview(user.id, pngName, buffer, mime);
 
     return NextResponse.json({
       key,
