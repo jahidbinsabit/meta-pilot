@@ -652,8 +652,25 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
               </div>
 
               {files.length > 0 && (
-                <ul className="space-y-2">
-                  {files.map((f) => (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {files.length} file{files.length === 1 ? '' : 's'} selected
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFiles([]);
+                        setRows([]);
+                        fileMapRef.current.clear();
+                      }}
+                      className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  <ul className="space-y-2">
+                    {files.map((f) => (
                     <li
                       key={f.id}
                       className="flex items-center gap-3 rounded-lg border border-border bg-card-2 p-2"
@@ -678,8 +695,9 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                         {STATUS_LABEL[f.status]}
                       </Badge>
                     </li>
-                  ))}
-                </ul>
+                    ))}
+                  </ul>
+                </>
               )}
 
               <Button

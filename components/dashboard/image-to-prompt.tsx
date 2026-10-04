@@ -17,6 +17,7 @@ import {
   FileSpreadsheet,
   AlertCircle,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import {
@@ -274,10 +275,21 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
                 </CardDescription>
               </div>
               {results.length > 0 && (
-                <Button variant="outline" size="sm" onClick={copyAll} disabled={successCount === 0}>
-                  {copiedAll ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  {copiedAll ? 'Copied' : 'Copy all'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setResults([])}
+                    className="text-muted-foreground"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Clear
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={copyAll} disabled={successCount === 0}>
+                    {copiedAll ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copiedAll ? 'Copied' : 'Copy all'}
+                  </Button>
+                </div>
               )}
             </div>
           </CardHeader>
