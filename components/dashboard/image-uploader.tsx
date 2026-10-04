@@ -113,19 +113,48 @@ export function ImageUploader({
     const ext = fileExt(file.name);
     try {
       if (VECTOR.has(ext)) {
-        // For large files (>5MB), skip server-side rasterization to avoid 413 errors
+        // Smart size handling for vector files
+        let uploadFile = file;
+        
+        // For large vector files, try to optimize before upload
         if (file.size > 5 * 1024 * 1024) {
-          patch(meta.id, { 
-            status: 'error', 
-            progress: 0, 
-            error: 'File too large for vector conversion. Please use files under 5MB.' 
-          });
-          return;
+          patch(meta.id, { status: 'optimizing', progress: 25 });
+          
+          if (ext === '.svg') {
+            // SVG: try to compress by removing whitespace and comments
+            try {
+              const text = await file.text();
+              const minified = text
+                .replace(/<!--[\s\S]*?-->/g, '') // Remove comments
+                .replace(/>\s+</g, '><') // Remove whitespace between tags
+                .replace(/\s+/g, ' ') // Compress multiple spaces
+                .trim();
+              
+              const blob = new Blob([minified], { type: 'image/svg+xml' });
+              if (blob.size < file.size) {
+                uploadFile = new File([blob], file.name, { type: 'image/svg+xml' });
+                patch(meta.id, { size: uploadFile.size });
+              }
+            } catch (e) {
+              console.warn('SVG optimization failed, using original:', e);
+            }
+          }
+          
+          // If still too large after optimization, show helpful error
+          if (uploadFile.size > 10 * 1024 * 1024) {
+            patch(meta.id, { 
+              status: 'error', 
+              progress: 0, 
+              error: `File too large (${(uploadFile.size / 1024 / 1024).toFixed(1)}MB). Vector files should be under 10MB. Try optimizing your ${ext.toUpperCase()} file or use a smaller resolution.`
+            });
+            return;
+          }
         }
 
-        // Server-side conversion for smaller vector files
+        // Server-side conversion for vector files
+        patch(meta.id, { status: 'converting', progress: 40 });
         const form = new FormData();
-        form.append('file', file);
+        form.append('file', uploadFile);
         const res = await fetch('/api/uploads/rasterize', { method: 'POST', body: form });
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
