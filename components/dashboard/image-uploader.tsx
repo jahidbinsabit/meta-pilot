@@ -113,7 +113,17 @@ export function ImageUploader({
     const ext = fileExt(file.name);
     try {
       if (VECTOR.has(ext)) {
-        // Server-side conversion (Ghostscript / ImageMagick).
+        // For large files (>5MB), skip server-side rasterization to avoid 413 errors
+        if (file.size > 5 * 1024 * 1024) {
+          patch(meta.id, { 
+            status: 'error', 
+            progress: 0, 
+            error: 'File too large for vector conversion. Please use files under 5MB.' 
+          });
+          return;
+        }
+
+        // Server-side conversion for smaller vector files
         const form = new FormData();
         form.append('file', file);
         const res = await fetch('/api/uploads/rasterize', { method: 'POST', body: form });
