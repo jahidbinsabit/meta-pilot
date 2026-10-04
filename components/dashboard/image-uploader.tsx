@@ -108,6 +108,7 @@ export function ImageUploader({
     onFilesChange((prev) => prev.map((f) => (f.id === id ? { ...f, ...changes } : f)));
   };
 
+  // Force cache bust - vector upload bypass
   async function processFile(file: File, meta: UploadedFile) {
     patch(meta.id, { status: 'analyzing', progress: 15 });
     const ext = fileExt(file.name);
