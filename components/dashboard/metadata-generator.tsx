@@ -740,6 +740,20 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => {
+                        setFiles([]);
+                        setRows([]);
+                        fileMapRef.current.clear();
+                        setShowExportPanel(false);
+                      }}
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Clear All
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={async () => {
                         await navigator.clipboard.writeText(
                           rows
