@@ -113,54 +113,88 @@ export function ImageUploader({
     const ext = fileExt(file.name);
     try {
       if (VECTOR.has(ext)) {
-        // Smart size handling for vector files
+        // For large vector files, skip server rasterization and upload directly to S3
+        // User will see the original file instead of a PNG preview
         let uploadFile = file;
         
-        // For large vector files, try to optimize before upload
-        if (file.size > 5 * 1024 * 1024) {
+        // SVG optimization for large files
+        if (file.size > 3 * 1024 * 1024 && ext === '.svg') {
           patch(meta.id, { status: 'optimizing', progress: 25 });
           
-          if (ext === '.svg') {
-            // SVG: try to compress by removing whitespace and comments
-            try {
-              const text = await file.text();
-              const minified = text
-                .replace(/<!--[\s\S]*?-->/g, '') // Remove comments
-                .replace(/>\s+</g, '><') // Remove whitespace between tags
-                .replace(/\s+/g, ' ') // Compress multiple spaces
-                .trim();
-              
-              const blob = new Blob([minified], { type: 'image/svg+xml' });
-              if (blob.size < file.size) {
-                uploadFile = new File([blob], file.name, { type: 'image/svg+xml' });
-                patch(meta.id, { size: uploadFile.size });
-              }
-            } catch (e) {
-              console.warn('SVG optimization failed, using original:', e);
+          try {
+            const text = await file.text();
+            const minified = text
+              .replace(/<!--[\s\S]*?-->/g, '') // Remove comments
+              .replace(/>\s+</g, '><') // Remove whitespace between tags
+              .replace(/\s+/g, ' ') // Compress multiple spaces
+              .trim();
+            
+            const blob = new Blob([minified], { type: 'image/svg+xml' });
+            if (blob.size < file.size) {
+              uploadFile = new File([blob], file.name, { type: 'image/svg+xml' });
+              patch(meta.id, { size: uploadFile.size });
             }
+          } catch (e) {
+            console.warn('SVG optimization failed, using original:', e);
           }
-          
-          // If still too large after optimization, show helpful error
-          if (uploadFile.size > 10 * 1024 * 1024) {
-            patch(meta.id, { 
-              status: 'error', 
-              progress: 0, 
-              error: `File too large (${(uploadFile.size / 1024 / 1024).toFixed(1)}MB). Vector files should be under 10MB. Try optimizing your ${ext.toUpperCase()} file or use a smaller resolution.`
-            });
-            return;
+        }
+        
+        // For EPS/AI or large SVG: Upload original file directly (no server rasterization)
+        // This avoids 413 errors by bypassing the /api/uploads/rasterize endpoint
+        patch(meta.id, { status: 'uploading', progress: 40 });
+        
+        // Use the same upload flow as raster images
+        // Try presigned URL first, fallback to direct upload
+        let key: string, mime: string, previewUrl: string;
+
+        try {
+          const presign = await fetch('/api/uploads/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: uploadFile.name, size: uploadFile.size, type: uploadFile.type }),
+          });
+          if (!presign.ok) {
+            const j = await presign.json().catch(() => ({}));
+            throw new Error(j.error || 'preview_failed');
           }
+          const presignData = await presign.json();
+
+          // Check if server says to use direct upload (local storage mode)
+          if (presignData.useDirectUpload) {
+            throw new Error('use_direct_upload');
+          }
+
+          patch(meta.id, { progress: 70 });
+
+          const put = await fetch(presignData.uploadUrl, {
+            method: 'PUT',
+            body: uploadFile,
+            headers: { 'Content-Type': presignData.mime },
+          });
+          if (!put.ok) throw new Error('upload_failed');
+
+          key = presignData.key;
+          mime = presignData.mime;
+          previewUrl = presignData.previewUrl;
+        } catch (uploadError: any) {
+          // Fallback to server-proxied upload if presigned URL fails
+          console.warn('Presigned upload failed, trying direct upload:', uploadError.message);
+          patch(meta.id, { progress: 50 });
+
+          const form = new FormData();
+          form.append('file', uploadFile);
+          const direct = await fetch('/api/uploads/direct', { method: 'POST', body: form });
+          if (!direct.ok) {
+            const j = await direct.json().catch(() => ({}));
+            throw new Error(j.error || 'upload_failed');
+          }
+          const directData = await direct.json();
+          key = directData.key;
+          mime = directData.mime;
+          previewUrl = directData.previewUrl;
+          patch(meta.id, { progress: 85 });
         }
 
-        // Server-side conversion for vector files
-        patch(meta.id, { status: 'converting', progress: 40 });
-        const form = new FormData();
-        form.append('file', uploadFile);
-        const res = await fetch('/api/uploads/rasterize', { method: 'POST', body: form });
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(j.error || 'rasterize_failed');
-        }
-        const { key, previewUrl, mime } = await res.json();
         patch(meta.id, {
           status: 'done',
           progress: 100,
