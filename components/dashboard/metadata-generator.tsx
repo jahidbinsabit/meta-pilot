@@ -664,8 +664,9 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                         setRows([]);
                         fileMapRef.current.clear();
                       }}
-                      className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      className="flex items-center gap-1 rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
                     >
+                      <X className="h-3 w-3" />
                       Clear all
                     </button>
                   </div>
