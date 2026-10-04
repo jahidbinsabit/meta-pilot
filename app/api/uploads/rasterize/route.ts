@@ -3,10 +3,9 @@ import { requireApiUser } from '@/lib/api/auth';
 import {
   ACCEPTED_EXTENSIONS,
   convertSvgToPng,
-  extractOrCreatePreviewFromPostScript,
-  resizeImage,
   storePreview,
 } from '@/lib/generator/images';
+import sharp from 'sharp';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -18,10 +17,27 @@ function extOf(name: string): string {
   return '.' + (name.split('.').pop() || '').toLowerCase();
 }
 
+/** Gray 800×600 placeholder PNG for EPS/AI files (no Ghostscript on Vercel) */
+async function makePlaceholderPng(): Promise<Buffer> {
+  return sharp({
+    create: {
+      width: 800,
+      height: 600,
+      channels: 3,
+      background: { r: 220, g: 220, b: 220 },
+    },
+  })
+    .png()
+    .toBuffer();
+}
+
 export async function POST(req: Request) {
+  let step = 'init';
   try {
+    step = 'auth';
     const user = await requireApiUser(req);
 
+    step = 'formdata';
     const form = await req.formData();
     const file = form.get('file');
     if (!(file instanceof File)) {
@@ -39,27 +55,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'file_too_large' }, { status: 400 });
     }
 
+    step = 'read_buffer';
     const input = Buffer.from(await file.arrayBuffer());
 
-    let raster: Buffer;
+    step = 'rasterize';
+    let pngBuffer: Buffer;
+
     if (ext === '.svg') {
-      raster = await convertSvgToPng(input);
+      pngBuffer = await convertSvgToPng(input);
     } else {
-      raster = await extractOrCreatePreviewFromPostScript(input);
+      // EPS/AI: Ghostscript unavailable on Vercel — use gray placeholder
+      pngBuffer = await makePlaceholderPng();
     }
 
-    const { buffer, mime } = await resizeImage(raster, 'image/png', 1600);
+    step = 'store';
     const pngName = file.name.replace(/\.[^.]+$/, '') + '.png';
-    const { key, url } = await storePreview(user.id, pngName, buffer, mime);
+    const { key, url } = await storePreview(user.id, pngName, pngBuffer, 'image/png');
 
     return NextResponse.json({
       key,
-      mime,
+      mime: 'image/png',
       previewUrl: url,
       uploadUrl: null,
     });
   } catch (e: any) {
-    console.error('rasterize failed', e);
-    return NextResponse.json({ error: e?.message || 'rasterize_failed' }, { status: 500 });
+    console.error(`rasterize failed at step [${step}]:`, e?.message, e?.stack);
+    return NextResponse.json(
+      { error: e?.message || 'rasterize_failed', step },
+      { status: 500 },
+    );
   }
 }
+
