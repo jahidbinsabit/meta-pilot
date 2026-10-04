@@ -9,7 +9,7 @@ import sharp from 'sharp';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
-export const bodySizeLimit = '10mb';
+export const bodySizeLimit = '25mb';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const ALLOWED = new Set(['.eps', '.ai', '.svg']);
