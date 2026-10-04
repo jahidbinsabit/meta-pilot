@@ -36,9 +36,13 @@ export function isRasterizableVector(file: File): boolean {
 
 export async function convertSvgToPng(input: Buffer): Promise<Buffer> {
   try {
-    const png = await sharp(input, { density: 150 }).png().toBuffer();
+    // Sharp's librsvg handles SVG directly
+    const png = await sharp(input)
+      .png()
+      .toBuffer();
     return png;
   } catch (e: any) {
+    console.error('SVG conversion failed:', e);
     throw new Error('SVG conversion failed: ' + e.message);
   }
 }
@@ -57,18 +61,36 @@ export async function resizeImage(
   quality = 80,
 ): Promise<{ buffer: Buffer; width: number; height: number; mime: string }> {
   try {
-    const metadata = await sharp(input).metadata();
-    const width = metadata.width || 0;
-    const height = metadata.height || 0;
-    const resized = await sharp(input)
-      .rotate()
-      .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true })
-      .toFormat('jpeg', { quality, progressive: true })
+    // First check if input is valid
+    if (!input || input.length === 0) {
+      throw new Error('Empty input buffer');
+    }
+
+    let image = sharp(input);
+    const metadata = await image.metadata();
+    
+    if (!metadata.width || !metadata.height) {
+      throw new Error('Could not determine image dimensions');
+    }
+    
+    const width = metadata.width;
+    const height = metadata.height;
+    
+    // Resize if needed
+    image = sharp(input)
+      .rotate() // Auto-orient based on EXIF
+      .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true });
+    
+    // Convert to JPEG for consistency
+    const resized = await image
+      .jpeg({ quality, progressive: true })
       .toBuffer();
+      
     return { buffer: resized, width, height, mime: 'image/jpeg' };
   } catch (e: any) {
-    console.error('Image resize failed:', e.message);
-    return { buffer: input, width: 0, height: 0, mime };
+    console.error('Image resize failed:', e);
+    // Return original buffer as fallback
+    return { buffer: input, width: 0, height: 0, mime: mime || 'image/png' };
   }
 }
 
