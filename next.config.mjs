@@ -19,6 +19,7 @@ if (isBuild && (!process.env.DATABASE_URL || !/^postgres(ql)?:\/\//i.test(proces
 
 const nextConfig = {
   reactStrictMode: true,
+  serverExternalPackages: ['sharp'],
   compress: true,
   poweredByHeader: false,
   eslint: {
