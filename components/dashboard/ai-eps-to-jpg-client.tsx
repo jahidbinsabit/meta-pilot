@@ -21,7 +21,7 @@ export function AiEpsToJpgClient({ tool }: { tool: ToolEntry }) {
   const { credits } = useCredits();
   const queryClient = useQueryClient();
 
-  const readyFiles = files.filter((f) => f.status === 'done' && f.previewUrl);
+  const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
   const canProcess = readyFiles.length > 0 && !files.some((f) => f.status === 'analyzing');
 
   const mutation = useMutation({

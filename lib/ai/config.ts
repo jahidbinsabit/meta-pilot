@@ -58,6 +58,7 @@ export async function getActiveProvider(): Promise<string> {
 function getEnvironmentApiKey(provider: string): string | undefined {
   if (provider === 'gemini') return process.env.GEMINI_API_KEY?.trim() || undefined;
   if (provider === 'openai') return process.env.OPENAI_API_KEY?.trim() || undefined;
+  if (provider === 'grok' || provider === 'xai') return process.env.GROK_API_KEY?.trim() || process.env.XAI_API_KEY?.trim() || undefined;
   return undefined;
 }
 
@@ -104,6 +105,19 @@ export async function getProviderConfig(provider: string): Promise<ProviderConfi
       modelDefault: 'gpt-4o',
       costPer1kIn: Number(process.env.OPENAI_COST_IN || 0),
       costPer1kOut: Number(process.env.OPENAI_COST_OUT || 0),
+      maxTokens: 2048,
+      priority: 0,
+    };
+  }
+  if (clean === 'grok' || clean === 'xai') {
+    return {
+      provider: 'grok',
+      enabled: true,
+      apiKey: process.env.GROK_API_KEY || process.env.XAI_API_KEY,
+      modelDefault: 'grok-2-latest',
+      customApiUrl: 'https://api.x.ai/v1/chat/completions',
+      costPer1kIn: 0,
+      costPer1kOut: 0,
       maxTokens: 2048,
       priority: 0,
     };

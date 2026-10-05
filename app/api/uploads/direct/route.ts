@@ -15,12 +15,15 @@ export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 const MAX_BYTES = 25 * 1024 * 1024;
-const ALLOWED = new Set(['.jpg', '.jpeg', '.png']);
+const ALLOWED = new Set(['.jpg', '.jpeg', '.png', '.svg', '.eps', '.ai']);
 
 const MIME_BY_EXT: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.eps': 'image/x-eps',
+  '.ai': 'application/illustrator',
 };
 
 function extOf(name: string): string {

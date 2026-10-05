@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { useCredits } from '@/components/dashboard/credits-provider';
 import { ImageUploader } from '@/components/dashboard/image-uploader';
@@ -18,6 +18,8 @@ import {
   AlertCircle,
   Loader2,
   Trash2,
+  RotateCcw,
+  Image as ImageIcon,
 } from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import {
@@ -90,12 +92,27 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
     }
   };
 
-  const generate = useMutation({
-    mutationFn: async () => {
-      const ready = files.filter((f) => f.status === 'done' && f.previewUrl);
-      if (ready.length === 0) throw new Error('no_images');
-      if (!style) throw new Error('no_style');
-      const res = await fetch('/api/generate/image-prompt', {
+  const [isGenerating, setIsGenerating] = React.useState(false);
+  const [generatingIds, setGeneratingIds] = React.useState<Set<string>>(new Set());
+  const [regeneratingIds, setRegeneratingIds] = React.useState<Set<string>>(new Set());
+
+  async function startStreamingGeneration() {
+    const ready = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
+    if (ready.length === 0) {
+      toast({ title: 'No images ready', description: 'Upload images first', variant: 'error' });
+      return;
+    }
+    if (!style) {
+      toast({ title: 'No style selected', description: 'Select a prompt style first', variant: 'error' });
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratingIds(new Set(ready.map((f) => f.id)));
+    setResults((prev) => prev.filter((r) => !ready.some((f) => f.id === r.id)));
+
+    try {
+      const res = await fetch('/api/generate/image-prompt/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -109,37 +126,189 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
           })),
         }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'generation_failed');
-      }
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      setResults((prev) => [...prev, ...(data.results || [])]);
-      // Refresh the sidebar balance immediately rather than waiting for the poll.
-      queryClient.invalidateQueries({ queryKey: ['credits'] });
-      const failed = data.failed || 0;
-      if (failed > 0) {
-        toast({
-          title: `${data.succeeded}/${data.succeeded + failed} prompts generated`,
-          description: `${failed} failed — ${data.refunded} credit${data.refunded === 1 ? '' : 's'} refunded automatically.`,
-          variant: 'warning',
-        });
-      } else {
-        toast({ title: 'Prompt generated', variant: 'success' });
-      }
-    },
-    onError: (e: any) => {
-      toast({ title: 'Generation failed', description: e.message, variant: 'error' });
-      queryClient.invalidateQueries({ queryKey: ['credits'] });
-    },
-  });
 
-  const readyFiles = files.filter((f) => f.status === 'done' && f.previewUrl);
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'Generation failed');
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('Stream not available');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'init') {
+                console.log(`Starting prompt generation for ${data.total} images`);
+              } else if (data.type === 'processing') {
+                // Image is being processed - shimmer already showing
+              } else if (data.type === 'result') {
+                const result = data.result;
+                
+                // Add or update this result and remove from generating
+                setResults((prev) => {
+                  const existing = prev.find((r) => r.id === result.id);
+                  if (existing) {
+                    return prev.map((r) => (r.id === result.id ? result : r));
+                  }
+                  return [...prev, result];
+                });
+                setGeneratingIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(result.id);
+                  return next;
+                });
+
+              } else if (data.type === 'done') {
+                setIsGenerating(false);
+                setGeneratingIds(new Set());
+                queryClient.invalidateQueries({ queryKey: ['credits'] });
+                
+                if (data.failed > 0) {
+                  toast({
+                    title: `${data.succeeded}/${data.succeeded + data.failed} prompts generated`,
+                    description: `${data.failed} failed — ${data.refunded} credit${data.refunded === 1 ? '' : 's'} refunded automatically.`,
+                    variant: 'warning',
+                  });
+                } else {
+                  toast({ title: 'Prompts generated', variant: 'success' });
+                }
+              } else if (data.type === 'error') {
+                throw new Error(data.error || 'Generation failed');
+              }
+            } catch (parseError) {
+              console.warn('Failed to parse SSE data:', line);
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      setIsGenerating(false);
+      setGeneratingIds(new Set());
+      toast({ 
+        title: 'Generation failed', 
+        description: error.message || 'Unknown error', 
+        variant: 'error' 
+      });
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+    }
+  }
+
+  async function regenerateSingle(id: string) {
+    const file = files.find(f => f.id === id);
+    if (!file || !file.previewUrl) {
+      toast({ title: 'File not found', description: 'Cannot regenerate this prompt', variant: 'error' });
+      return;
+    }
+    
+    if (credits < costPerImage) {
+      toast({ title: 'Insufficient credits', description: `You need ${costPerImage} credit${costPerImage === 1 ? '' : 's'} to regenerate`, variant: 'error' });
+      return;
+    }
+
+    setRegeneratingIds(prev => new Set(prev).add(id));
+    
+    try {
+      const res = await fetch('/api/generate/image-prompt/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          style,
+          images: [{
+            id: file.id,
+            fileName: file.name,
+            key: file.key,
+            previewUrl: file.previewUrl,
+            mimeType: file.mimeType || file.type,
+          }],
+        }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'Regeneration failed');
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('Stream not available');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'result') {
+                const result = data.result;
+                
+                // Update the existing result
+                setResults((prev) => prev.map(r => r.id === result.id ? result : r));
+                setRegeneratingIds(prev => {
+                  const next = new Set(prev);
+                  next.delete(result.id);
+                  return next;
+                });
+
+              } else if (data.type === 'done') {
+                setRegeneratingIds(prev => {
+                  const next = new Set(prev);
+                  next.delete(id);
+                  return next;
+                });
+                queryClient.invalidateQueries({ queryKey: ['credits'] });
+                toast({ title: 'Prompt regenerated', variant: 'success' });
+                
+              } else if (data.type === 'error') {
+                throw new Error(data.error || 'Regeneration failed');
+              }
+            } catch (parseError) {
+              console.warn('Failed to parse SSE data:', line);
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      setRegeneratingIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      toast({ 
+        title: 'Regeneration failed', 
+        description: error.message || 'Unknown error', 
+        variant: 'error' 
+      });
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+    }
+  }
+
+  const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
   const totalCost = readyFiles.length * costPerImage;
   const canGenerate =
-    readyFiles.length > 0 && !generate.isPending && credits >= totalCost && !!style;
+    readyFiles.length > 0 && !isGenerating && credits >= totalCost && !!style;
 
   async function copyOne(id: string, text: string) {
     await navigator.clipboard.writeText(text);
@@ -180,6 +349,33 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
 
   const successCount = results.filter((r) => r.status === 'complete').length;
 
+  const displayedItems = React.useMemo(() => {
+    const items: Array<
+      | { type: 'generating'; file: UploadedFile }
+      | { type: 'result'; result: ResultRow }
+    > = [];
+    const handledIds = new Set<string>();
+
+    for (const f of files) {
+      const res = results.find((r) => r.id === f.id);
+      if (res) {
+        items.push({ type: 'result', result: res });
+        handledIds.add(f.id);
+      } else if (generatingIds.has(f.id)) {
+        items.push({ type: 'generating', file: f });
+        handledIds.add(f.id);
+      }
+    }
+
+    for (const r of results) {
+      if (!handledIds.has(r.id)) {
+        items.push({ type: 'result', result: r });
+      }
+    }
+
+    return items;
+  }, [files, results, generatingIds]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -210,7 +406,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
               files={files}
               onFilesChange={setFiles}
               batchLimit={batchLimit}
-              disabled={generate.isPending}
+              disabled={isGenerating}
             />
 
             <div>
@@ -241,13 +437,13 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
                   ? `${readyFiles.length} image${readyFiles.length === 1 ? '' : 's'} · ${totalCost} credit${totalCost === 1 ? '' : 's'}`
                   : `${costPerImage} credit per image`}
               </span>
-              <Button onClick={() => generate.mutate()} disabled={!canGenerate}>
-                {generate.isPending ? (
+              <Button onClick={() => startStreamingGeneration()} disabled={!canGenerate}>
+                {isGenerating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Sparkles className="h-4 w-4" />
                 )}
-                {generate.isPending
+                {isGenerating
                   ? 'Generating…'
                   : `Generate ${readyFiles.length > 1 ? `${readyFiles.length} prompts` : 'prompt'}`}
               </Button>
@@ -280,9 +476,9 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
                     variant="outline"
                     size="sm"
                     onClick={() => setResults([])}
-                    className="text-muted-foreground"
+                    className="gap-1.5 border-destructive/40 bg-destructive/5 text-destructive hover:bg-destructive/15 hover:text-destructive"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
                     Clear
                   </Button>
                   <Button variant="outline" size="sm" onClick={copyAll} disabled={successCount === 0}>
@@ -294,16 +490,80 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {results.length === 0 ? (
+            {displayedItems.length === 0 ? (
               <div className="flex min-h-[220px] flex-col items-center justify-center text-center text-muted-foreground">
                 <ImageIconEmpty />
                 <p className="mt-2 text-sm">Your prompts will appear here.</p>
               </div>
             ) : (
               <>
-                {results.map((r) => (
-                  <PromptCard key={r.id} row={r} onCopy={copyOne} copied={copiedId === r.id} />
-                ))}
+                {displayedItems.map((item) => {
+                  if (item.type === 'generating') {
+                    const file = item.file;
+                    return (
+                      <div
+                        key={`generating-${file.id}`}
+                        className="ai-card-generating p-3.5 transition-all duration-300"
+                      >
+                        <div className="flex gap-3.5">
+                          {/* Source thumbnail */}
+                          <div className="relative w-20 shrink-0">
+                            {file.dataUrl || file.previewUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={file.dataUrl || file.previewUrl}
+                                alt={file.name}
+                                className="aspect-square w-full rounded-md border border-border bg-card object-cover opacity-80"
+                              />
+                            ) : (
+                              <div className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-card">
+                                <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
+                              </div>
+                            )}
+                            <p className="mt-1 truncate text-[10px] text-muted-foreground font-medium">
+                              {file.name}
+                            </p>
+                          </div>
+
+                          {/* Shimmer content */}
+                          <div className="min-w-0 flex-1 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5">
+                                <Sparkles className="h-3 w-3 animate-spin text-accent" />
+                                <span className="text-xs font-semibold text-accent">Synthesizing Prompt</span>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground font-medium">
+                                AI Vision Analyzing…
+                              </span>
+                            </div>
+
+                            <div className="space-y-2 pt-1">
+                              <div className="ai-skeleton-bar h-4 w-full"></div>
+                              <div className="ai-skeleton-bar h-4 w-5/6"></div>
+                              <div className="ai-skeleton-bar h-4 w-4/6"></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const r = item.result;
+                  const srcFile = files.find((f) => f.id === r.id);
+                  const preview = srcFile?.dataUrl || srcFile?.previewUrl;
+
+                  return (
+                    <PromptCard 
+                      key={r.id} 
+                      row={r} 
+                      previewUrl={preview}
+                      onCopy={copyOne} 
+                      copied={copiedId === r.id}
+                      onRegenerate={regenerateSingle}
+                      isRegenerating={regeneratingIds.has(r.id)}
+                    />
+                  );
+                })}
 
                 {successCount > 0 && (
                   <div className="flex items-center gap-2 pt-1">
@@ -337,12 +597,18 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
 
 function PromptCard({
   row,
+  previewUrl,
   onCopy,
   copied,
+  onRegenerate,
+  isRegenerating,
 }: {
   row: ResultRow;
+  previewUrl?: string;
   onCopy: (id: string, text: string) => void;
   copied: boolean;
+  onRegenerate: (id: string) => void;
+  isRegenerating: boolean;
 }) {
   if (row.status === 'failed') {
     return (
@@ -365,26 +631,69 @@ function PromptCard({
 
   return (
     <div className="rounded-lg border border-border bg-card-2 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-sm font-medium text-foreground">{row.fileName}</span>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => onCopy(row.id, row.prompt)}
-          aria-label={`Copy prompt for ${row.fileName}`}
-        >
-          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
-      </div>
-      <p className="mt-1.5 whitespace-pre-wrap text-sm text-foreground">{row.prompt}</p>
-      {(row.subject || row.lighting || row.mood) && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {row.styleLabel && <Badge variant="muted">{row.styleLabel}</Badge>}
-          {row.mood && <Badge variant="muted">mood: {row.mood}</Badge>}
-          {row.lighting && <Badge variant="muted">light: {row.lighting}</Badge>}
+      <div className="flex gap-3.5">
+        {/* Source image thumbnail */}
+        <div className="relative w-24 shrink-0">
+          {previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewUrl}
+              alt={row.fileName}
+              className="aspect-square w-full rounded-md border border-border bg-card object-cover"
+            />
+          ) : (
+            <div className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-card">
+              <ImageIcon className="h-5 w-5 text-muted-foreground/50" />
+            </div>
+          )}
+          <p className="mt-1.5 truncate text-[10px] text-muted-foreground font-medium">
+            {row.fileName}
+          </p>
         </div>
-      )}
+
+        {/* Generated prompt content */}
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              {row.styleLabel && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {row.styleLabel}
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => onRegenerate(row.id)}
+                disabled={isRegenerating}
+                aria-label={`Regenerate prompt for ${row.fileName}`}
+                className="text-muted-foreground hover:text-accent"
+              >
+                {isRegenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => onCopy(row.id, row.prompt)}
+                aria-label={`Copy prompt for ${row.fileName}`}
+              >
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copied ? 'Copied' : 'Copy'}
+              </Button>
+            </div>
+          </div>
+          
+          <p className="whitespace-pre-wrap text-sm text-foreground leading-relaxed">{row.prompt}</p>
+          
+          {(row.subject || row.lighting || row.mood) && (
+            <div className="mt-2 flex flex-wrap gap-1.5 pt-1">
+              {row.mood && <Badge variant="muted">mood: {row.mood}</Badge>}
+              {row.lighting && <Badge variant="muted">light: {row.lighting}</Badge>}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

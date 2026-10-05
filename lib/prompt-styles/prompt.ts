@@ -32,9 +32,19 @@ ${SHAPE_INSTRUCTION}${
 
 export function buildImagePromptUserPrompt(opts: { fileName?: string; strict?: boolean }) {
   const { fileName, strict = false } = opts;
-  return `Analyze this image and write one detailed, paste-ready prompt that would recreate it.
+  return `Analyze this image and create an exceptionally detailed, professional-grade prompt that would recreate it with maximum fidelity.
 
-Focus on the subject, style, lighting, composition, and mood. Be specific and concrete — name real materials, colours, light qualities, and camera/lens characteristics where the image shows them. Do not invent a brand or a named living person.
+REQUIREMENTS FOR HIGH-QUALITY PROMPTS:
+- Be extremely specific about visual elements: exact colors (use specific color names like "burnt sienna", "ultramarine blue"), materials, textures, and surface qualities
+- Describe lighting in technical detail: direction, intensity, color temperature (warm/cool), shadow characteristics, reflections, and ambient conditions
+- Specify exact composition elements: camera angle, focal length characteristics, depth of field, framing, perspective, and viewpoint
+- Include artistic style markers: medium, technique, artistic movement, rendering style, and quality descriptors
+- Capture mood and atmosphere through specific environmental and emotional cues
+- Use industry-standard terminology for photography, art, and design
+- Ensure the prompt is 150-300 words for comprehensive detail
+- Make it paste-ready for AI image generators like Midjourney, DALL-E, or Stable Diffusion
+
+Focus on creating a prompt that captures not just what is shown, but HOW it's shown - the technical and artistic execution that makes the image distinctive.
 ${
   strict
     ? 'STRICT MODE: return ONLY the JSON object, nothing else. Even a single word outside the braces is an error.'

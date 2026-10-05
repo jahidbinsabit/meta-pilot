@@ -11,6 +11,7 @@ export interface CachedSiteSettings {
   twitterHandle: string | null;
   gaMeasurementId: string | null;
   gscVerification: string | null;
+  userApiKeyRequired: boolean;
 }
 
 export const getSiteSettings = unstable_cache(
@@ -28,6 +29,7 @@ export const getSiteSettings = unstable_cache(
           twitterHandle: true,
           gaMeasurementId: true,
           gscVerification: true,
+          userApiKeyRequired: true,
         },
       });
       return settings;

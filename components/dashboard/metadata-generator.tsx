@@ -40,6 +40,7 @@ import type {
 import { PLATFORMS } from '@/lib/generator/types';
 import { buildCsv, csvFilename, formatLabel } from '@/lib/generator/csv';
 import { compressImageForUpload } from '@/lib/tools/client-image';
+import { MetadataSuccessModal } from '@/components/dashboard/metadata-success-modal';
 
 interface Props {
   initialSettings: GeneratorSettings;
@@ -96,6 +97,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
   const [sendEmail, setSendEmail] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [showExportPanel, setShowExportPanel] = React.useState(false);
+  const [successModalOpen, setSuccessModalOpen] = React.useState(false);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
 
   const toast = useToast();
@@ -189,12 +191,22 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
           const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
           // Store the File object for later use
           fileMapRef.current.set(id, f);
+          const ext = ('.' + (f.name.split('.').pop() || '')).toLowerCase();
+          const isRaster = ext === '.jpg' || ext === '.jpeg' || ext === '.png';
+          let initialDataUrl = '';
+          if (isRaster && typeof window !== 'undefined') {
+            try {
+              initialDataUrl = URL.createObjectURL(f);
+            } catch {
+              // ignore
+            }
+          }
           return {
             id,
             name: f.name,
             size: f.size,
             type: f.type || 'application/octet-stream',
-            dataUrl: '',
+            dataUrl: initialDataUrl,
             status: 'queued' as const,
             progress: 0,
           };
@@ -250,7 +262,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
           const j = await res.json().catch(() => ({}));
           throw new Error(j.error || 'rasterize_failed');
         }
-        const { key, previewUrl, mime } = await res.json();
+        const { key, previewUrl, dataUrl, mime } = await res.json();
         setFiles((prev) =>
           prev.map((f) =>
             f.id === meta.id
@@ -261,7 +273,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                   key,
                   mimeType: mime,
                   previewUrl,
-                  dataUrl: previewUrl,
+                  dataUrl: dataUrl || previewUrl,
                 }
               : f,
           ),
@@ -365,74 +377,146 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
     }
   }
 
-  const generate = useMutation({
-    mutationFn: async () => {
-      const ready = files.filter((f) => f.status === 'done' && f.previewUrl);
-      if (ready.length === 0) throw new Error('no_images');
-      const payload = {
-        images: ready.map((f) => ({
-          id: f.id,
-          fileName: f.name,
-          previewUrl: f.previewUrl!,
-          description: f.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '),
-          mimeType: f.type || 'image/jpeg',
-        })),
-        settings: {
-          titleLength: settings.titleLength,
-          descriptionLength: settings.descriptionLength,
-          includeDescription,
-          keywordsCount: settings.keywordsCount,
-          prefix: prefixEnabled ? prefixText : '',
-          suffix: suffixEnabled ? suffixText : '',
-          negativeTitleWords: negWordsEnabled ? negWords : [],
-          negativeKeywords: negKwsEnabled ? negKws : [],
-        },
-        platform: selectedPlatform,
-      };
-      const res = await fetch('/api/generate/batch', {
+  const [isGenerating, setIsGenerating] = React.useState(false);
+  const [generatingIds, setGeneratingIds] = React.useState<Set<string>>(new Set());
+
+  async function startStreamingGeneration() {
+    const ready = files.filter((f) => f.status === 'done' && f.previewUrl);
+    if (ready.length === 0) {
+      toast({ title: 'No images ready', description: 'Upload images first', variant: 'error' });
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratingIds(new Set(ready.map((f) => f.id)));
+    setRows((prev) => prev.filter((r) => !ready.some((f) => f.id === r.id)));
+    
+    const payload = {
+      images: ready.map((f) => ({
+        id: f.id,
+        fileName: f.name,
+        previewUrl: f.previewUrl!,
+        description: f.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '),
+        mimeType: f.type || 'image/jpeg',
+      })),
+      settings: {
+        titleLength: settings.titleLength,
+        descriptionLength: settings.descriptionLength,
+        includeDescription,
+        keywordsCount: settings.keywordsCount,
+        prefix: prefixEnabled ? prefixText : '',
+        suffix: suffixEnabled ? suffixText : '',
+        negativeTitleWords: negWordsEnabled ? negWords : [],
+        negativeKeywords: negKwsEnabled ? negKws : [],
+      },
+      platform: selectedPlatform,
+    };
+
+    try {
+      const res = await fetch('/api/generate/batch/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
       if (!res.ok) {
-        const j = await res.json();
-        throw new Error(j.error || 'generation_failed');
+        const errorText = await res.text();
+        throw new Error(errorText || 'Generation failed');
       }
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      const mapped: GeneratedRow[] = (data.results || []).map((r: any) => ({
-        id: r.id,
-        fileName: r.fileName,
-        title: r.title || '',
-        description: r.description || '',
-        keywords: Array.isArray(r.keywords) ? r.keywords : [],
-        altText: r.altText || '',
-        provider: r.provider || '',
-        model: r.model || '',
-        tokensUsed: r.tokensUsed || 0,
-        status: r.status,
-        error: r.error,
-        platform: r.platform || selectedPlatform,
-      }));
-      setRows(mapped);
-      queryClient.invalidateQueries({ queryKey: ['credits'] });
-      const failed = mapped.filter((r) => r.status === 'failed').length;
-      if (failed > 0) {
-        toast({
-          title: `${mapped.length - failed}/${mapped.length} generated`,
-          description: `${failed} failed — credits refunded automatically.`,
-          variant: 'warning',
-        });
-      } else {
-        toast({ title: `All metadata generated for ${PLATFORMS[selectedPlatform].label}`, variant: 'success' });
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('Stream not available');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'init') {
+                console.log(`Starting generation for ${data.total} images`);
+              } else if (data.type === 'processing') {
+                // Image is now being processed - no UI change needed since shimmer is already showing
+              } else if (data.type === 'result') {
+                const result = data.result;
+                const mapped: GeneratedRow = {
+                  id: result.id,
+                  fileName: result.fileName,
+                  title: result.title || '',
+                  description: result.description || '',
+                  keywords: Array.isArray(result.keywords) ? result.keywords : [],
+                  altText: result.altText || '',
+                  provider: result.provider || '',
+                  model: result.model || '',
+                  tokensUsed: result.tokensUsed || 0,
+                  status: result.status || 'complete',
+                  error: result.error,
+                  platform: result.platform || selectedPlatform,
+                };
+                
+                // Add/update this result and remove from generating
+                setRows(prev => {
+                  const existing = prev.find(r => r.id === result.id);
+                  if (existing) {
+                    return prev.map(r => r.id === result.id ? mapped : r);
+                  }
+                  return [...prev, mapped];
+                });
+                
+                setGeneratingIds(prev => {
+                  const next = new Set(prev);
+                  next.delete(result.id);
+                  return next;
+                });
+
+              } else if (data.type === 'done') {
+                setIsGenerating(false);
+                setGeneratingIds(new Set());
+                queryClient.invalidateQueries({ queryKey: ['credits'] });
+                setSuccessModalOpen(true);
+                
+                if (data.failed > 0) {
+                  toast({
+                    title: `${data.succeeded}/${data.succeeded + data.failed} generated`,
+                    description: `${data.failed} failed — credits refunded automatically.`,
+                    variant: 'warning',
+                  });
+                } else {
+                  toast({ 
+                    title: `Generated ${data.succeeded} metadata entries`, 
+                    variant: 'success' 
+                  });
+                }
+              } else if (data.type === 'error') {
+                throw new Error(data.error || 'Generation failed');
+              }
+            } catch (parseError) {
+              console.warn('Failed to parse SSE data:', line);
+            }
+          }
+        }
       }
-    },
-    onError: (e: any) => {
+    } catch (error: any) {
+      setIsGenerating(false);
+      setGeneratingIds(new Set());
       queryClient.invalidateQueries({ queryKey: ['credits'] });
-      toast({ title: 'Generation failed', description: e.message, variant: 'error' });
-    },
-  });
+      toast({ 
+        title: 'Generation failed', 
+        description: error.message || 'Unknown error', 
+        variant: 'error' 
+      });
+    }
+  }
 
   function updateRow(id: string, field: string, value: string | string[]) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
@@ -457,6 +541,108 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
         return { ...r, keywords: r.keywords.filter((_, i) => i !== kwIdx) };
       }),
     );
+  }
+
+  async function regenerateSingle(rowId: string) {
+    const f = files.find((file) => file.id === rowId);
+    if (!f || !f.previewUrl) return;
+    if (credits < 1) {
+      toast({ title: 'Insufficient credits', description: 'You need at least 1 credit to regenerate.', variant: 'error' });
+      return;
+    }
+
+    setGeneratingIds((prev) => new Set(prev).add(rowId));
+
+    const payload = {
+      images: [
+        {
+          id: f.id,
+          fileName: f.name,
+          previewUrl: f.previewUrl,
+          description: f.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '),
+          mimeType: f.type || 'image/jpeg',
+        },
+      ],
+      settings: {
+        titleLength: settings.titleLength,
+        descriptionLength: settings.descriptionLength,
+        includeDescription,
+        keywordsCount: settings.keywordsCount,
+        prefix: prefixEnabled ? prefixText : '',
+        suffix: suffixEnabled ? suffixText : '',
+        negativeTitleWords: negWordsEnabled ? negWords : [],
+        negativeKeywords: negKwsEnabled ? negKws : [],
+      },
+      platform: selectedPlatform,
+    };
+
+    try {
+      const res = await fetch('/api/generate/batch/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error('Regeneration failed');
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('Stream not available');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'result') {
+                const result = data.result;
+                const mapped: GeneratedRow = {
+                  id: result.id,
+                  fileName: result.fileName,
+                  title: result.title || '',
+                  description: result.description || '',
+                  keywords: Array.isArray(result.keywords) ? result.keywords : [],
+                  altText: result.altText || '',
+                  provider: result.provider || '',
+                  model: result.model || '',
+                  tokensUsed: result.tokensUsed || 0,
+                  status: result.status || 'complete',
+                  error: result.error,
+                  platform: result.platform || selectedPlatform,
+                };
+
+                setRows((prev) => prev.map((r) => (r.id === result.id ? mapped : r)));
+                setGeneratingIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(result.id);
+                  return next;
+                });
+              } else if (data.type === 'done') {
+                queryClient.invalidateQueries({ queryKey: ['credits'] });
+                toast({ title: 'Regenerated successfully', variant: 'success' });
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (e: any) {
+      toast({ title: 'Regeneration failed', description: e.message, variant: 'error' });
+    } finally {
+      setGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(rowId);
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+    }
   }
 
   function addTag(list: 'negWords' | 'negKws', value: string) {
@@ -511,21 +697,61 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
 
   const readyCount = files.filter((f) => f.status === 'done').length;
   const hasResults = rows.length > 0;
-  const canGenerate = readyCount > 0 && !generate.isPending && credits >= readyCount;
+  const canGenerate = readyCount > 0 && !isGenerating && credits >= readyCount;
   const batchLabel = batchLimit < 0 ? 'unlimited' : `${readyCount}/${batchLimit}`;
   const currentPlatformConfig = PLATFORMS[selectedPlatform];
 
+  // Presentational lookup: result rows echo back the uploaded file id, so we
+  // can show the source thumbnail + original file size without any API change.
+  const fileById = React.useMemo(
+    () => new Map(files.map((f) => [f.id, f] as const)),
+    [files],
+  );
+
+  const displayedItems = React.useMemo(() => {
+    const items: Array<
+      | { type: 'generating'; file: UploadedFile }
+      | { type: 'row'; row: GeneratedRow; file?: UploadedFile }
+    > = [];
+    const handledIds = new Set<string>();
+
+    for (const f of files) {
+      const row = rows.find((r) => r.id === f.id);
+      if (row) {
+        items.push({ type: 'row', row, file: f });
+        handledIds.add(f.id);
+      } else if (generatingIds.has(f.id)) {
+        items.push({ type: 'generating', file: f });
+        handledIds.add(f.id);
+      }
+    }
+
+    for (const r of rows) {
+      if (!handledIds.has(r.id)) {
+        items.push({ type: 'row', row: r, file: fileById.get(r.id) });
+      }
+    }
+
+    return items;
+  }, [files, rows, generatingIds, fileById]);
+
+  function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div>
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+        <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
           Stock Photo & Vector AI Suite
         </p>
-        <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">
+        <h1 className="mt-0.5 font-display text-xl font-bold tracking-tight">
           Image → Stock Metadata Generator
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
           Generate SEO-engineered titles, descriptions, and keywords optimized for individual stock
           agency algorithms.
         </p>
@@ -533,20 +759,20 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
 
       {/* Target Agency / Platform Selector */}
       <Card className="border-border bg-card">
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-3">
+        <CardContent className="p-3">
+          <div className="flex flex-col gap-2.5">
             <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <Layers className="h-3.5 w-3.5 text-accent" />
                 Target Stock Agency / Algorithm
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-[11px] text-muted-foreground">
                 Active: <strong className="text-foreground">{currentPlatformConfig.label}</strong>
               </span>
             </div>
 
             {/* Platform selection pills */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-1.5">
               {(Object.keys(PLATFORMS) as TargetPlatform[]).map((platKey) => {
                 const p = PLATFORMS[platKey];
                 const isActive = selectedPlatform === platKey;
@@ -556,44 +782,32 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                     type="button"
                     onClick={() => handlePlatformChange(platKey)}
                     className={cn(
-                      'flex flex-col items-start rounded-xl border p-3 text-left transition-all',
+                      'flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
                       isActive
-                        ? 'border-accent bg-accent/10 shadow-sm ring-1 ring-accent'
-                        : 'border-border bg-card-2 hover:border-border hover:bg-card hover:shadow-xs',
+                        ? 'border-accent bg-accent/10 text-accent'
+                        : 'border-border bg-card-2 text-muted-foreground hover:border-accent/40 hover:text-foreground',
                     )}
                   >
-                    <div className="flex w-full items-center justify-between">
-                      <span
-                        className={cn(
-                          'text-xs font-bold',
-                          isActive ? 'text-accent' : 'text-foreground',
-                        )}
-                      >
-                        {p.shortLabel}
-                      </span>
-                      {isActive && <Check className="h-3.5 w-3.5 text-accent" />}
-                    </div>
-                    <span className="mt-1 line-clamp-2 text-[10px] text-muted-foreground leading-tight">
-                      {p.tagline.split('+')[0]}
-                    </span>
+                    <span className="flex-1 truncate text-xs font-semibold">{p.shortLabel}</span>
+                    {isActive && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
                   </button>
                 );
               })}
             </div>
 
             {/* Algorithm Info Banner */}
-            <div className="flex items-start gap-2.5 rounded-lg border border-accent/20 bg-accent/5 p-3 text-xs text-foreground">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+            <div className="flex items-start gap-2.5 rounded-lg border border-accent/20 bg-accent/5 p-2.5 text-xs text-foreground">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
               <div className="space-y-1">
                 <p className="font-medium text-foreground">
                   {currentPlatformConfig.label} SEO Rules Applied:
                 </p>
-                <p className="text-xs text-muted-foreground">{currentPlatformConfig.description}</p>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                <p className="text-[11px] text-muted-foreground">{currentPlatformConfig.description}</p>
+                <div className="mt-1 flex flex-wrap gap-1">
                   {currentPlatformConfig.features.map((feat, idx) => (
                     <span
                       key={idx}
-                      className="inline-flex items-center rounded-md bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent"
+                      className="inline-flex items-center rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent"
                     >
                       {feat}
                     </span>
@@ -605,20 +819,20 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
         {/* Left: uploader + results */}
-        <div className="space-y-6">
+        <div className="space-y-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="p-4 pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle>Images</CardTitle>
-                <span className="text-xs text-muted-foreground">
+                <CardTitle className="text-sm">Images</CardTitle>
+                <span className="text-[11px] text-muted-foreground">
                   {files.length} file{files.length === 1 ? '' : 's'} · {batchLabel}
                 </span>
               </div>
-              <CardDescription>1 credit per image</CardDescription>
+              <CardDescription className="text-[11px]">1 credit per image</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3 p-4 pt-0">
               <div
                 onDrop={onDrop}
                 onDragOver={(e) => {
@@ -630,15 +844,15 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                   (document.getElementById('generator-file-input') as HTMLInputElement)?.click()
                 }
                 className={cn(
-                  'flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed bg-card-2 p-8 text-center transition-colors',
+                  'flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-card-2 p-6 text-center transition-colors',
                   dragOver ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/60',
                 )}
               >
-                <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                <span className="mt-2 text-sm text-muted-foreground">
+                <ImageIcon className="h-7 w-7 text-muted-foreground" />
+                <span className="mt-1.5 text-[13px] font-medium text-foreground">
                   Click to upload or drag &amp; drop
                 </span>
-                <span className="mt-1 text-xs text-muted-foreground/80">
+                <span className="mt-0.5 text-[11px] text-muted-foreground/80">
                   JPG, PNG, SVG, EPS, AI
                 </span>
                 <input
@@ -654,7 +868,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
               {files.length > 0 && (
                 <>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-[11px] text-muted-foreground">
                       {files.length} file{files.length === 1 ? '' : 's'} selected
                     </span>
                     <button
@@ -664,37 +878,52 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                         setRows([]);
                         fileMapRef.current.clear();
                       }}
-                      className="flex items-center gap-1 rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
+                      className="flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/15"
                     >
                       <X className="h-3 w-3" />
                       Clear all
                     </button>
                   </div>
-                  <ul className="space-y-2">
+                  <ul className="space-y-1.5">
                     {files.map((f) => (
                     <li
                       key={f.id}
-                      className="flex items-center gap-3 rounded-lg border border-border bg-card-2 p-2"
+                      className="flex items-center gap-2.5 rounded-lg border border-border bg-card-2 p-1.5"
                     >
-                      {f.previewUrl ? (
+                      {f.dataUrl || f.previewUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={f.previewUrl}
+                          src={f.dataUrl || f.previewUrl}
                           alt={f.name}
-                          className="h-12 w-12 shrink-0 rounded object-cover"
+                          className="h-10 w-10 shrink-0 rounded object-cover"
                         />
                       ) : (
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-muted">
-                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-muted">
+                          {f.status === 'analyzing' ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          ) : (
+                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                          )}
                         </div>
                       )}
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">{f.name}</p>
-                        {f.error && <p className="text-xs text-destructive">{f.error}</p>}
+                        <p className="truncate text-[13px] font-medium text-foreground">{f.name}</p>
+                        {f.error && <p className="text-[11px] text-destructive">{f.error}</p>}
                       </div>
-                      <Badge variant={STATUS_VARIANT[f.status]} className="shrink-0">
+                      <Badge variant={STATUS_VARIANT[f.status]} className="shrink-0 text-[10px]">
                         {STATUS_LABEL[f.status]}
                       </Badge>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${f.name}`}
+                        onClick={() => {
+                          setFiles((prev) => prev.filter((x) => x.id !== f.id));
+                          fileMapRef.current.delete(f.id);
+                        }}
+                        className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </li>
                     ))}
                   </ul>
@@ -702,21 +931,22 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
               )}
 
               <Button
-                className="w-full"
-                onClick={() => generate.mutate()}
+                size="sm"
+                className="h-9 w-full text-[13px]"
+                onClick={() => startStreamingGeneration()}
                 disabled={!canGenerate}
               >
-                {generate.isPending ? (
+                {isGenerating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Sparkles className="h-4 w-4" />
                 )}
-                {generate.isPending
+                {isGenerating
                   ? `Generating for ${currentPlatformConfig.shortLabel}…`
                   : `Generate ${currentPlatformConfig.shortLabel} Metadata${readyCount > 1 ? ` (${readyCount})` : ''}`}
               </Button>
               {readyCount > 0 && credits < readyCount && (
-                <p className="text-xs text-amber-400">
+                <p className="text-[11px] text-amber-400">
                   You need {readyCount} credits but have {credits}.
                 </p>
               )}
@@ -725,35 +955,36 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
 
           {/* Results table (editable before export) */}
           <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Generated Metadata</CardTitle>
-                  <CardDescription>
+            <CardHeader className="p-4 pb-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-sm">Generated Metadata</CardTitle>
+                  <CardDescription className="text-[11px]">
                     {hasResults
                       ? `${rows.length} image(s) processed for ${currentPlatformConfig.label}. Edit any field before exporting.`
                       : 'Generated metadata will appear here.'}
                   </CardDescription>
                 </div>
                 {hasResults && (
-                  <div className="flex gap-2">
+                  <div className="flex shrink-0 gap-1.5">
                     <Button
                       variant="outline"
                       size="sm"
+                      className="h-7 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive"
                       onClick={() => {
                         setFiles([]);
                         setRows([]);
                         fileMapRef.current.clear();
                         setShowExportPanel(false);
                       }}
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3 w-3" />
                       Clear All
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
+                      className="h-7 text-[11px]"
                       onClick={async () => {
                         await navigator.clipboard.writeText(
                           rows
@@ -764,26 +995,27 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                         toast({ title: 'Copied titles to clipboard', variant: 'success' });
                       }}
                     >
-                      <Copy className="h-4 w-4" />
+                      <Copy className="h-3 w-3" />
                       Copy Titles
                     </Button>
                     <Button
                       variant="subtle"
                       size="sm"
+                      className="h-7 text-[11px]"
                       onClick={() => setShowExportPanel((v) => !v)}
                     >
-                      <Download className="h-4 w-4" />
+                      <Download className="h-3 w-3" />
                       Export CSV
                     </Button>
                   </div>
                 )}
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3 p-4 pt-0">
               {showExportPanel && hasResults && (
-                <div className="space-y-3 rounded-lg border border-border bg-card-2 p-4">
+                <div className="space-y-2.5 rounded-lg border border-border bg-card-2 p-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-foreground">
+                    <h3 className="text-[13px] font-semibold text-foreground">
                       Agency CSV Export Config
                     </h3>
                     <Badge variant="secondary" className="text-[10px]">
@@ -792,7 +1024,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                   </div>
 
                   <div>
-                    <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                       Stock Agency Format
                     </label>
                     <select
@@ -811,7 +1043,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
 
                   {(exportFormat === 'adobe' || exportFormat === 'shutterstock' || exportFormat === 'freepik' || exportFormat === 'generic') && (
                     <div>
-                      <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                         Category (Optional)
                       </label>
                       <Input
@@ -825,7 +1057,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
 
                   {(exportFormat === 'adobe' || exportFormat === 'shutterstock') && (
                     <div>
-                      <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                         Model / Property Releases (Optional)
                       </label>
                       <Input
@@ -861,183 +1093,287 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                 </div>
               )}
 
-              {!hasResults ? (
+              {displayedItems.length === 0 ? (
                 <div className="flex min-h-[160px] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
                   <Layers className="h-8 w-8 text-muted-foreground/50" />
                   <span>No metadata generated yet. Upload images above to get started.</span>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {rows.map((r) => {
+                  {displayedItems.map((item) => {
+                    if (item.type === 'generating') {
+                      const file = item.file;
+                      return (
+                        <div
+                          key={`generating-${file.id}`}
+                          className="ai-card-generating transition-all duration-300"
+                        >
+                          <div className="flex gap-3.5 p-3.5">
+                            {/* Source thumbnail with soft AI badge */}
+                            <div className="relative w-[132px] shrink-0">
+                              {file.dataUrl || file.previewUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={file.dataUrl || file.previewUrl}
+                                  alt={file.name}
+                                  className="aspect-square w-full rounded-md border border-border bg-card object-cover opacity-80"
+                                />
+                              ) : (
+                                <div className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-card">
+                                  <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
+                                </div>
+                              )}
+                              <p className="mt-1.5 truncate text-[10px] text-muted-foreground font-medium">
+                                {file.name}
+                              </p>
+                            </div>
+                            
+                            {/* Shimmer content */}
+                            <div className="min-w-0 flex-1 space-y-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    {currentPlatformConfig.shortLabel}
+                                  </Badge>
+                                  <div className="flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5">
+                                    <Sparkles className="h-3 w-3 animate-spin text-accent" />
+                                    <span className="text-[10px] font-medium text-accent">
+                                      AI generating metadata…
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Sleek AI Shimmer Skeleton Lines */}
+                              <div className="space-y-2">
+                                {/* Title placeholder */}
+                                <div className="ai-skeleton-bar h-5 w-4/5"></div>
+                                {/* Description placeholder */}
+                                <div className="ai-skeleton-bar h-4 w-full"></div>
+                                {/* Keyword pill placeholders */}
+                                <div className="flex gap-1.5 flex-wrap pt-1">
+                                  <div className="ai-skeleton-bar h-5 w-16"></div>
+                                  <div className="ai-skeleton-bar h-5 w-20"></div>
+                                  <div className="ai-skeleton-bar h-5 w-14"></div>
+                                  <div className="ai-skeleton-bar h-5 w-24"></div>
+                                  <div className="ai-skeleton-bar h-5 w-16"></div>
+                                  <div className="ai-skeleton-bar h-5 w-12"></div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const r = item.row;
                     const rowPlatform = (r.platform || selectedPlatform) as TargetPlatform;
                     const rowPlatConfig = PLATFORMS[rowPlatform] || PLATFORMS.adobe;
                     const isAdobe = rowPlatform === 'adobe';
+                    const srcFile = item.file || fileById.get(r.id);
+                    const preview = srcFile?.dataUrl || srcFile?.previewUrl;
+                    const isRowGenerating = generatingIds.has(r.id);
 
                     return (
-                      <div key={r.id} className="space-y-3 rounded-xl border border-border bg-card-2 p-4 shadow-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="min-w-0 font-mono text-sm font-semibold text-foreground">
-                              {r.fileName}
-                            </span>
-                            <Badge variant="secondary" className="text-[10px]">
-                              {rowPlatConfig.shortLabel}
-                            </Badge>
-                          </div>
-                          <Badge
-                            variant={r.status === 'complete' ? 'success' : 'destructive'}
-                            className="shrink-0"
-                          >
-                            {r.status === 'complete' ? 'complete' : 'failed'}
-                          </Badge>
-                        </div>
-
-                        {r.status === 'failed' ? (
-                          <p className="text-xs text-muted-foreground">
-                            {r.error || 'Generation failed'} — credit refunded automatically.
-                          </p>
-                        ) : (
-                          <div className="space-y-3">
-                            <div>
-                              <div className="flex items-center justify-between">
-                                <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                                  Title ({r.title.length} chars)
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    await navigator.clipboard.writeText(r.title);
-                                    setCopiedId(`title-${r.id}`);
-                                    setTimeout(() => setCopiedId(null), 1500);
-                                  }}
-                                  className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                                >
-                                  {copiedId === `title-${r.id}` ? (
-                                    <Check className="h-3 w-3 text-success" />
-                                  ) : (
-                                    <Copy className="h-3 w-3" />
-                                  )}
-                                  Copy
-                                </button>
-                              </div>
-                              <Input
-                                value={r.title}
-                                onChange={(e) => updateRow(r.id, 'title', e.target.value)}
-                                className="mt-1"
+                      <div
+                        key={r.id}
+                        className={cn(
+                          "overflow-hidden rounded-lg border border-border bg-card-2 transition-all duration-300",
+                          isRowGenerating && "opacity-60 pointer-events-none"
+                        )}
+                      >
+                        <div className="flex gap-3 p-3">
+                          {/* Source thumbnail */}
+                          <div className="w-[132px] shrink-0">
+                            {preview ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={preview}
+                                alt={r.fileName}
+                                className="aspect-square w-full rounded-md border border-border bg-card object-cover"
                               />
-                            </div>
-
-                            {(includeDescription || r.description) && (
-                              <div>
-                                <div className="flex items-center justify-between">
-                                  <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                                    Description ({r.description.length} chars)
-                                  </label>
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      await navigator.clipboard.writeText(r.description);
-                                      setCopiedId(`desc-${r.id}`);
-                                      setTimeout(() => setCopiedId(null), 1500);
-                                    }}
-                                    className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                                  >
-                                    {copiedId === `desc-${r.id}` ? (
-                                      <Check className="h-3 w-3 text-success" />
-                                    ) : (
-                                      <Copy className="h-3 w-3" />
-                                    )}
-                                    Copy
-                                  </button>
-                                </div>
-                                <Input
-                                  value={r.description}
-                                  onChange={(e) => updateRow(r.id, 'description', e.target.value)}
-                                  className="mt-1"
-                                />
+                            ) : (
+                              <div className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-card">
+                                <ImageIcon className="h-5 w-5 text-muted-foreground/50" />
                               </div>
                             )}
-                            <div>
-                              <div className="flex items-center justify-between">
-                                <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                                  Keywords ({r.keywords.length})
-                                  {isAdobe && (
-                                    <span className="ml-1 text-[10px] text-accent font-normal">
-                                      (Top 10 highlighted for Adobe ranking)
-                                    </span>
-                                  )}
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    await navigator.clipboard.writeText(r.keywords.join(', '));
-                                    setCopiedId(`kw-${r.id}`);
-                                    setTimeout(() => setCopiedId(null), 1500);
-                                  }}
-                                  className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                                >
-                                  {copiedId === `kw-${r.id}` ? (
-                                    <Check className="h-3 w-3 text-success" />
-                                  ) : (
-                                    <Copy className="h-3 w-3" />
-                                  )}
-                                  Copy All
-                                </button>
-                              </div>
+                            <p className="mt-1.5 truncate text-[10px] text-muted-foreground">
+                              {r.fileName}
+                            </p>
+                            {srcFile && (
+                              <p className="text-[10px] text-muted-foreground/70">
+                                Size: {formatSize(srcFile.size)}
+                              </p>
+                            )}
+                          </div>
 
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {r.keywords.map((k, i) => {
-                                  const isTopAdobe = isAdobe && i < 10;
-                                  return (
-                                    <span
-                                      key={`${k}-${i}`}
-                                      className={cn(
-                                        'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                                        isTopAdobe
-                                          ? 'border border-accent/40 bg-accent/15 text-accent font-semibold'
-                                          : 'border border-border bg-card text-foreground',
-                                      )}
-                                    >
-                                      {isTopAdobe && (
-                                        <span className="font-mono text-[9px] opacity-75">
-                                          #{i + 1}
-                                        </span>
-                                      )}
-                                      {k}
-                                      <button
-                                        type="button"
-                                        onClick={() => removeRowKeyword(r.id, i)}
-                                        className="text-muted-foreground hover:text-destructive"
-                                        aria-label={`Remove keyword ${k}`}
-                                      >
-                                        <X className="h-3 w-3" />
-                                      </button>
-                                    </span>
-                                  );
-                                })}
+                          {/* Editable metadata */}
+                          <div className="min-w-0 flex-1 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {rowPlatConfig.shortLabel}
+                                </Badge>
+                                {isAdobe && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Top 10 keywords rank highest
+                                  </span>
+                                )}
                               </div>
-
-                              <form
-                                onSubmit={(e) => {
-                                  e.preventDefault();
-                                  const input = e.currentTarget.elements.namedItem('newKw') as HTMLInputElement;
-                                  if (input && input.value.trim()) {
-                                    addRowKeyword(r.id, input.value.trim());
-                                    input.value = '';
-                                  }
-                                }}
-                                className="mt-2 flex gap-2"
+                              <Badge
+                                variant={r.status === 'complete' ? 'success' : 'destructive'}
+                                className="shrink-0 text-[10px]"
                               >
-                                <Input
-                                  name="newKw"
-                                  placeholder="Add keyword…"
-                                  className="h-7 text-xs"
-                                />
-                                <Button type="submit" size="sm" variant="subtle" className="h-7 shrink-0">
-                                  <Plus className="h-3 w-3" />
-                                </Button>
-                              </form>
+                                {r.status === 'complete' ? 'complete' : 'failed'}
+                              </Badge>
                             </div>
+
+                            {r.status === 'failed' ? (
+                              <p className="text-xs text-muted-foreground">
+                                {r.error || 'Generation failed'} — credit refunded automatically.
+                              </p>
+                            ) : (
+                              <>
+                                <div>
+                                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                    Title ({r.title.length} chars)
+                                  </label>
+                                  <Input
+                                    value={r.title}
+                                    onChange={(e) => updateRow(r.id, 'title', e.target.value)}
+                                    className="mt-1 h-9 text-[13px]"
+                                  />
+                                </div>
+
+                                {(includeDescription || r.description) && (
+                                  <div>
+                                    <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                      Description ({r.description.length} chars)
+                                    </label>
+                                    <Input
+                                      value={r.description}
+                                      onChange={(e) =>
+                                        updateRow(r.id, 'description', e.target.value)
+                                      }
+                                      className="mt-1 h-9 text-[13px]"
+                                    />
+                                  </div>
+                                )}
+
+                                <div>
+                                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                    Keywords ({r.keywords.length})
+                                  </label>
+                                  <div className="mt-1 rounded-md border border-border bg-card p-2">
+                                    <div className="flex flex-wrap gap-1">
+                                      {r.keywords.map((k, i) => {
+                                        const isTopAdobe = isAdobe && i < 10;
+                                        return (
+                                          <span
+                                            key={`${k}-${i}`}
+                                            className={cn(
+                                              'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+                                              isTopAdobe
+                                                ? 'border-accent/40 bg-accent/15 text-accent'
+                                                : 'border-border bg-card-2 text-foreground',
+                                            )}
+                                          >
+                                            {isTopAdobe && (
+                                              <span className="font-mono text-[9px] opacity-70">
+                                                #{i + 1}
+                                              </span>
+                                            )}
+                                            {k}
+                                            <button
+                                              type="button"
+                                              onClick={() => removeRowKeyword(r.id, i)}
+                                              className="text-muted-foreground hover:text-destructive"
+                                              aria-label={`Remove keyword ${k}`}
+                                            >
+                                              <X className="h-3 w-3" />
+                                            </button>
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                    <form
+                                      onSubmit={(e) => {
+                                        e.preventDefault();
+                                        const input = e.currentTarget.elements.namedItem(
+                                          'newKw',
+                                        ) as HTMLInputElement;
+                                        if (input && input.value.trim()) {
+                                          addRowKeyword(r.id, input.value.trim());
+                                          input.value = '';
+                                        }
+                                      }}
+                                      className="mt-1.5"
+                                    >
+                                      <input
+                                        name="newKw"
+                                        placeholder="Add keyword…"
+                                        className="h-7 w-full rounded border border-border bg-background/60 px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                      />
+                                    </form>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Footer actions */}
+                        {r.status === 'complete' && (
+                          <div className="flex items-center justify-between gap-2 border-t border-border bg-card px-3 py-2">
+                            <div className="flex items-center gap-1.5">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-[11px]"
+                                onClick={async () => {
+                                  await navigator.clipboard.writeText(r.title);
+                                  setCopiedId(`title-${r.id}`);
+                                  setTimeout(() => setCopiedId(null), 1500);
+                                }}
+                              >
+                                {copiedId === `title-${r.id}` ? (
+                                  <Check className="h-3 w-3 text-emerald-400" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                                Copy Title
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-[11px]"
+                                onClick={async () => {
+                                  await navigator.clipboard.writeText(r.keywords.join(', '));
+                                  setCopiedId(`kw-${r.id}`);
+                                  setTimeout(() => setCopiedId(null), 1500);
+                                }}
+                              >
+                                {copiedId === `kw-${r.id}` ? (
+                                  <Check className="h-3 w-3 text-emerald-400" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                                Copy Keywords
+                              </Button>
+                            </div>
+                            <Button
+                              size="sm"
+                              className="h-7 text-[11px]"
+                              onClick={() => regenerateSingle(r.id)}
+                              disabled={isGenerating || isRowGenerating}
+                            >
+                              {isRowGenerating ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-3 w-3" />
+                              )}
+                              Regenerate
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -1050,24 +1386,24 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
         </div>
 
         {/* Right: controls rail */}
-        <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
+        <div className="space-y-3 lg:sticky lg:top-6 lg:self-start">
           {/* Controls Card - Title Length only */}
           <Card>
-            <CardHeader>
+            <CardHeader className="p-4 pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle>Controls</CardTitle>
+                <CardTitle className="text-sm">Controls</CardTitle>
                 <Badge variant="secondary" className="text-[10px]">
                   {currentPlatformConfig.shortLabel} Specs
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent className="space-y-5">
+            <CardContent className="space-y-4 p-4 pt-0">
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                     Title Length
                   </label>
-                  <span className="font-mono text-xs text-foreground">
+                  <span className="font-mono text-[11px] text-foreground">
                     {settings.titleLength} chars (~{Math.round(settings.titleLength / 6)} words)
                   </span>
                 </div>
@@ -1088,17 +1424,17 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                     setSettings((s) => ({ ...s, titleLength }));
                     persistSettings({ titleLength });
                   }}
-                  className="mt-2"
+                  className="mt-1.5"
                 />
               </div>
 
               {/* Keywords Count */}
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                     Keywords Count
                   </label>
-                  <span className="font-mono text-xs text-foreground">
+                  <span className="font-mono text-[11px] text-foreground">
                     {settings.keywordsCount} tags
                   </span>
                 </div>
@@ -1119,37 +1455,37 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                     setSettings((s) => ({ ...s, keywordsCount }));
                     persistSettings({ keywordsCount });
                   }}
-                  className="mt-2"
+                  className="mt-1.5"
                 />
               </div>
             </CardContent>
           </Card>
 
           {/* Advanced Settings - Collapsible */}
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex w-full items-center justify-between rounded-lg border border-border bg-card-2 px-3 py-2.5 text-sm font-medium transition-colors hover:bg-card hover:border-accent/40"
+              className="flex w-full items-center justify-between rounded-lg border border-border bg-card-2 px-3 py-2 text-[13px] font-medium transition-colors hover:bg-card hover:border-accent/40"
             >
               <span className="flex items-center gap-2">
-                <Settings className="h-4 w-4 text-accent" />
+                <Settings className="h-3.5 w-3.5 text-accent" />
                 Advanced
               </span>
               <ChevronDown
-                className={cn('h-4 w-4 text-muted-foreground transition-transform',
+                className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform',
                   showAdvanced && 'rotate-180')}
               />
             </button>
 
             {showAdvanced && (
-              <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
+              <div className="space-y-2.5 animate-in slide-in-from-top-2 duration-200">
                 {/* Description Length */}
                 <Card>
-                  <CardContent className="p-4 space-y-5">
+                  <CardContent className="p-3 space-y-4">
                     <div>
                       <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        <label className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                           <Lock className="h-3 w-3" />
                           Description Length
                         </label>
@@ -1161,7 +1497,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                       </div>
                       <p
                         className={cn(
-                          'mt-1 rounded-lg border px-3 py-2 font-mono text-xs transition-colors',
+                          'mt-1 rounded-lg border px-3 py-1.5 font-mono text-[11px] transition-colors',
                           includeDescription
                             ? 'border-border bg-card-2 text-muted-foreground'
                             : 'border-border/50 bg-card-2/50 text-muted-foreground/50 line-through',
@@ -1176,10 +1512,10 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
 
                 {/* Options */}
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Options</CardTitle>
+                  <CardHeader className="p-4 pb-0">
+                    <CardTitle className="text-sm">Options</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-4">
+                  <CardContent className="space-y-3 p-4">
                     <div>
                       <Toggle
                         label="Description"
@@ -1278,6 +1614,20 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
           </div>
         </div>
       </div>
+
+      {/* Success Modal */}
+      <MetadataSuccessModal
+        open={successModalOpen}
+        onClose={() => setSuccessModalOpen(false)}
+        rows={rows}
+        platform={selectedPlatform}
+        exportFormat={exportFormat}
+        isExporting={exportMutation.isPending}
+        onExport={() => {
+          exportMutation.mutate();
+          setSuccessModalOpen(false);
+        }}
+      />
     </div>
   );
 }

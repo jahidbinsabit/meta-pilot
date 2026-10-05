@@ -14,6 +14,8 @@ import {
   buildImagePromptUserPrompt,
 } from '@/lib/prompt-styles/prompt';
 
+import { isUserApiKeyRequired, getUserAiKeysStatus } from '@/lib/ai/user-keys';
+
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
@@ -69,6 +71,21 @@ export async function POST(req: Request) {
     }
     if (!style) {
       return NextResponse.json({ error: 'style_required' }, { status: 400 });
+    }
+
+    // Check if user API key is enforced
+    const keyRequired = await isUserApiKeyRequired();
+    if (keyRequired) {
+      const keysStatus = await getUserAiKeysStatus(user.id);
+      if (!keysStatus.hasAnyKey) {
+        return NextResponse.json(
+          {
+            error: 'user_api_key_required',
+            message: 'API Key is required. Please configure your API key in Settings to continue.',
+          },
+          { status: 400 },
+        );
+      }
     }
 
     // Resolve the admin-configured preset. An unknown or disabled slug is
@@ -146,6 +163,7 @@ export async function POST(req: Request) {
             responseSchemaName: 'ImagePrompt',
             maxTokens: 8192,
             temperature: 0.7,
+            userId: user.id,
           })
         ).parsed as ImagePromptResult | null;
 
@@ -160,6 +178,7 @@ export async function POST(req: Request) {
               responseSchemaName: 'ImagePrompt',
               maxTokens: 8192,
               temperature: 0.2,
+              userId: user.id,
             })
           ).parsed as ImagePromptResult | null;
         }

@@ -9,7 +9,9 @@
 
 import { GeminiAdapter } from '@/lib/ai/gemini';
 import { OpenAiAdapter } from '@/lib/ai/openai';
+import { GrokAdapter } from '@/lib/ai/grok';
 import { CustomAdapter } from '@/lib/ai/adapters/custom';
+import { resolveUserAdapter, isUserApiKeyRequired } from '@/lib/ai/user-keys';
 import type { AiAdapter, AiRequest, AiResponse, ProviderConfig } from '@/lib/ai/types';
 import {
   getActiveProviderForTool,
@@ -51,6 +53,8 @@ export async function generateWithAI(opts: {
   provider?: string;
   /** Disable automatic fallback to alternative provider. */
   disableFallback?: boolean;
+  /** User ID if calling on behalf of an authenticated user. */
+  userId?: string;
 }): Promise<AiResponse> {
   const req: AiRequest = {
     toolSlug: opts.toolSlug,
@@ -65,7 +69,33 @@ export async function generateWithAI(opts: {
     maxRetries: opts.maxRetries,
   };
 
-  // Try primary provider
+  // If userId is provided, check for user-configured API keys first or if key is required
+  if (opts.userId) {
+    const userResolved = await resolveUserAdapter(opts.userId, opts.provider);
+    if (userResolved) {
+      console.log(`[AI Router] Using user-provided ${userResolved.provider} API key`);
+      const result = await userResolved.adapter.generate(req);
+      if (result.success || opts.disableFallback) {
+        return result;
+      }
+      // If user key failed with retryable error, allow fallback to system providers
+      if (result.errorMessage && isRetryableError(result.errorMessage)) {
+        console.log(`[AI Router] User ${userResolved.provider} key failed with retryable error: ${result.errorMessage}, trying system fallbacks...`);
+        // Continue to system providers below
+      } else {
+        // Non-retryable error (auth, quota, etc.) - inform user their key failed
+        throw new Error(`[${userResolved.provider}] User API key failed: ${result.errorMessage}`);
+      }
+    }
+  } else {
+    // If no userId but API key is strictly required by admin
+    const required = await isUserApiKeyRequired();
+    if (required) {
+      throw new Error('USER_API_KEY_REQUIRED: Admin has set API Key to required. Please configure your API key to continue.');
+    }
+  }
+
+  // Try primary provider (Admin/System configured)
   const primaryProvider = opts.provider || (await getActiveProviderForTool(opts.toolSlug));
   try {
     const adapter = await getAdapterForTool(opts.toolSlug, opts.provider);
@@ -159,6 +189,8 @@ function getAdapterForProvider(cfg: any): AiAdapter {
       return new GeminiAdapter(cfg.apiKey, cfg.modelDefault);
     case 'openai':
       return new OpenAiAdapter(cfg.apiKey, cfg.modelDefault);
+    case 'grok':
+      return new GrokAdapter(cfg.apiKey, cfg.modelDefault || 'grok-2-latest');
     default:
       // Custom / OpenAI-compatible provider (Groq, OpenRouter, DeepSeek, Together, etc.)
       return new CustomAdapter({

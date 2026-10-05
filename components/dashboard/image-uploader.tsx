@@ -20,8 +20,8 @@ import { compressImageForUpload } from '@/lib/tools/client-image';
 const ACCEPT = ['.jpg', '.jpeg', '.png', '.svg', '.eps', '.ai'];
 const VECTOR = new Set(['.svg', '.eps', '.ai']);
 
-// Temporarily disable vector conversion to fix 413 errors
-const DISABLE_VECTOR_CONVERSION = true;
+// Enable vector conversion for EPS, SVG, AI files
+const DISABLE_VECTOR_CONVERSION = false;
 
 export function fileExt(name: string): string {
   return ('.' + (name.split('.').pop() || '')).toLowerCase();
@@ -53,7 +53,7 @@ export function ImageUploader({
   const toast = useToast();
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  const readyCount = files.filter((f) => f.status === 'done' && f.previewUrl).length;
+  const readyCount = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl)).length;
   React.useEffect(() => {
     onReadyChange?.(readyCount);
   }, [readyCount, onReadyChange]);
@@ -71,15 +71,27 @@ export function ImageUploader({
       }
       if (valid.length === 0) return;
 
-      const metas: UploadedFile[] = valid.map((f) => ({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        name: f.name,
-        size: f.size,
-        type: f.type || 'application/octet-stream',
-        dataUrl: '',
-        status: 'queued',
-        progress: 0,
-      }));
+      const metas: UploadedFile[] = valid.map((f) => {
+        const ext = fileExt(f.name);
+        const isRaster = ext === '.jpg' || ext === '.jpeg' || ext === '.png';
+        let initialDataUrl = '';
+        if (isRaster && typeof window !== 'undefined') {
+          try {
+            initialDataUrl = URL.createObjectURL(f);
+          } catch {
+            // ignore
+          }
+        }
+        return {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: f.name,
+          size: f.size,
+          type: f.type || 'application/octet-stream',
+          dataUrl: initialDataUrl,
+          status: 'queued',
+          progress: 0,
+        };
+      });
 
       let next: UploadedFile[] = [];
       onFilesChange((prev) => {
@@ -117,94 +129,31 @@ export function ImageUploader({
     const ext = fileExt(file.name);
     try {
       if (VECTOR.has(ext) && !DISABLE_VECTOR_CONVERSION) {
-        // For large vector files, skip server rasterization and upload directly to S3
-        // User will see the original file instead of a PNG preview
-        let uploadFile = file;
+        patch(meta.id, { status: 'analyzing', progress: 35 });
         
-        // SVG optimization for large files
-        if (file.size > 3 * 1024 * 1024 && ext === '.svg') {
-          patch(meta.id, { status: 'optimizing', progress: 25 });
-          
-          try {
-            const text = await file.text();
-            const minified = text
-              .replace(/<!--[\s\S]*?-->/g, '') // Remove comments
-              .replace(/>\s+</g, '><') // Remove whitespace between tags
-              .replace(/\s+/g, ' ') // Compress multiple spaces
-              .trim();
-            
-            const blob = new Blob([minified], { type: 'image/svg+xml' });
-            if (blob.size < file.size) {
-              uploadFile = new File([blob], file.name, { type: 'image/svg+xml' });
-              patch(meta.id, { size: uploadFile.size });
-            }
-          } catch (e) {
-            console.warn('SVG optimization failed, using original:', e);
-          }
-        }
+        // Use server-side rasterization for vector formats (EPS, AI, SVG)
+        // This converts them to web-friendly PNGs and generates preview URLs
+        const form = new FormData();
+        form.append('file', file);
         
-        // For EPS/AI or large SVG: Upload original file directly (no server rasterization)
-        // This avoids 413 errors by bypassing the /api/uploads/rasterize endpoint
-        patch(meta.id, { status: 'uploading', progress: 40 });
-        
-        // Use the same upload flow as raster images
-        // Try presigned URL first, fallback to direct upload
-        let key: string, mime: string, previewUrl: string;
+        const res = await fetch('/api/uploads/rasterize', {
+          method: 'POST',
+          body: form,
+        });
 
-        try {
-          const presign = await fetch('/api/uploads/preview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: uploadFile.name, size: uploadFile.size, type: uploadFile.type }),
-          });
-          if (!presign.ok) {
-            const j = await presign.json().catch(() => ({}));
-            throw new Error(j.error || 'preview_failed');
-          }
-          const presignData = await presign.json();
-
-          // Check if server says to use direct upload (local storage mode)
-          if (presignData.useDirectUpload) {
-            throw new Error('use_direct_upload');
-          }
-
-          patch(meta.id, { progress: 70 });
-
-          const put = await fetch(presignData.uploadUrl, {
-            method: 'PUT',
-            body: uploadFile,
-            headers: { 'Content-Type': presignData.mime },
-          });
-          if (!put.ok) throw new Error('upload_failed');
-
-          key = presignData.key;
-          mime = presignData.mime;
-          previewUrl = presignData.previewUrl;
-        } catch (uploadError: any) {
-          // Fallback to server-proxied upload if presigned URL fails
-          console.warn('Presigned upload failed, trying direct upload:', uploadError.message);
-          patch(meta.id, { progress: 50 });
-
-          const form = new FormData();
-          form.append('file', uploadFile);
-          const direct = await fetch('/api/uploads/direct', { method: 'POST', body: form });
-          if (!direct.ok) {
-            const j = await direct.json().catch(() => ({}));
-            throw new Error(j.error || 'upload_failed');
-          }
-          const directData = await direct.json();
-          key = directData.key;
-          mime = directData.mime;
-          previewUrl = directData.previewUrl;
-          patch(meta.id, { progress: 85 });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.message || j.error || 'rasterize_failed');
         }
 
+        const data = await res.json();
         patch(meta.id, {
           status: 'done',
           progress: 100,
-          key,
-          mimeType: mime,
-          previewUrl,
+          key: data.key,
+          mimeType: data.mime || 'image/png',
+          previewUrl: data.previewUrl,
+          dataUrl: data.dataUrl || data.previewUrl,
           previewWidth: 0,
           previewHeight: 0,
         });
@@ -347,8 +296,9 @@ export function ImageUploader({
           <button
             type="button"
             onClick={clearAll}
-            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            className="flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/15"
           >
+            <X className="h-3 w-3" />
             Clear all
           </button>
         </div>
@@ -360,10 +310,10 @@ export function ImageUploader({
             key={f.id}
             className="flex items-center gap-3 rounded-lg border border-border bg-card-2 p-2"
           >
-            {f.previewUrl ? (
+            {f.dataUrl || f.previewUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={f.previewUrl}
+                src={f.dataUrl || f.previewUrl}
                 alt={f.name}
                 className="h-12 w-12 shrink-0 rounded object-cover"
               />

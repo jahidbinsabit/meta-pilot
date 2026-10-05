@@ -33,9 +33,9 @@ export class GeminiAdapter extends BaseAdapter {
     completionTokens: number;
     finishReason?: string;
   }> {
-    let model = req.model || this.modelDefault || 'gemini-3.8-flash';
-    if (model === 'gemini-2.0-flash') {
-      model = 'gemini-3.8-flash';
+    let model = req.model || this.modelDefault || 'gemini-3.5-flash-lite';
+    if (model === 'gemini-2.0-flash' || model === 'gemini-3.8-flash') {
+      model = 'gemini-3.5-flash-lite';
     }
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
 
@@ -50,7 +50,7 @@ export class GeminiAdapter extends BaseAdapter {
     }
 
     const generationConfig: any = {
-      maxOutputTokens: req.maxTokens ?? 8192,
+      maxOutputTokens: Math.max(req.maxTokens ?? 8192, 1024),
       temperature: req.temperature ?? 0.7,
     };
 
@@ -87,7 +87,7 @@ export class GeminiAdapter extends BaseAdapter {
       .map((p: any) => p.text)
       .join('');
     
-    const text = textParts || candidateParts[0]?.text || '';
+    const text = textParts || candidateParts.map((p: any) => p.text || '').join('').trim();
     if (!text) {
       throw new Error(
         `Gemini returned no generated content (finish reason: ${candidate?.finishReason ?? 'unknown'}).`,

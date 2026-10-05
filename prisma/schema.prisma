@@ -394,6 +394,7 @@ model SiteSettings {
   gaMeasurementId       String?
   gscVerification       String?
   gscVerificationMethod String?
+  userApiKeyRequired    Boolean  @default(false)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -479,6 +480,10 @@ model User {
   status                UserStatus            @default(ACTIVE)
   passwordHash          String?
   stripeId              String?
+  geminiApiKey          String?
+  grokApiKey            String?
+  openaiApiKey          String?
+  preferredAiProvider   String?
   deletedAt             DateTime?
   deletedPurgeAt        DateTime?
   createdAt             DateTime              @default(now())

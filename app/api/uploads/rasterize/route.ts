@@ -3,33 +3,19 @@ import { requireApiUser } from '@/lib/api/auth';
 import {
   ACCEPTED_EXTENSIONS,
   convertSvgToPng,
+  convertEpsAiToPng,
   storePreview,
 } from '@/lib/generator/images';
 import sharp from 'sharp';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
-export const bodySizeLimit = '25mb';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 const ALLOWED = new Set(['.eps', '.ai', '.svg']);
 
 function extOf(name: string): string {
   return '.' + (name.split('.').pop() || '').toLowerCase();
-}
-
-/** Gray 800×600 placeholder PNG for EPS/AI files (no Ghostscript on Vercel) */
-async function makePlaceholderPng(): Promise<Buffer> {
-  return sharp({
-    create: {
-      width: 800,
-      height: 600,
-      channels: 3,
-      background: { r: 220, g: 220, b: 220 },
-    },
-  })
-    .png()
-    .toBuffer();
 }
 
 export async function POST(req: Request) {
@@ -65,18 +51,20 @@ export async function POST(req: Request) {
     if (ext === '.svg') {
       pngBuffer = await convertSvgToPng(input);
     } else {
-      // EPS/AI: Ghostscript unavailable on Vercel — use gray placeholder
-      pngBuffer = await makePlaceholderPng();
+      // EPS / AI: Real rasterization using Ghostscript / ImageMagick
+      pngBuffer = await convertEpsAiToPng(input);
     }
 
     step = 'store';
     const pngName = file.name.replace(/\.[^.]+$/, '') + '.png';
     const { key, url } = await storePreview(user.id, pngName, pngBuffer, 'image/png');
+    const dataUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`;
 
     return NextResponse.json({
       key,
       mime: 'image/png',
       previewUrl: url,
+      dataUrl,
       uploadUrl: null,
     });
   } catch (e: any) {

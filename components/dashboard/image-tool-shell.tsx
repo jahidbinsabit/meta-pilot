@@ -33,7 +33,7 @@ export function ImageToolShell({
   const { credits } = useCredits();
   const queryClient = useQueryClient();
 
-  const readyFiles = files.filter((f) => f.status === 'done' && f.previewUrl);
+  const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
   const totalCost = readyFiles.length * tool.creditCost;
   const canProcess =
     readyFiles.length > 0 &&

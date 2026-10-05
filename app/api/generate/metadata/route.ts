@@ -6,6 +6,7 @@ import { MetadataSchema } from '@/lib/ai/schemas';
 import { prisma } from '@/lib/db';
 import { buildMetadataPrompt } from '@/lib/generator/prompt';
 import type { TargetPlatform } from '@/lib/generator/types';
+import { isUserApiKeyRequired, getUserAiKeysStatus } from '@/lib/ai/user-keys';
 
 export async function POST(req: Request) {
   try {
@@ -29,6 +30,21 @@ export async function POST(req: Request) {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
+
+    // Check if user API key is enforced
+    const keyRequired = await isUserApiKeyRequired();
+    if (keyRequired) {
+      const keysStatus = await getUserAiKeysStatus(user.id);
+      if (!keysStatus.hasAnyKey) {
+        return NextResponse.json(
+          {
+            error: 'user_api_key_required',
+            message: 'API Key is required. Please configure your API key in Settings to continue.',
+          },
+          { status: 400 },
+        );
+      }
+    }
 
     const targetPlatform: TargetPlatform = platform || 'adobe';
     const cost = 1;
@@ -73,6 +89,7 @@ export async function POST(req: Request) {
       responseSchemaName: 'Metadata',
       maxTokens: 8192,
       temperature: 0.7,
+      userId: user.id,
     });
 
     // The adapter parses + validates the response against MetadataSchema.

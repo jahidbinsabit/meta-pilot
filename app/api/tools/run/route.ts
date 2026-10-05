@@ -54,6 +54,7 @@ export async function POST(req: Request) {
           responseSchemaName: 'AdobeKeywords',
           maxTokens: 1024,
           temperature: 0.6,
+          userId: user.id,
         });
         result = ai.parsed || { keywords: [subject], longTail: [], categories: [] };
         break;
@@ -67,6 +68,7 @@ export async function POST(req: Request) {
           userPrompt: `Write a concise, descriptive alt text for: ${subject}`,
           maxTokens: 256,
           temperature: 0.4,
+          userId: user.id,
         });
         result = { altText: ai.raw.trim() };
         break;

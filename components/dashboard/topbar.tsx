@@ -1,9 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { Bell, Menu, Search } from 'lucide-react';
+import { Bell, Key, Menu, Search } from 'lucide-react';
 import { useCredits } from '@/components/dashboard/credits-provider';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { UserApiKeysModal } from '@/components/dashboard/user-api-keys-dialog';
 
 export function TopBar({
   user,
@@ -28,6 +30,14 @@ export function TopBar({
         <span className="text-foreground">Dashboard</span>
       </div>
       <div className="ml-auto flex items-center gap-2">
+        <UserApiKeysModal
+          trigger={
+            <Button variant="outline" size="xs" className="hidden sm:inline-flex items-center gap-1.5 border-border">
+              <Key className="h-3.5 w-3.5 text-accent" />
+              <span>AI Keys</span>
+            </Button>
+          }
+        />
         <Badge variant={credits > 0 ? 'success' : 'warning'} className="hidden sm:inline-flex">
           {credits} credits
         </Badge>

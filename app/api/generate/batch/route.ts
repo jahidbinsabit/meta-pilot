@@ -8,6 +8,7 @@ import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
 import { getToolCost } from '@/lib/credits/cost';
+import { isUserApiKeyRequired, getUserAiKeysStatus } from '@/lib/ai/user-keys';
 
 interface BatchImage {
   id: string;
@@ -32,6 +33,21 @@ export async function POST(req: Request) {
     };
     if (!Array.isArray(images) || images.length === 0) {
       return NextResponse.json({ error: 'images_required' }, { status: 400 });
+    }
+
+    // Check if user API key is enforced
+    const keyRequired = await isUserApiKeyRequired();
+    if (keyRequired) {
+      const keysStatus = await getUserAiKeysStatus(user.id);
+      if (!keysStatus.hasAnyKey) {
+        return NextResponse.json(
+          {
+            error: 'user_api_key_required',
+            message: 'API Key is required. Please configure your API key in Settings to continue.',
+          },
+          { status: 400 },
+        );
+      }
     }
 
     // Validate maximum batch size to prevent resource exhaustion
@@ -112,6 +128,7 @@ export async function POST(req: Request) {
           responseSchemaName: 'Metadata',
           maxTokens: 8192,
           temperature: 0.7,
+          userId: user.id,
         });
 
         let parsed: any = ai.parsed as any;
@@ -130,6 +147,7 @@ export async function POST(req: Request) {
             responseSchemaName: 'Metadata',
             maxTokens: 8192,
             temperature: 0.2,
+            userId: user.id,
           });
           if (!ai.success && ai.errorMessage) {
             throw new Error(ai.errorMessage);

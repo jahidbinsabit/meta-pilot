@@ -13,6 +13,7 @@ const patchSchema = z.object({
   twitterHandle: z.string().optional(),
   gaMeasurementId: z.string().optional(),
   gscVerification: z.string().optional(),
+  userApiKeyRequired: z.boolean().optional(),
 });
 
 export async function GET() {

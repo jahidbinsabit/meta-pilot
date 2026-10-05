@@ -8,7 +8,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Input } from '@/components/ui/input';
 import { Toggle } from '@/components/ui/toggle';
 import { Badge } from '@/components/ui/badge';
-import { Key, Copy, Check, Trash2, Plus } from 'lucide-react';
+import { UserApiKeysForm } from '@/components/dashboard/user-api-keys-dialog';
+import { Key, Copy, Check, Trash2, Plus, Sparkles } from 'lucide-react';
 
 export function SettingsClient() {
   const [keys, setKeys] = React.useState<any[]>([]);
@@ -54,9 +55,35 @@ export function SettingsClient() {
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
           Settings
         </p>
-        <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">API Keys</h1>
+        <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">API Keys &amp; Providers</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Create keys to access StockForge AI from your own tools.
+          Configure personal AI provider keys or manage developer API keys.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent/15 text-accent">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div>
+              <CardTitle>AI Provider Keys (BYOK)</CardTitle>
+              <CardDescription>
+                Use your personal Gemini, Grok, or OpenAI API keys for direct speed and dedicated quotas.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <UserApiKeysForm />
+        </CardContent>
+      </Card>
+
+      <div className="pt-4">
+        <h2 className="font-display text-lg font-bold">StockForge API Keys</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Create keys to access StockForge AI from your own tools and scripts.
         </p>
       </div>
 

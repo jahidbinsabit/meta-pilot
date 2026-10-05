@@ -47,7 +47,6 @@ export async function deleteFileLocal(key: string): Promise<void> {
 }
 
 export function publicUrlLocal(key: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   const fileName = key.replace(/\//g, '-');
-  return `${base}/uploads/${fileName}`;
+  return `/uploads/${fileName}`;
 }

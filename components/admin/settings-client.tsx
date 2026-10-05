@@ -21,6 +21,7 @@ type SiteSettings = {
   twitterHandle?: string | null;
   gaMeasurementId?: string | null;
   gscVerification?: string | null;
+  userApiKeyRequired?: boolean;
 };
 
 export function SettingsClient({
@@ -41,6 +42,7 @@ export function SettingsClient({
     twitterHandle: initialSettings?.twitterHandle ?? '',
     gaMeasurementId: initialSettings?.gaMeasurementId ?? '',
     gscVerification: initialSettings?.gscVerification ?? '',
+    userApiKeyRequired: initialSettings?.userApiKeyRequired ?? false,
   });
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -196,6 +198,15 @@ export function SettingsClient({
           <CardDescription>Admin-controlled platform flags.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <Toggle
+            label="Enforce User AI API Keys (BYOK)"
+            description="When enabled, users must supply their own AI API keys (Gemini, Grok, or OpenAI) to generate metadata. System keys will not be used for user requests."
+            checked={Boolean(settings.userApiKeyRequired)}
+            onChange={(checked) => {
+              setSettings((s) => ({ ...s, userApiKeyRequired: checked }));
+              saveMutation.mutate({ ...settings, userApiKeyRequired: checked });
+            }}
+          />
           <Toggle
             label="Public signups"
             description="Allow new users to create accounts."

@@ -39,7 +39,7 @@ const NAV: NavItem[] = [
   { label: 'Adobe Analytics', href: '/dashboard/adobe-analytics', icon: BarChart3 },
   { label: 'Tools', href: '/dashboard/tools', icon: Wrench },
   { label: 'Billing', href: '/dashboard/billing', icon: CreditCard },
-  { label: 'Settings', href: '/dashboard/settings', icon: Settings, admin: true },
+  { label: 'Settings', href: '/dashboard/settings', icon: Settings },
   { label: 'Admin', href: '/admin', icon: Shield, admin: true },
 ];
 

@@ -172,7 +172,61 @@ input[type='range']::-moz-range-thumb {
   background: hsl(var(--muted-foreground));
 }
 
-/* ===== Shimmer skeleton ===== */
+/* ===== Shimmer skeleton & AI Loading ===== */
+@keyframes ai-shimmer-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.ai-skeleton-bar {
+  position: relative;
+  overflow: hidden;
+  background: hsl(var(--muted) / 0.55);
+  border-radius: 6px;
+}
+
+.ai-skeleton-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--accent) / 0.22) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: ai-shimmer-sweep 1.8s ease-in-out infinite;
+}
+
+.ai-card-generating {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  border: 1px solid hsl(var(--accent) / 0.35);
+  background: hsl(var(--card-2));
+  box-shadow: 0 4px 20px -8px hsl(var(--accent) / 0.15);
+}
+
+.ai-card-generating::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, hsl(var(--accent)), transparent);
+  animation: ai-shimmer-sweep 2.2s ease-in-out infinite;
+  z-index: 10;
+}
+
 .shimmer {
   background: linear-gradient(
     90deg,
