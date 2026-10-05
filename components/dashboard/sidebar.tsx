@@ -16,6 +16,7 @@ import {
   Zap,
   TrendingUp,
   Shield,
+  UserCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ const NAV: NavItem[] = [
   { label: 'Adobe Analytics', href: '/dashboard/adobe-analytics', icon: BarChart3 },
   { label: 'Tools', href: '/dashboard/tools', icon: Wrench },
   { label: 'Billing', href: '/dashboard/billing', icon: CreditCard },
+  { label: 'Profile', href: '/dashboard/profile', icon: UserCircle },
   { label: 'Settings', href: '/dashboard/settings', icon: Settings },
   { label: 'Admin', href: '/admin', icon: Shield, admin: true },
 ];
@@ -140,7 +142,7 @@ export function Sidebar({
         </div>
 
         {/* User chip */}
-        <div className="mt-2 flex items-center gap-2 rounded-lg px-2 py-1.5">
+        <Link href="/dashboard/profile" className="mt-2 flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/10 transition-colors">
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/15 text-xs font-semibold text-accent">
             {user.name?.[0]?.toUpperCase() || user.email[0]?.toUpperCase()}
           </div>
@@ -154,7 +156,7 @@ export function Sidebar({
               </p>
             </div>
           )}
-        </div>
+        </Link>
 
         <div className="mt-1">
           <Button

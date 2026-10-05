@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { Bell, Key, Menu, Search } from 'lucide-react';
 import { useCredits } from '@/components/dashboard/credits-provider';
 import { Badge } from '@/components/ui/badge';
@@ -44,14 +45,22 @@ export function TopBar({
         <button className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground">
           <Bell className="h-4 w-4" />
         </button>
-        <div className="flex items-center gap-2 rounded-lg border border-border px-2 py-1">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/15 text-xs font-semibold text-accent">
-            {user.name?.[0]?.toUpperCase() || user.email[0]?.toUpperCase()}
+        <Link
+          href="/dashboard/profile"
+          className="flex items-center gap-2 rounded-lg border border-border px-2 py-1 transition-colors hover:bg-accent/10"
+          aria-label="Open profile"
+        >
+          <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-accent/15 text-xs font-semibold text-accent">
+            {user.image ? (
+              <img src={user.image} alt="" className="h-full w-full object-cover" />
+            ) : (
+              user.name?.[0]?.toUpperCase() || user.email[0]?.toUpperCase()
+            )}
           </div>
           <span className="hidden text-sm text-foreground sm:inline">
             {user.name || user.email}
           </span>
-        </div>
+        </Link>
       </div>
     </header>
   );
