@@ -46,6 +46,33 @@ export async function deleteFileLocal(key: string): Promise<void> {
   }
 }
 
+export async function listFilesLocal(prefix: string): Promise<Array<{ key: string; lastModified?: Date }>> {
+  await ensureUploadDir();
+
+  const results: Array<{ key: string; lastModified?: Date }> = [];
+
+  try {
+    const files = await fs.readdir(UPLOAD_DIR);
+    // Local keys are stored as "uploads-<userId>-<timestamp>-filename"
+    // Convert prefix "uploads/<userId>/" → "uploads-<userId>-" for matching
+    const flatPrefix = prefix.replace(/\//g, '-');
+
+    for (const fileName of files) {
+      if (!fileName.startsWith(flatPrefix)) continue;
+
+      const filePath = path.join(UPLOAD_DIR, fileName);
+      const stat = await fs.stat(filePath);
+      // Reconstruct the logical key from flat filename
+      const key = fileName.replace('-', '/').replace('-', '/'); // uploads-<userId>-ts-name → uploads/<userId>/ts-name
+      results.push({ key, lastModified: stat.mtime });
+    }
+  } catch {
+    // Directory might be empty or not exist
+  }
+
+  return results;
+}
+
 export function publicUrlLocal(key: string): string {
   const fileName = key.replace(/\//g, '-');
   return `/uploads/${fileName}`;

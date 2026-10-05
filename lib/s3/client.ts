@@ -3,12 +3,14 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
   uploadFileLocal,
   downloadFileLocal,
   deleteFileLocal,
+  listFilesLocal,
   publicUrlLocal,
 } from './local-fallback';
 
@@ -108,6 +110,35 @@ export async function presignedPutUrl(key: string, contentType: string, expires 
     new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType }),
     { expiresIn: expires },
   );
+}
+
+export async function listFiles(prefix: string): Promise<Array<{ key: string; lastModified?: Date }>> {
+  if (USE_LOCAL_STORAGE) {
+    return listFilesLocal(prefix);
+  }
+
+  const results: Array<{ key: string; lastModified?: Date }> = [];
+  let continuationToken: string | undefined;
+
+  do {
+    const out = await s3!.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      }),
+    );
+
+    for (const obj of out.Contents ?? []) {
+      if (obj.Key) {
+        results.push({ key: obj.Key, lastModified: obj.LastModified });
+      }
+    }
+
+    continuationToken = out.NextContinuationToken;
+  } while (continuationToken);
+
+  return results;
 }
 
 export function makeKey(userId: string, name: string) {
