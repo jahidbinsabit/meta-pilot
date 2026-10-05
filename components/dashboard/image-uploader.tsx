@@ -171,10 +171,11 @@ export function ImageUploader({
         console.warn('Compression skipped:', compErr);
       }
 
-      // Try presigned URL first, fallback to direct upload if S3 endpoint is unavailable
+      // Upload via server proxy — avoids CORS issues with S3/R2 direct PUT
       let key: string, mime: string, previewUrl: string;
-      
+
       try {
+        // Step 1: Get a key reservation from the server
         const presign = await fetch('/api/uploads/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -185,31 +186,13 @@ export function ImageUploader({
           throw new Error(j.error || 'preview_failed');
         }
         const presignData = await presign.json();
-        
-        // Check if server says to use direct upload (local storage mode)
-        if (presignData.useDirectUpload) {
-          throw new Error('use_direct_upload');
-        }
-        
-        patch(meta.id, { progress: 45 });
 
-        const put = await fetch(presignData.uploadUrl, {
-          method: 'PUT',
-          body: uploadFile,
-          headers: { 'Content-Type': presignData.mime },
-        });
-        if (!put.ok) throw new Error('upload_failed');
-        
-        key = presignData.key;
-        mime = presignData.mime;
-        previewUrl = presignData.previewUrl;
-      } catch (uploadError: any) {
-        // Fallback to server-proxied upload if presigned URL fails
-        console.warn('Presigned upload failed, trying direct upload:', uploadError.message);
-        patch(meta.id, { progress: 20 });
-        
+        patch(meta.id, { progress: 30 });
+
+        // Step 2: Upload through the server (always — avoids CORS)
         const form = new FormData();
         form.append('file', uploadFile);
+        form.append('reservedKey', presignData.key); // tell server to use this key
         const direct = await fetch('/api/uploads/direct', { method: 'POST', body: form });
         if (!direct.ok) {
           const j = await direct.json().catch(() => ({}));
@@ -219,7 +202,10 @@ export function ImageUploader({
         key = directData.key;
         mime = directData.mime;
         previewUrl = directData.previewUrl;
+
         patch(meta.id, { progress: 75 });
+      } catch (uploadError: any) {
+        throw uploadError;
       }
 
       patch(meta.id, {

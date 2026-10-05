@@ -11,12 +11,19 @@ import { grantBonus } from '@/lib/credits/engine';
  * received theirs today (UTC).
  */
 export async function GET(req: Request) {
-  const secret = req.headers.get('x-cron-secret');
-  if (!secret || secret !== process.env.CRON_SECRET) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  const authHeader = req.headers.get('authorization');
+  const cronSecret = req.headers.get('x-cron-secret');
+  const expectedSecret = process.env.CRON_SECRET;
+
+  if (expectedSecret) {
+    const validBearer = authHeader === `Bearer ${expectedSecret}`;
+    const validHeader = cronSecret === expectedSecret;
+    if (!validBearer && !validHeader) {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
   }
 
   const today = new Date();

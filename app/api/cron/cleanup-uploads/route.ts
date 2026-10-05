@@ -5,19 +5,27 @@ import { listFiles, deleteFile } from '@/lib/s3/client';
  * Cleanup cron — deletes temporary uploads older than 5 minutes.
  *
  * S3 key pattern:  uploads/<userId>/<timestamp>-<filename>
- * Local pattern:   public/uploads/uploads-<userId>-<timestamp>-<filename>
  *
- * Vercel Cron calls this with  x-cron-secret  header every 5 minutes.
+ * Vercel Cron calls this every 5 minutes. When CRON_SECRET env var is set,
+ * Vercel automatically sends: Authorization: Bearer <CRON_SECRET>
  * GET /api/cron/cleanup-uploads
  */
 
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export async function GET(req: Request) {
-  // Auth — same pattern as /api/cron/daily-credits
-  const secret = req.headers.get('x-cron-secret');
-  if (!secret || secret !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  // Auth: Vercel sends "Authorization: Bearer <CRON_SECRET>" automatically
+  // Also accept x-cron-secret for manual/external triggers
+  const authHeader = req.headers.get('authorization');
+  const cronSecret = req.headers.get('x-cron-secret');
+  const expectedSecret = process.env.CRON_SECRET;
+
+  if (expectedSecret) {
+    const validBearer = authHeader === `Bearer ${expectedSecret}`;
+    const validHeader = cronSecret === expectedSecret;
+    if (!validBearer && !validHeader) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
   }
 
   const cutoff = Date.now() - TTL_MS;
@@ -26,15 +34,13 @@ export async function GET(req: Request) {
   let skipped = 0;
 
   try {
-    // List everything under uploads/
     const files = await listFiles('uploads/');
 
     for (const file of files) {
       // Key format: uploads/<userId>/<timestamp>-<name>
-      // Extract timestamp from the filename segment
       const segments = file.key.split('/');
-      const fileSegment = segments[2] ?? '';           // "<timestamp>-<name>"
-      const tsStr = fileSegment.split('-')[0];         // "<timestamp>"
+      const fileSegment = segments[2] ?? '';       // "<timestamp>-<name>"
+      const tsStr = fileSegment.split('-')[0];     // "<timestamp>"
       const ts = Number(tsStr);
 
       if (!ts || isNaN(ts)) {
@@ -43,12 +49,10 @@ export async function GET(req: Request) {
       }
 
       if (ts > cutoff) {
-        // File is newer than TTL — skip
         skipped++;
         continue;
       }
 
-      // File is older than 5 minutes — delete it
       try {
         await deleteFile(file.key);
         deleted++;
@@ -59,7 +63,6 @@ export async function GET(req: Request) {
     }
 
     console.log(`[cleanup-uploads] done — deleted:${deleted} failed:${failed} skipped:${skipped}`);
-
     return NextResponse.json({ ok: true, deleted, failed, skipped });
   } catch (err: any) {
     console.error('[cleanup-uploads] fatal error:', err);

@@ -1,32 +1,29 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
-import { makeKey, presignedPutUrl, publicUrl } from '@/lib/s3/client';
+import { makeKey, publicUrl } from '@/lib/s3/client';
 
 /**
- * Issues a presigned upload URL for a directly-uploadable image so the browser
- * can PUT the bytes straight to S3 without proxying them through this app.
+ * Issues upload metadata so the client can call /api/uploads/direct.
  *
- * Only formats a browser can hand us as-is are served here. EPS/AI/SVG cannot
- * be rendered by a browser and are not valid AI-vision input, so they go to
- * /api/uploads/rasterize instead, which converts them server-side.
- *
- * For local storage mode, this returns a flag indicating the client should
- * fall back to /api/uploads/direct instead.
+ * Previously returned a presigned S3 PUT URL, but Cloudflare R2 (and most
+ * S3-compatible stores) require a bucket-level CORS policy for browser-direct
+ * PUTs. Rather than require that config, we always proxy through the server
+ * via /api/uploads/direct — this keeps things simple and works on any host.
  *
  * POST /api/uploads/preview  { name, size, type }
- *   -> { uploadUrl, key, mime, previewUrl } OR { useDirectUpload: true }
+ *   -> { useDirectUpload: true, key, mime, previewUrl }
  */
 
 const MAX_BYTES = 25 * 1024 * 1024;
-const USE_LOCAL_STORAGE = process.env.USE_LOCAL_STORAGE === 'true';
 
 /** Extensions that can be uploaded as-is; everything else must be rasterized. */
-const DIRECT_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png']);
+const DIRECT_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 
 const MIME_BY_EXT: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
+  '.webp': 'image/webp',
 };
 
 function extOf(name: string): string {
@@ -59,22 +56,21 @@ export async function POST(req: Request) {
       );
     }
 
-    // For local storage, tell the client to use direct upload instead
-    if (USE_LOCAL_STORAGE) {
-      return NextResponse.json({ 
-        useDirectUpload: true,
-        message: 'Presigned uploads not supported with local storage, use /api/uploads/direct'
-      });
-    }
-
+    // Always tell the client to use server-proxied upload.
+    // This avoids needing CORS configured on the S3/R2 bucket.
     const key = makeKey(user.id, name);
-    const mime = MIME_BY_EXT[ext] || type || 'image/png';
-    const uploadUrl = await presignedPutUrl(key, mime);
+    const mime = MIME_BY_EXT[ext] || type || 'image/jpeg';
     const previewUrl = publicUrl(key);
 
-    return NextResponse.json({ uploadUrl, key, mime, previewUrl });
+    return NextResponse.json({
+      useDirectUpload: true,
+      key,
+      mime,
+      previewUrl,
+    });
   } catch (e: any) {
     console.error('upload preview failed', e);
     return NextResponse.json({ error: e?.message || 'preview_failed' }, { status: 500 });
   }
 }
+
