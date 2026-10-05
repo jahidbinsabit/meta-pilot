@@ -12,7 +12,14 @@ export function TopBar({
   user,
   onMenu,
 }: {
-  user: { name?: string | null; email: string; credits: number; membership: string; role: string };
+  user: {
+    name?: string | null;
+    email: string;
+    image?: string | null;
+    credits: number;
+    membership: string;
+    role: string;
+  };
   onMenu: () => void;
 }) {
   const { credits } = useCredits();
