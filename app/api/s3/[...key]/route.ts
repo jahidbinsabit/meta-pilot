@@ -65,10 +65,10 @@ export async function GET(req: Request, { params }: { params: { key: string[] } 
     if (!key) {
       return new Response('forbidden', { status: 403 });
     }
-    // Objects are namespaced per user (`previews/<userId>/…`,
-    // `uploads/<userId>/…`). Refuse anything outside the caller's own space.
+    // Objects are namespaced per user: `uploads/<userId>/…`
+    // segments[0] = 'uploads', segments[1] = userId, segments[2] = filename
     const segments = key.split('/');
-    if (segments.length < 3 || segments[1] !== user.id) {
+    if (segments.length < 3 || segments[0] !== 'uploads' || segments[1] !== user.id) {
       return new Response('forbidden', { status: 403 });
     }
 
