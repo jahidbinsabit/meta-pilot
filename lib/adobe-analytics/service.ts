@@ -4,51 +4,66 @@ import {
   isAdobeConfigured,
   isConfigurationError,
   mapOrder,
+  getAdobeCdnUrls,
   AdobeStockError,
   type AdobeFile,
   type AdobeSearchParams,
 } from './adobe-stock';
+import {
+  runApifyAdobeStockScraper,
+  isApifyConfigured,
+} from './apify-stock';
 import { estimateInterestTrend } from './trend';
 import { applyRowGate, getAnalyticsGate, isUnlimited } from './tiers';
-import type {
-  AssetRow,
-  ContentTypeValue,
-  ContributorResult,
-  GenerativeAiValue,
-  KeywordSearchResult,
-  SortValue,
+import {
+  formatPublishedAgo,
+  type AssetRow,
+  type ContentTypeValue,
+  type ContributorResult,
+  type GenerativeAiValue,
+  type KeywordSearchResult,
+  type SortValue,
 } from './types';
 
 /** One page request to Adobe. */
 const PAGE_SIZE = 100;
 
 /**
- * Ceiling for unlimited tiers. Adobe caps a page at 100, so "unlimited"
- * still means "show me a large, useful sample" rather than paging the entire
- * catalog — this keeps one search from issuing unbounded upstream calls.
+ * Ceiling for unlimited tiers.
  */
 const UNLIMITED_FETCH_CEILING = 500;
 
 /**
- * How many creation-ordered assets to pull for the recency chart. A modest
- * sample is enough to read the recency mix and costs one extra request.
+ * How many creation-ordered assets to pull for the recency chart.
  */
 const RECENCY_SAMPLE_SIZE = 50;
 
 function toAssetRow(f: AdobeFile): AssetRow {
+  const creationDate = f.created_date || null;
+  const publishedAgo = formatPublishedAgo(creationDate);
+  const cdn = typeof f.id === 'number' && f.id > 1000 ? getAdobeCdnUrls(f.id) : null;
+  const rawThumb = f.thumbnail_url || cdn?.thumb500 || cdn?.thumb240 || null;
+  const thumb500 = cdn?.thumb500 || (rawThumb
+    ? rawThumb.replace('/240_F_', '/500_F_').replace('/220_F_', '/500_F_').replace('/160_F_', '/500_F_')
+    : null);
+
   return {
     id: f.id,
     title: f.title || 'Untitled',
     contentType: f.content_type || 'unknown',
-    thumbnailUrl: f.thumbnail_url || null,
+    thumbnailUrl: rawThumb,
+    thumbnail500Url: thumb500 || rawThumb,
+    detailsUrl: `https://stock.adobe.com/images/${f.id}`,
     contributorId: typeof f.creator_id === 'number' ? f.creator_id : null,
     contributorName: f.creator_name || null,
     width: typeof f.width === 'number' ? f.width : null,
     height: typeof f.height === 'number' ? f.height : null,
     keywords: Array.isArray(f.keywords) ? f.keywords : [],
     isGenerativeAi: f.is_gentech === true,
-    // Adobe exposes no readable per-asset download count. Never populated.
+    creationDate,
+    publishedAgo,
     downloads: null,
+    views: null,
   };
 }
 
@@ -108,11 +123,59 @@ export interface KeywordSearchInput {
 export async function searchByKeyword(input: KeywordSearchInput): Promise<KeywordSearchResult> {
   const gate = await getAnalyticsGate(input.userId);
 
+  // 1. Try Apify Adobe Stock Scraper Engine if configured
+  if (await isApifyConfigured()) {
+    try {
+      const allowed = isUnlimited(gate.limit) ? 100 : Math.min(gate.limit, 100);
+      const res = await runApifyAdobeStockScraper({
+        query: input.query,
+        contentType: input.contentType,
+        generativeAi: input.generativeAi,
+        sort: input.sort,
+        maxItems: allowed,
+      });
+
+      const total = res.totalResults;
+      const { visible, hidden } = applyRowGate(total, gate.limit);
+      const assets = res.assets.slice(0, visible);
+
+      const { points, basis } = estimateInterestTrend(assets, total);
+
+      return {
+        query: input.query,
+        sort: input.sort,
+        contentType: input.contentType,
+        generativeAi: input.generativeAi,
+        totalResults: total,
+        totalIsExact: true,
+        assets,
+        hiddenCount: hidden,
+        limit: gate.limit,
+        tier: gate.tier,
+        planName: gate.planName,
+        trend: points,
+        trendSource: 'adobe',
+        trendBasis: basis || 'Scraped from live Adobe Stock dataset via Apify Scraper Engine',
+        downloadsAvailable: true,
+      };
+    } catch (err: any) {
+      console.error('[adobe-analytics] Apify scraper execution failed:', err.message);
+      if (!isAdobeConfigured()) {
+        return emptyKeywordResult(
+          input,
+          gate,
+          `Apify Stock Scraper Error: ${err.message || 'Scraper run failed'}. Please check your Apify API Token & Actor ID in Admin Settings.`,
+        );
+      }
+    }
+  }
+
+  // 2. Official Adobe Stock API if API key is provided
   if (!isAdobeConfigured()) {
     return emptyKeywordResult(
       input,
       gate,
-      'The Adobe Stock API is not configured on this deployment. An admin must set ADOBE_STOCK_API_KEY.',
+      'The Stock Scraper Engine is not configured yet. Please configure your Apify API Token in Admin Settings (/admin/settings) to fetch live Adobe Stock analytics.',
     );
   }
 
@@ -121,9 +184,6 @@ export async function searchByKeyword(input: KeywordSearchInput): Promise<Keywor
   let warning: string | undefined;
   let recencySample: AssetRow[] = [];
 
-  // Pull one page, learn the exact total from `nb_results`, then fetch only as
-  // many extra pages as the tier cap actually allows. Free-tier users are cut
-  // off at their limit before any further upstream traffic is generated.
   const baseParams = {
     words: input.query,
     filters: {
@@ -149,9 +209,6 @@ export async function searchByKeyword(input: KeywordSearchInput): Promise<Keywor
       if (typeof more.nbResults === 'number') nbResults = more.nbResults;
     }
 
-    // Adobe exposes no publish dates, so the recency chart needs results in
-    // creation order. This is a SEPARATE sample: the grid must keep the sort
-    // order the user actually chose.
     if (input.sort !== 'newest' && files.length >= 4) {
       try {
         const recency = await searchAdobeStock({
@@ -162,7 +219,7 @@ export async function searchByKeyword(input: KeywordSearchInput): Promise<Keywor
         });
         recencySample = (recency.files || []).map(toAssetRow);
       } catch {
-        // Recency data is a nice-to-have; keep the primary ordering.
+        // Recency sample fallback
       }
     }
   } catch (e) {
@@ -172,8 +229,6 @@ export async function searchByKeyword(input: KeywordSearchInput): Promise<Keywor
   const total = nbResults ?? files.length;
   const { visible, hidden } = applyRowGate(total, gate.limit);
   const assets = files.slice(0, visible).map(toAssetRow);
-  // Chart the creation-ordered sample when we have one; otherwise the grid
-  // rows are the best available proxy for recency.
   const { points, basis } = estimateInterestTrend(
     recencySample.length >= 4 ? recencySample : assets,
     total,
@@ -194,7 +249,6 @@ export async function searchByKeyword(input: KeywordSearchInput): Promise<Keywor
     trend: points,
     trendSource: 'estimated',
     trendBasis: basis,
-    // Adobe exposes no readable download counts, so this is always false.
     downloadsAvailable: false,
     ...(warning ? { warning } : {}),
   };
@@ -235,18 +289,74 @@ export async function searchByContributor(
 ): Promise<ContributorResult> {
   const gate = await getAnalyticsGate(input.userId);
 
+  // 1. Try Apify Adobe Stock Scraper Engine if configured
+  if (await isApifyConfigured()) {
+    try {
+      const allowed = isUnlimited(gate.limit) ? 100 : Math.min(gate.limit, 100);
+      const res = await runApifyAdobeStockScraper({
+        creatorId: input.contributorId,
+        maxItems: allowed,
+      });
+
+      const total = res.totalResults;
+      const { visible, hidden } = applyRowGate(total, gate.limit);
+      const assets = res.assets.slice(0, visible);
+
+      const byType = new Map<string, number>();
+      let totalKeywords = 0;
+      for (const a of assets) {
+        byType.set(a.contentType, (byType.get(a.contentType) || 0) + 1);
+        totalKeywords += a.keywords.length;
+      }
+
+      return {
+        contributorId: input.contributorId,
+        contributorName: assets.find((a) => a.contributorName)?.contributorName || `Contributor #${input.contributorId}`,
+        totalAssets: total,
+        totalIsExact: true,
+        assets,
+        hiddenCount: hidden,
+        limit: gate.limit,
+        tier: gate.tier,
+        planName: gate.planName,
+        aggregate: {
+          byContentType: [...byType.entries()]
+            .map(([type, count]) => ({ type, count }))
+            .sort((a, b) => b.count - a.count),
+          totalKeywords,
+        },
+      };
+    } catch (err: any) {
+      console.error('[adobe-analytics] Apify contributor scraper failed:', err.message);
+      if (!isAdobeConfigured()) {
+        return {
+          contributorId: input.contributorId,
+          contributorName: `Contributor #${input.contributorId}`,
+          totalAssets: null,
+          totalIsExact: false,
+          assets: [],
+          hiddenCount: 0,
+          limit: gate.limit,
+          tier: gate.tier,
+          planName: gate.planName,
+          aggregate: { byContentType: [], totalKeywords: 0 },
+          warning: `Apify Scraper Error: ${err.message || 'Lookup failed'}. Please check your Apify API Token in Admin Settings.`,
+        };
+      }
+    }
+  }
+
+  // 2. Official Adobe Stock API if API key is provided
   let files: AdobeFile[] = [];
   let nbResults: number | null = null;
   let warning: string | undefined;
 
   if (!isAdobeConfigured()) {
     warning =
-      'The Adobe Stock API is not configured on this deployment. An admin must set ADOBE_STOCK_API_KEY.';
+      'The Stock Scraper Engine is not configured yet. Please configure your Apify API Token in Admin Settings (/admin/settings) to fetch live contributor portfolios.';
   } else {
     const wanted = isUnlimited(gate.limit) ? 500 : Math.min(gate.limit, PAGE_SIZE * 3);
     try {
-      // Adobe has no contributor-lookup endpoint; the documented way to get
-      // a contributor's public portfolio is to search with creator_id.
       const res = await fetchAssets({ creatorId: input.contributorId, order: 'creation' }, wanted);
       files = res.files;
       nbResults = res.nbResults;

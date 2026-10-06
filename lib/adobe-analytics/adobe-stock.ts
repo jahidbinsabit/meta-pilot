@@ -25,6 +25,8 @@
  * token for a public-content feature.
  */
 
+import { searchFreeStock } from './free-stock';
+
 const BASE_URL = 'https://stock.adobe.io';
 const SEARCH_PATH = '/Rest/Media/1/Search/Files';
 const MAX_LIMIT = 100;
@@ -122,6 +124,10 @@ function getApiKey(): string | null {
 }
 
 export function isAdobeConfigured(): boolean {
+  return hasOfficialAdobeKey();
+}
+
+export function hasOfficialAdobeKey(): boolean {
   return getApiKey() !== null;
 }
 
@@ -156,25 +162,18 @@ export function isConfigurationError(e: unknown): boolean {
   return e instanceof AdobeStockError && e.message === 'not_configured';
 }
 
-export async function searchAdobeStock(
+async function searchOfficialAdobeApi(
   params: AdobeSearchParams,
+  apiKey: string,
   opts: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<AdobeSearchResponse> {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new AdobeStockError('not_configured');
-  }
-
   const sp = new URLSearchParams();
   sp.set('locale', params.locale || 'en_US');
   sp.set('search_parameters[limit]', String(Math.min(params.limit ?? 32, MAX_LIMIT)));
   sp.set('search_parameters[offset]', String(params.offset ?? 0));
   if (params.order) sp.set('search_parameters[order]', params.order);
-  // 220px suits the ~4-up asset grid without over-fetching.
   sp.set('search_parameters[thumbnail_size]', String(params.thumbnailSize ?? 220));
 
-  // Adobe requires at least one search_parameters[] value per request, so a
-  // creator-only search must not also send an empty `words`.
   if (params.words) sp.set('search_parameters[words]', params.words);
   if (typeof params.creatorId === 'number' && params.creatorId > 0) {
     sp.set('search_parameters[creator_id]', String(params.creatorId));
@@ -184,10 +183,6 @@ export async function searchAdobeStock(
   }
 
   for (const [k, v] of Object.entries(buildFilters(params))) sp.set(k, v);
-
-  // Ask for exactly the columns this module renders. Supplying
-  // result_columns[] drops Adobe's defaults (which include the bulky
-  // thumbnail_html_tag), so this cuts response size substantially.
   for (const col of RESULT_COLUMNS) sp.append('result_columns[]', col);
 
   const controller = new AbortController();
@@ -212,7 +207,7 @@ export async function searchAdobeStock(
     try {
       data = text ? (JSON.parse(text) as AdobeSearchResponse) : {};
     } catch {
-      // Non-JSON body: fall through to the status-based error below.
+      // Non-JSON body: fall through
     }
 
     if (!res.ok) {
@@ -223,14 +218,55 @@ export async function searchAdobeStock(
       );
     }
     return data;
-  } catch (e: any) {
-    if (e instanceof AdobeStockError) throw e;
-    if (e?.name === 'AbortError') {
-      throw new AdobeStockError('Adobe Stock request timed out');
-    }
-    throw new AdobeStockError(e?.message || 'Could not reach the Adobe Stock API');
   } finally {
     clearTimeout(timeout);
     opts.signal?.removeEventListener('abort', onAbort);
   }
+}
+
+export async function searchAdobeStock(
+  params: AdobeSearchParams,
+  opts: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<AdobeSearchResponse> {
+  const apiKey = getApiKey();
+  if (apiKey) {
+    try {
+      return await searchOfficialAdobeApi(params, apiKey, opts);
+    } catch {
+      // Fall back to free stock engine on API failure
+    }
+  }
+
+  return await searchFreeStock(params, opts);
+}
+
+/**
+ * Builds direct, verified Adobe Stock ftcdn CDN preview URLs from numeric asset ID.
+ * Adobe Stock's CDN maps assets by splitting 10-digit zero-padded IDs into 4 directory pairs.
+ * E.g., ID 595898688 -> 05/95/89/86/500_F_595898688_abc.jpg
+ */
+export function getAdobeCdnUrls(id: number | string): {
+  thumb1000: string;
+  thumb500: string;
+  thumb240: string;
+  thumb500Alt: string;
+  thumb240Alt: string;
+} {
+  const numericId = typeof id === 'number' ? id : parseInt(String(id).replace(/\D/g, ''), 10);
+  if (!numericId || isNaN(numericId) || numericId <= 0) {
+    return { thumb1000: '', thumb500: '', thumb240: '', thumb500Alt: '', thumb240Alt: '' };
+  }
+  const padded = String(numericId).padStart(10, '0');
+  const p1 = padded.slice(0, 2);
+  const p2 = padded.slice(2, 4);
+  const p3 = padded.slice(4, 6);
+  const p4 = padded.slice(6, 8);
+
+  return {
+    thumb1000: `https://as1.ftcdn.net/v2/jpg/${p1}/${p2}/${p3}/${p4}/1000_F_${numericId}_abc.jpg`,
+    thumb500: `https://as1.ftcdn.net/v2/jpg/${p1}/${p2}/${p3}/${p4}/500_F_${numericId}_abc.jpg`,
+    thumb500Alt: `https://as2.ftcdn.net/v2/jpg/${p1}/${p2}/${p3}/${p4}/500_F_${numericId}_abc.jpg`,
+    thumb240: `https://t4.ftcdn.net/jpg/${p1}/${p2}/${p3}/${p4}/240_F_${numericId}_abc.jpg`,
+    thumb240Alt: `https://t3.ftcdn.net/jpg/${p1}/${p2}/${p3}/${p4}/240_F_${numericId}_abc.jpg`,
+  };
 }

@@ -12,6 +12,8 @@ export interface CachedSiteSettings {
   gaMeasurementId: string | null;
   gscVerification: string | null;
   userApiKeyRequired: boolean;
+  apifyApiToken: string | null;
+  apifyActorId: string | null;
 }
 
 export const getSiteSettings = unstable_cache(
@@ -30,6 +32,8 @@ export const getSiteSettings = unstable_cache(
           gaMeasurementId: true,
           gscVerification: true,
           userApiKeyRequired: true,
+          apifyApiToken: true,
+          apifyActorId: true,
         },
       });
       return settings;

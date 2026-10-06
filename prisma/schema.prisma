@@ -395,6 +395,8 @@ model SiteSettings {
   gscVerification       String?
   gscVerificationMethod String?
   userApiKeyRequired    Boolean  @default(false)
+  apifyApiToken         String?
+  apifyActorId          String?  @default("Ea82wcTpNYzTRV7A3")
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

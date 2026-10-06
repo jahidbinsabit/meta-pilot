@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Search, Loader2, Calendar, Info, AlertTriangle, User } from 'lucide-react';
+import { Search, Loader2, Calendar, Info, AlertTriangle, User, Copy, Check, Sparkles, Tag } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,6 +48,22 @@ const GENAI_LABELS: Record<GenerativeAiValue, string> = {
   exclude: 'Exclude AI',
 };
 
+const KEYWORD_PRESETS = [
+  'Cyberpunk City',
+  'Autumn Forest',
+  'Isometric 3D Room',
+  'Minimalist Logo',
+  'Vintage Botanical',
+  'AI Character Portrait',
+];
+
+const CONTRIBUTOR_PRESETS = [
+  { id: '209617558', label: 'The Little Hut (209617558)' },
+  { id: '205867021', label: 'TWINS DESIGN (205867021)' },
+  { id: '203410118', label: 'nedomacki (203410118)' },
+  { id: '206240212', label: 'Master Vector (206240212)' },
+];
+
 /** How many top results the free tier sees; mirrors FREE_TIER_RESULT_LIMIT. */
 const FREE_LIMIT = 20;
 
@@ -92,21 +108,33 @@ export function AdobeAnalyticsDashboard() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Adobe Analytics
+            Stock & Market Analytics
           </p>
-          <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">Market Analytics</h1>
+          <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">Market Intelligence</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Live Adobe Stock data</span>
+          {configured ? (
+            <Badge variant="outline" className="gap-1.5 py-1 text-xs font-medium border-emerald-500/40 bg-emerald-500/10 text-emerald-400">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              {meta?.scraperEngine === 'apify' ? 'Apify Scraper Engine Active' : 'Stock Search Active'}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="gap-1.5 py-1 text-xs font-medium border-amber-500/40 bg-amber-500/10 text-amber-400">
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              Scraper Engine Needs Setup
+            </Badge>
+          )}
         </div>
       </div>
 
       {!configured && (
         <WarningNote>
-          The Adobe Stock API is not configured on this deployment, so live data is unavailable. Set{' '}
-          <code className="font-mono">ADOBE_STOCK_API_KEY</code> (and optionally{' '}
-          <code className="font-mono">ADOBE_STOCK_PRODUCT</code>) to enable search.
+          The Stock Scraper Engine is not configured yet. An administrator can add the{' '}
+          <strong>Apify API Token</strong> in{' '}
+          <a href="/admin/settings" className="font-medium text-accent underline">
+            Admin Settings
+          </a>{' '}
+          or set <code className="font-mono">APIFY_API_TOKEN</code> in <code className="font-mono">.env</code>.
         </WarningNote>
       )}
 
@@ -301,8 +329,16 @@ function KeywordTab({
             />
             <StatTile
               label="Download counts"
-              value="Not available"
-              hint="Not exposed by the Adobe Stock API"
+              value={
+                result.downloadsAvailable
+                  ? `${result.assets.reduce((sum, a) => sum + (a.downloads || 0), 0).toLocaleString()} DLs`
+                  : 'Popularity Ranked'
+              }
+              hint={
+                result.downloadsAvailable
+                  ? 'Total downloads across visible assets'
+                  : 'Ranked by search relevance & downloads'
+              }
             />
           </div>
 
@@ -355,8 +391,9 @@ function KeywordTab({
                   <AssetList assets={result.assets.slice(0, 6)} />
                   <p className="mt-3 flex items-start gap-1.5 text-[11px] text-muted-foreground">
                     <Info className="mt-px h-3 w-3 shrink-0" />
-                    Adobe Stock does not publish per-asset download counts through its API, so this
-                    list is ranked by the search order only.
+                    {result.downloadsAvailable
+                      ? 'Ranked by downloads and market demand retrieved live from Adobe Stock.'
+                      : 'Ranked by search relevance and platform popularity.'}
                   </p>
                 </CardContent>
               </Card>
@@ -405,12 +442,15 @@ function ContributorTab({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const id = value.trim();
-    if (!/^\d+$/.test(id)) {
-      setError('Contributor ID must be numeric');
+    const cleaned = value.trim().match(/contributor\/(\d+)/i)?.[1]
+      || value.trim().match(/creator_id=(\d+)/i)?.[1]
+      || value.trim().match(/(\d+)/)?.[1]
+      || value.trim();
+    if (!cleaned || !/^\d+$/.test(cleaned)) {
+      setError('Enter a valid numeric Contributor ID or profile URL');
       return;
     }
-    mutation.mutate(id);
+    mutation.mutate(cleaned);
   };
 
   return (
@@ -429,24 +469,46 @@ function ContributorTab({
                 <Input
                   id="cid"
                   value={value}
-                  onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))}
-                  placeholder="e.g. 204004289"
-                  inputMode="numeric"
-                  maxLength={20}
+                  onChange={(e) => {
+                    setValue(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder="e.g. 209617558 or stock.adobe.com/contributor/209617558"
+                  maxLength={120}
                 />
-                <Button type="submit" disabled={mutation.isPending} className="shrink-0">
+                <Button type="submit" disabled={mutation.isPending || !value.trim()} className="shrink-0">
                   {mutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <User className="h-4 w-4" />
+                    <Search className="h-4 w-4" />
                   )}
-                  <span className="hidden sm:inline">Look up</span>
+                  <span className="hidden sm:inline">Analyze</span>
                 </Button>
               </div>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                The numeric ID appears in the URL of the contributor&rsquo;s Adobe Stock profile
-                page.
+                Enter an Adobe Stock Contributor ID or paste their portfolio profile URL.
               </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="text-xs text-muted-foreground">Popular creators:</span>
+              {CONTRIBUTOR_PRESETS.map((p) => (
+                <Button
+                  key={p.id}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={mutation.isPending}
+                  onClick={() => {
+                    setValue(p.id);
+                    setError(null);
+                    mutation.mutate(p.id);
+                  }}
+                  className="h-7 text-xs font-normal"
+                >
+                  {p.label}
+                </Button>
+              ))}
             </div>
             {error && <p className="text-xs text-destructive">{error}</p>}
           </form>

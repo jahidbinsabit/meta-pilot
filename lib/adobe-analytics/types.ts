@@ -33,18 +33,54 @@ export interface AssetRow {
   title: string;
   contentType: string;
   thumbnailUrl: string | null;
+  thumbnail500Url?: string | null;
+  detailsUrl?: string | null;
   contributorId: number | null;
   contributorName: string | null;
+  countryName?: string | null;
   width: number | null;
   height: number | null;
   keywords: string[];
   isGenerativeAi: boolean;
+  creationDate?: string | null;
+  publishedAgo?: string | null;
   /**
-   * Download count. Adobe's Search API exposes no readable download-count
-   * column (`nb_downloads` is only a sort order), so this is always null and
-   * the UI must render "Not available" — never a fabricated number.
+   * Real download count extracted via Adobe Stock Scraper.
    */
   downloads: number | null;
+  /**
+   * Total view count.
+   */
+  views?: number | null;
+}
+
+export function formatPublishedAgo(dateStr?: string | null): string | null {
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return null;
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  if (diffMs < 0) return 'Just now';
+
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffMonths = Math.floor(diffDays / 30.4375);
+  const diffYears = Math.floor(diffDays / 365.25);
+
+  if (diffYears >= 1) {
+    return `${diffYears} ${diffYears === 1 ? 'year' : 'years'} ago`;
+  }
+  if (diffMonths >= 1) {
+    return `${diffMonths} ${diffMonths === 1 ? 'month' : 'months'} ago`;
+  }
+  if (diffDays >= 1) {
+    return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+  }
+  const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+  if (diffHrs >= 1) {
+    return `${diffHrs} ${diffHrs === 1 ? 'hour' : 'hours'} ago`;
+  }
+  return 'Just now';
 }
 
 export interface TrendPoint {

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { searchByContributor, searchByKeyword, recordQuery } from '@/lib/adobe-analytics/service';
 import { getAnalyticsGate } from '@/lib/adobe-analytics/tiers';
 import { isAdobeConfigured } from '@/lib/adobe-analytics/adobe-stock';
+import { isApifyConfigured } from '@/lib/adobe-analytics/apify-stock';
 import { contributorSearchSchema, keywordSearchSchema } from '@/lib/adobe-analytics/types';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') || 20)));
 
-    const [queries, gate] = await Promise.all([
+    const [queries, gate, apifyActive] = await Promise.all([
       prisma.adobeAnalyticsQuery.findMany({
         where: { userId: user.id },
         orderBy: { createdAt: 'desc' },
@@ -40,12 +41,14 @@ export async function GET(req: Request) {
         select: { id: true, queryType: true, queryValue: true, createdAt: true },
       }),
       getAnalyticsGate(user.id),
+      isApifyConfigured(),
     ]);
 
     return NextResponse.json({
       queries,
       gate,
-      adobeConfigured: isAdobeConfigured(),
+      adobeConfigured: apifyActive || isAdobeConfigured(),
+      scraperEngine: apifyActive ? 'apify' : 'stock_api',
     });
   } catch (e) {
     return handleAuth(e) ?? err('failed_to_load_history', 500);

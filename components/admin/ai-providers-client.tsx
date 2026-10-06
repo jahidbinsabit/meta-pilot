@@ -478,7 +478,36 @@ export function AiProvidersClient({ configs: initialConfigs }: { configs: any[] 
           </Button>
         </div>
         <div className="space-y-4">
-        {displayConfigs.map((cfg) => {
+          <Card className="border-accent/40 bg-card shadow-sm">
+            <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15 text-accent">
+                  <Globe className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-base">Adobe Stock Scraper (Apify Engine)</h3>
+                    <Badge variant="outline" className="text-xs">Market Intelligence</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Configure Apify API token and Actor settings for live Adobe Stock analytics &amp; search.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 shrink-0 border-accent/40 text-accent hover:bg-accent hover:text-accent-foreground"
+                asChild
+              >
+                <a href="/admin/settings">
+                  Configure in Settings &rarr;
+                </a>
+              </Button>
+            </CardContent>
+          </Card>
+
+          {displayConfigs.map((cfg) => {
           const p = cfg.provider;
           const e = editing[p] || cfg;
           const isDefaultProvider = p === 'gemini' || p === 'openai';
