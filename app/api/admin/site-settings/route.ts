@@ -3,6 +3,7 @@ import { revalidateTag } from 'next/cache';
 import { requireApiAdmin } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { z } from 'zod';
+import { ensureDatabaseSchema } from '@/lib/db-sync';
 
 const patchSchema = z.object({
   siteName: z.string().optional(),
@@ -20,6 +21,7 @@ const patchSchema = z.object({
 
 export async function GET() {
   await requireApiAdmin();
+  await ensureDatabaseSchema().catch(() => {});
 
   const settings = await prisma.siteSettings.findUnique({ where: { id: 'default' } });
   if (!settings) {
@@ -35,6 +37,7 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   const admin = await requireApiAdmin();
+  await ensureDatabaseSchema().catch(() => {});
 
   const body = await req.json();
   const parsed = patchSchema.safeParse(body);
@@ -69,3 +72,4 @@ export async function PATCH(req: Request) {
 
   return NextResponse.json(updated);
 }
+

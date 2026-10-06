@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db';
 import { unstable_cache } from 'next/cache';
+import { ensureDatabaseSchema } from '@/lib/db-sync';
 
 export interface CachedSiteSettings {
   id: string;
@@ -19,6 +20,8 @@ export interface CachedSiteSettings {
 export const getSiteSettings = unstable_cache(
   async (): Promise<CachedSiteSettings | null> => {
     try {
+      await ensureDatabaseSchema().catch(() => {});
+
       const settings = await prisma.siteSettings.findUnique({
         where: { id: 'default' },
         select: {
@@ -35,8 +38,14 @@ export const getSiteSettings = unstable_cache(
           apifyApiToken: true,
           apifyActorId: true,
         },
+      }).catch(async () => {
+        // Fallback if specific columns fail
+        return await prisma.siteSettings.findUnique({
+          where: { id: 'default' },
+        }).catch(() => null);
       });
-      return settings;
+
+      return (settings as any) || null;
     } catch {
       return null;
     }
@@ -44,3 +53,4 @@ export const getSiteSettings = unstable_cache(
   ['site-settings-default'],
   { revalidate: 60, tags: ['site-settings'] },
 );
+
