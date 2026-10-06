@@ -68,3 +68,4 @@ seed-run.js
 *.csv
 
 
+.env*

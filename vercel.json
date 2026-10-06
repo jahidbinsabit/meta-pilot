@@ -6,7 +6,8 @@
     },
     {
       "path": "/api/cron/cleanup-uploads",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 1 * * *"
     }
   ]
 }
+
