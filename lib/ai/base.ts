@@ -45,15 +45,23 @@ export abstract class BaseAdapter implements AiAdapter {
         text = result.text;
         promptTokens = result.promptTokens;
         completionTokens = result.completionTokens;
-        lastError = undefined;
-        break;
+        // Truncated output (hit max tokens) can never parse against a schema —
+        // retry for a concise response instead of returning a certain failure.
+        // (Gemini reports 'MAX_TOKENS', OpenAI/Grok report 'length'.)
+        if (result.finishReason === 'MAX_TOKENS' || result.finishReason === 'length') {
+          lastError = 'Model response was truncated (max tokens reached)';
+        } else {
+          lastError = undefined;
+          break;
+        }
       } catch (e: any) {
         lastError = e?.message || String(e);
-        if (attempt >= maxRetries) break;
-        // Back off with exponential delay before retrying a transient provider error (503 / 429 / network)
-        const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
-        await sleep(delayMs);
       }
+      if (attempt >= maxRetries) break;
+      // Back off with exponential delay before retrying a transient provider error (503 / 429 / network)
+      // or a truncated response.
+      const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+      await sleep(delayMs);
     }
 
     const latencyMs = Date.now() - started;
