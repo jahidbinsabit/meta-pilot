@@ -54,14 +54,6 @@ export class GeminiAdapter extends BaseAdapter {
       temperature: req.temperature ?? 0.7,
     };
 
-    // Disable "thinking" for structured JSON output. Gemini 2.5/3.x models
-    // emit thought parts when thinking is enabled; the reasoning trace
-    // pollutes the extracted text (breaking schema parsing) and adds
-    // 10-20s of latency for no benefit on simple extraction tasks.
-    if (req.responseSchema) {
-      generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    }
-
     if (req.responseSchema) {
       generationConfig.response_mime_type = 'application/json';
       generationConfig.response_schema = zodToJsonSchema(req.responseSchema);
