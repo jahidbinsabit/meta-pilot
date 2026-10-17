@@ -33,12 +33,12 @@ export class GeminiAdapter extends BaseAdapter {
     completionTokens: number;
     finishReason?: string;
   }> {
-    // gemini-3.5-flash-lite proved unreliable for structured JSON output
-    // (nondeterministic 8000-token runaways even at temp 0.2) — use the
-    // standard 2.5-flash which handles response_schema reliably.
-    let model = req.model || this.modelDefault || 'gemini-2.5-flash';
-    if (model === 'gemini-2.0-flash' || model === 'gemini-3.8-flash' || model === 'gemini-3.5-flash-lite') {
-      model = 'gemini-2.5-flash';
+    // Default to gemini-3.8-flash per current API recommendation
+    // (2.5-flash is no longer available to new API keys).
+    let model = req.model || this.modelDefault || 'gemini-3.8-flash';
+    // gemini-2.0-flash is deprecated; use the current standard model.
+    if (model === 'gemini-2.0-flash') {
+      model = 'gemini-3.8-flash';
     }
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
 
