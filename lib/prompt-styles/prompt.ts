@@ -12,13 +12,14 @@ import type { ImagePromptResult } from '@/lib/prompt-styles/types';
 /** Shared JSON contract, appended to every preset's system instruction. */
 const SHAPE_INSTRUCTION = `Return ONLY a single JSON object. Do not wrap it in markdown fences, do not add commentary.
 The JSON object must have exactly these keys:
-- "prompt": string — the single paste-ready generation prompt that reconstructs the image
+- "prompt": string — the single paste-ready generation prompt that reconstructs the image (150-300 words)
 - "subject": string — what is depicted
 - "style": string — medium / art style
 - "lighting": string — light direction, quality, colour temperature
 - "composition": string — framing, camera angle, depth of field
 - "mood": string — the emotional register
-No extra keys. No trailing text outside the JSON.`;
+No extra keys. No trailing text outside the JSON.
+Keep the ENTIRE response under 600 words. Be concise and do not repeat yourself.`;
 
 export function buildImagePromptSystemInstruction(presetInstruction: string, strict = false) {
   return `${presetInstruction}
