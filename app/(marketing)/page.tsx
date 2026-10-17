@@ -23,6 +23,7 @@ import {
   Key,
 } from 'lucide-react';
 import { prisma } from '@/lib/db';
+import { Hero3DVisual } from '@/components/marketing/hero-3d-visual';
 
 const DEFAULTS: Record<string, any> = {
   hero: {
@@ -313,7 +314,7 @@ export default async function HomePage() {
           }}
         />
 
-        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8">
+        <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-4 py-20 sm:px-6 sm:py-28 lg:grid-cols-[minmax(0,1fr)_minmax(440px,0.9fr)] lg:gap-10 lg:px-8">
           <div className="max-w-3xl">
             {hero.badge && (
               <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-accent/10 px-4 py-1.5 text-xs font-medium text-accent animate-fade-in">
@@ -364,6 +365,9 @@ export default async function HomePage() {
                 <CheckCircle className="h-4 w-4 text-emerald-500" /> No card required
               </span>
             </div>
+          </div>
+          <div>
+            <Hero3DVisual />
           </div>
         </div>
       </section>
