@@ -291,6 +291,12 @@ export async function POST(req: Request) {
       });
     } catch (streamErr) {
       console.error('Image prompt streaming error:', streamErr);
+      // Always notify the client — otherwise the frontend hangs on loading forever.
+      try {
+        await writer.write(
+          encoder.encode(sse({ type: 'error', error: 'stream_failed' }))
+        );
+      } catch {}
     } finally {
       try {
         await writer.close();

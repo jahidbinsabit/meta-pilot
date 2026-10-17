@@ -211,13 +211,16 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         }
       }
     } catch (error: any) {
-      setIsGenerating(false);
-      setGeneratingIds(new Set());
       toast({ 
         title: 'Generation failed', 
         description: error.message || 'Unknown error', 
         variant: 'error' 
       });
+    } finally {
+      // Always reset loading state — the stream may end without a 'done'
+      // event (e.g. server timeout), which would otherwise hang the UI forever.
+      setIsGenerating(false);
+      setGeneratingIds(new Set());
       queryClient.invalidateQueries({ queryKey: ['credits'] });
     }
   }
@@ -302,15 +305,17 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         }
       }
     } catch (error: any) {
-      setRegeneratingIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
       toast({ 
         title: 'Regeneration failed', 
         description: error.message || 'Unknown error', 
         variant: 'error' 
+      });
+    } finally {
+      // Always clear the regenerating state — stream may end without 'done'.
+      setRegeneratingIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
       });
       queryClient.invalidateQueries({ queryKey: ['credits'] });
     }
