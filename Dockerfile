@@ -12,12 +12,15 @@ FROM node:20-alpine AS base
 
 WORKDIR /app
 
-# Install libc / native deps required by Prisma's query engine on musl.
-RUN apk add --no-cache libc6-compat
+# Install libc / OpenSSL required by Prisma's engines on musl.
+RUN apk add --no-cache libc6-compat openssl
 
-# 1. Dependencies — copy manifests first for layer caching.
+# 1. Dependencies — copy manifests + prisma schema first for layer caching.
+# (package.json's postinstall runs `prisma generate`, so the schema must exist
+# before `npm ci`.)
 FROM base AS deps
 COPY package.json package-lock.json* ./
+COPY prisma ./prisma
 RUN npm ci --include=dev --legacy-peer-deps
 
 # 2. Prisma — generate the client against the final schema.
