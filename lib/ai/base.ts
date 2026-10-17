@@ -15,52 +15,6 @@ import { zodToJsonSchema } from '@/lib/ai/json-schema';
 import { logAiCall } from '@/lib/ai/logging';
 import type { AiAdapter, AiRequest, AiResponse } from '@/lib/ai/types';
 
-/**
- * Extracts usable fields from a truncated JSON response.
- * When the model hits max tokens mid-output, the JSON is incomplete, but the
- * "prompt" field (usually first) often contains a complete-enough value.
- * Returns null if nothing salvageable is found.
- */
-function salvageTruncatedJson(text: string): Record<string, unknown> | null {
-  const result: Record<string, unknown> = {};
-
-  // Extract each string field via regex (handles incomplete JSON).
-  // Matches: "key": "value... (up to the truncation point)
-  const fieldPattern = /"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)/g;
-  let match;
-  while ((match = fieldPattern.exec(text)) !== null) {
-    const [, key, rawValue] = match;
-    try {
-      // Unescape the JSON string value
-      const value = JSON.parse(`"${rawValue}"`);
-      result[key] = value;
-    } catch {
-      // If unescape fails, use raw (truncated) value
-      result[key] = rawValue;
-    }
-  }
-
-  // Must have at least a prompt to be useful
-  if (!result.prompt || typeof result.prompt !== 'string' || !result.prompt.trim()) {
-    return null;
-  }
-
-  // Truncate prompt to ~400 words at a sentence boundary
-  const words = (result.prompt as string).split(/\s+/);
-  if (words.length > 400) {
-    const truncated = words.slice(0, 400).join(' ');
-    // Cut at last sentence boundary
-    const lastPeriod = Math.max(
-      truncated.lastIndexOf('. '),
-      truncated.lastIndexOf('! '),
-      truncated.lastIndexOf('? ')
-    );
-    result.prompt = (lastPeriod > 0 ? truncated.slice(0, lastPeriod + 1) : truncated).trim();
-  }
-
-  return result;
-}
-
 export abstract class BaseAdapter implements AiAdapter {
   abstract readonly id: string;
   abstract readonly name: string;
@@ -77,45 +31,29 @@ export abstract class BaseAdapter implements AiAdapter {
 
   async generate(req: AiRequest): Promise<AiResponse> {
     const started = Date.now();
-    const maxRetries = Math.max(1, req.maxRetries ?? 2);
+    const maxRetries = Math.max(1, req.maxRetries ?? 3);
     let lastError: string | undefined;
     let attempts = 0;
     let text = '';
     let promptTokens = 0;
     let completionTokens = 0;
-    let salvaged: Record<string, unknown> | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       attempts = attempt;
       try {
         const result = await this.doGenerate(req);
         text = result.text;
-        // Accumulate tokens across attempts for honest cost accounting.
-        promptTokens += result.promptTokens;
-        completionTokens += result.completionTokens;
-        // Truncated output (hit max tokens): try to salvage the partial JSON
-        // instead of failing. The model usually wrote a good prompt — it just
-        // didn't stop. Extract what we can and return it.
-        // (Gemini reports 'MAX_TOKENS', OpenAI/Grok report 'length'.)
-        if (result.finishReason === 'MAX_TOKENS' || result.finishReason === 'length') {
-          salvaged = salvageTruncatedJson(result.text);
-          if (salvaged) {
-            lastError = undefined;
-            break;
-          }
-          const preview = result.text.slice(0, 400).replace(/\s+/g, ' ');
-          lastError = `Model response was truncated (max tokens reached). Output preview: ${preview}...`;
-        } else {
-          lastError = undefined;
-          break;
-        }
+        promptTokens = result.promptTokens;
+        completionTokens = result.completionTokens;
+        lastError = undefined;
+        break;
       } catch (e: any) {
         lastError = e?.message || String(e);
+        if (attempt >= maxRetries) break;
+        // Back off with exponential delay before retrying a transient provider error (503 / 429 / network)
+        const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+        await sleep(delayMs);
       }
-      if (attempt >= maxRetries) break;
-      // Back off with exponential delay before retrying a transient provider error (503 / 429 / network).
-      const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
-      await sleep(delayMs);
     }
 
     const latencyMs = Date.now() - started;
@@ -128,14 +66,9 @@ export abstract class BaseAdapter implements AiAdapter {
     // Parse + validate against the caller's schema. A schema mismatch is
     // logged as parsedOk=false but does NOT throw — the caller decides how to
     // handle it (retry, refund, fall back to raw text).
-    // If we salvaged a truncated response, use that instead of parsing.
     let parsed: unknown = null;
     let parsedOk = false;
-    if (salvaged && req.responseSchema) {
-      const validated = req.responseSchema.safeParse(salvaged);
-      parsed = validated.success ? validated.data : salvaged;
-      parsedOk = true; // Salvaged output is usable even if not schema-perfect
-    } else if (req.responseSchema) {
+    if (req.responseSchema) {
       const parsedResult = parseAndValidate(text, req.responseSchema);
       parsed = parsedResult.value;
       parsedOk = parsedResult.ok;
@@ -144,13 +77,7 @@ export abstract class BaseAdapter implements AiAdapter {
       parsedOk = true;
     }
 
-    // A parse failure with no transport error means the model returned
-    // unparseable output — record a real message instead of leaving it
-    // undefined (which surfaced to users as "...failed: undefined").
-    const finalError =
-      lastError ||
-      (!parsedOk ? 'Model returned a response that did not match the expected format' : undefined);
-    const success = !finalError && parsedOk;
+    const success = !lastError && parsedOk;
     await logAiCall({
       toolSlug: req.toolSlug,
       provider: this.id,
@@ -160,7 +87,7 @@ export abstract class BaseAdapter implements AiAdapter {
       completionTokens: usage.completionTokens,
       totalTokens: usage.totalTokens,
       success,
-      errorMessage: finalError,
+      errorMessage: lastError,
       responseSchema: req.responseSchemaName,
       parsedOk,
     });
@@ -173,7 +100,7 @@ export abstract class BaseAdapter implements AiAdapter {
       model: req.model || this.defaultModelName(),
       latencyMs,
       success,
-      errorMessage: finalError,
+      errorMessage: lastError,
       attempts,
     };
   }

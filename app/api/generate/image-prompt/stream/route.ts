@@ -36,7 +36,6 @@ async function toBase64(img: PromptImage): Promise<{ data: string; mime: string 
   if (img.key) {
     buf = await downloadFile(img.key);
   } else if (img.previewUrl) {
-    // Data URLs: decode directly instead of round-tripping through fetch.
     const dataUrlMatch = /^data:([^;]+);base64,(.+)$/s.exec(img.previewUrl);
     if (dataUrlMatch) {
       buf = Buffer.from(dataUrlMatch[2], 'base64');
@@ -78,7 +77,6 @@ export async function POST(req: Request) {
       headers: { 'Content-Type': 'text/event-stream' },
     });
   }
-  // Cap images per request: prevents quota-burn abuse (each image = AI call).
   if (images.length > 20) {
     return new Response(sse({ type: 'error', error: 'too_many_images' }), {
       status: 400,
@@ -139,7 +137,7 @@ export async function POST(req: Request) {
       userId: user.id,
       toolSlug: TOOL_SLUG,
       status: 'PROCESSING',
-      inputFileUrls: images.map((i) => i.key || i.fileName || ''), // never store data URLs (500KB+ base64 bloat)
+      inputFileUrls: images.map((i) => i.key || i.fileName || ''),
       creditsCharged: total,
       outputData: {
         style: preset.slug,
@@ -214,8 +212,7 @@ export async function POST(req: Request) {
                 responseSchema: ImagePromptSchema,
                 responseSchemaName: 'ImagePrompt',
                 maxTokens: 8192,
-                // Low temperature for deterministic, schema-valid JSON.
-                temperature: 0.2,
+                temperature: 0.7,
                 userId: user.id,
               })
             ).parsed as ImagePromptResult | null;

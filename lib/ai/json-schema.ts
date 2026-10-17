@@ -64,17 +64,8 @@ function walk(z: ZodType, seen: Set<ZodType>): JsonSchema {
   }
 
   switch (t) {
-    case 'ZodString': {
-      const s: JsonSchema = { type: 'string' };
-      // Emit length checks so the API enforces them (e.g. maxLength caps
-      // runaway string output in response_schema-constrained calls).
-      const checks = (z as any)._def.checks ?? [];
-      for (const c of checks) {
-        if (c.kind === 'min') s.minLength = c.value;
-        if (c.kind === 'max') s.maxLength = c.value;
-      }
-      return s;
-    }
+    case 'ZodString':
+      return { type: 'string' };
     case 'ZodNumber':
       return { type: 'number' };
     case 'ZodBoolean':
