@@ -16,11 +16,15 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
+
 import { prisma } from '@/lib/db';
 import { listTools, type ToolEntry } from '@/lib/tools/registry';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { LockedToolTile } from '@/components/dashboard/tool-shell';
+
+// Authenticated page: never prerender at build time (needs session + DB).
+export const dynamic = 'force-dynamic';
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   Wrench,

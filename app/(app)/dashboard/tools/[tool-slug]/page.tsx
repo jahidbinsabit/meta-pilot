@@ -1,7 +1,10 @@
-import dynamic from 'next/dynamic';
+import nextDynamic from 'next/dynamic';
 import { notFound } from 'next/navigation';
 import { getTool } from '@/lib/tools/registry';
 import { Spinner } from '@/components/ui/loading';
+
+// Authenticated page: never prerender at build time (needs session + DB).
+export const dynamic = 'force-dynamic';
 
 function ToolFallback() {
   return (
@@ -14,67 +17,67 @@ function ToolFallback() {
 // Each tool client is code-split with next/dynamic so visiting one tool page
 // only downloads that tool's JavaScript — previously all 12 tool clients were
 // statically imported, bloating every tool page's first-load bundle.
-const ToolClient = dynamic(
+const ToolClient = nextDynamic(
   () => import('@/components/dashboard/tool-client').then((m) => m.ToolClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const BgRemoverClient = dynamic(
+const BgRemoverClient = nextDynamic(
   () => import('@/components/dashboard/bg-remover-client').then((m) => m.BgRemoverClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const BentoClient = dynamic(
+const BentoClient = nextDynamic(
   () => import('@/components/dashboard/bento-client').then((m) => m.BentoClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const PaletteClient = dynamic(
+const PaletteClient = nextDynamic(
   () => import('@/components/dashboard/palette-client').then((m) => m.PaletteClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const AsciiClient = dynamic(
+const AsciiClient = nextDynamic(
   () => import('@/components/dashboard/ascii-client').then((m) => m.AsciiClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const EventsClient = dynamic(
+const EventsClient = nextDynamic(
   () => import('@/components/dashboard/events-client').then((m) => m.EventsClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const AdobeKeywordsClient = dynamic(
+const AdobeKeywordsClient = nextDynamic(
   () => import('@/components/dashboard/adobe-keywords-client').then((m) => m.AdobeKeywordsClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const AiEpsToJpgClient = dynamic(
+const AiEpsToJpgClient = nextDynamic(
   () => import('@/components/dashboard/ai-eps-to-jpg-client').then((m) => m.AiEpsToJpgClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const HalftoneClient = dynamic(
+const HalftoneClient = nextDynamic(
   () => import('@/components/dashboard/halftone-client').then((m) => m.HalftoneClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const DitherClient = dynamic(
+const DitherClient = nextDynamic(
   () => import('@/components/dashboard/dither-client').then((m) => m.DitherClient),
   {
     loading: () => <ToolFallback />,
   },
 );
-const ImageToPsdClient = dynamic(
+const ImageToPsdClient = nextDynamic(
   () => import('@/components/dashboard/image-to-psd-client').then((m) => m.ImageToPsdClient),
   {
     loading: () => <ToolFallback />,

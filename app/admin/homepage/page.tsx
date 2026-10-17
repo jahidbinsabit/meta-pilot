@@ -1,6 +1,9 @@
 import { prisma } from '@/lib/db';
 import { HomepageClient } from '@/components/admin/homepage-client';
 
+// Authenticated page: never prerender at build time (needs session + DB).
+export const dynamic = 'force-dynamic';
+
 const SECTIONS = [
   { key: 'hero', label: 'Hero Section', icon: 'Layout' },
   { key: 'features', label: 'Features Grid', icon: 'Grid' },
