@@ -1,17 +1,85 @@
+import dynamic from 'next/dynamic';
 import { notFound } from 'next/navigation';
-import { prisma } from '@/lib/db';
 import { getTool } from '@/lib/tools/registry';
-import { ToolClient } from '@/components/dashboard/tool-client';
-import { BgRemoverClient } from '@/components/dashboard/bg-remover-client';
-import { BentoClient } from '@/components/dashboard/bento-client';
-import { PaletteClient } from '@/components/dashboard/palette-client';
-import { AsciiClient } from '@/components/dashboard/ascii-client';
-import { EventsClient } from '@/components/dashboard/events-client';
-import { AdobeKeywordsClient } from '@/components/dashboard/adobe-keywords-client';
-import { AiEpsToJpgClient } from '@/components/dashboard/ai-eps-to-jpg-client';
-import { HalftoneClient } from '@/components/dashboard/halftone-client';
-import { DitherClient } from '@/components/dashboard/dither-client';
-import { ImageToPsdClient } from '@/components/dashboard/image-to-psd-client';
+import { Spinner } from '@/components/ui/loading';
+
+function ToolFallback() {
+  return (
+    <div className="flex min-h-[50vh] items-center justify-center">
+      <Spinner label="Loading tool" />
+    </div>
+  );
+}
+
+// Each tool client is code-split with next/dynamic so visiting one tool page
+// only downloads that tool's JavaScript — previously all 12 tool clients were
+// statically imported, bloating every tool page's first-load bundle.
+const ToolClient = dynamic(
+  () => import('@/components/dashboard/tool-client').then((m) => m.ToolClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const BgRemoverClient = dynamic(
+  () => import('@/components/dashboard/bg-remover-client').then((m) => m.BgRemoverClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const BentoClient = dynamic(
+  () => import('@/components/dashboard/bento-client').then((m) => m.BentoClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const PaletteClient = dynamic(
+  () => import('@/components/dashboard/palette-client').then((m) => m.PaletteClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const AsciiClient = dynamic(
+  () => import('@/components/dashboard/ascii-client').then((m) => m.AsciiClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const EventsClient = dynamic(
+  () => import('@/components/dashboard/events-client').then((m) => m.EventsClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const AdobeKeywordsClient = dynamic(
+  () => import('@/components/dashboard/adobe-keywords-client').then((m) => m.AdobeKeywordsClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const AiEpsToJpgClient = dynamic(
+  () => import('@/components/dashboard/ai-eps-to-jpg-client').then((m) => m.AiEpsToJpgClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const HalftoneClient = dynamic(
+  () => import('@/components/dashboard/halftone-client').then((m) => m.HalftoneClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const DitherClient = dynamic(
+  () => import('@/components/dashboard/dither-client').then((m) => m.DitherClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
+const ImageToPsdClient = dynamic(
+  () => import('@/components/dashboard/image-to-psd-client').then((m) => m.ImageToPsdClient),
+  {
+    loading: () => <ToolFallback />,
+  },
+);
 
 const TEXT_TOOLS = new Set([
   'keyword-clustering',

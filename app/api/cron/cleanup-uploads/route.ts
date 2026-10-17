@@ -6,8 +6,8 @@ import { listFiles, deleteFile } from '@/lib/s3/client';
  *
  * S3 key pattern:  uploads/<userId>/<timestamp>-<filename>
  *
- * Vercel Cron calls this every 5 minutes. When CRON_SECRET env var is set,
- * Vercel automatically sends: Authorization: Bearer <CRON_SECRET>
+ * Vercel Cron calls this daily at 01:00 UTC (see vercel.json). When CRON_SECRET
+ * env var is set, Vercel automatically sends: Authorization: Bearer <CRON_SECRET>
  * GET /api/cron/cleanup-uploads
  */
 
@@ -39,8 +39,8 @@ export async function GET(req: Request) {
     for (const file of files) {
       // Key format: uploads/<userId>/<timestamp>-<name>
       const segments = file.key.split('/');
-      const fileSegment = segments[2] ?? '';       // "<timestamp>-<name>"
-      const tsStr = fileSegment.split('-')[0];     // "<timestamp>"
+      const fileSegment = segments[2] ?? ''; // "<timestamp>-<name>"
+      const tsStr = fileSegment.split('-')[0]; // "<timestamp>"
       const ts = Number(tsStr);
 
       if (!ts || isNaN(ts)) {

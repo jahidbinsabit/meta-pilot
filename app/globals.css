@@ -264,54 +264,56 @@ input[type='range']::-moz-range-thumb {
 
 /* ===== Number tick micro-animations ===== */
 @media (prefers-reduced-motion: reduce) {
-
-/* ===== Hero 3D Glassy Visual Animations (CSVNest Style) ===== */
-@keyframes heroFloat {
-  0%, 100% {
-    transform: translateY(0px) rotate(0deg);
+  /* ===== Hero 3D Glassy Visual Animations (CSVNest Style) ===== */
+  @keyframes heroFloat {
+    0%,
+    100% {
+      transform: translateY(0px) rotate(0deg);
+    }
+    50% {
+      transform: translateY(-8px) rotate(0.5deg);
+    }
   }
-  50% {
-    transform: translateY(-8px) rotate(0.5deg);
+
+  @keyframes heroPulseGlow {
+    0%,
+    100% {
+      opacity: 0.6;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.9;
+      transform: scale(1.03);
+    }
   }
-}
 
-@keyframes heroPulseGlow {
-  0%, 100% {
-    opacity: 0.6;
-    transform: scale(1);
+  @keyframes statusPing {
+    0% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    75%,
+    100% {
+      transform: scale(2.2);
+      opacity: 0;
+    }
   }
-  50% {
-    opacity: 0.9;
-    transform: scale(1.03);
+
+  .hero-visual-card {
+    animation: heroFloat 7s ease-in-out infinite;
   }
-}
 
-@keyframes statusPing {
-  0% {
-    transform: scale(1);
-    opacity: 1;
+  .hero-visual-glow {
+    animation: heroPulseGlow 5s ease-in-out infinite;
   }
-  75%, 100% {
-    transform: scale(2.2);
-    opacity: 0;
+
+  .hero-visual-status {
+    animation: statusPing 2s cubic-bezier(0, 0, 0.2, 1) infinite;
   }
-}
 
-.hero-visual-card {
-  animation: heroFloat 7s ease-in-out infinite;
-}
-
-.hero-visual-glow {
-  animation: heroPulseGlow 5s ease-in-out infinite;
-}
-
-.hero-visual-status {
-  animation: statusPing 2s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
-
-.hero-visual-badge {
-  animation: heroFloat 5s ease-in-out infinite reverse;
-}
+  .hero-visual-badge {
+    animation: heroFloat 5s ease-in-out infinite reverse;
+  }
 
   *,
   *::before,
@@ -320,4 +322,69 @@ input[type='range']::-moz-range-thumb {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* ===== Route-level loader ring (used by loading.tsx states) ===== */
+@keyframes loader-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loader-ring {
+  display: inline-block;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  border: 3px solid hsl(var(--muted));
+  border-top-color: hsl(var(--accent));
+  animation: loader-ring-spin 0.7s linear infinite;
+}
+
+.loader-ring-lg {
+  width: 3rem;
+  height: 3rem;
+  border-width: 4px;
+}
+
+/* ===== CSS replacements for framer-motion (lighter initial bundle) ===== */
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-banner-in {
+  animation: banner-in 0.2s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.25s ease-out;
 }

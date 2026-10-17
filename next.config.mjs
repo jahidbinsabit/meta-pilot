@@ -13,7 +13,10 @@ if (!process.env.AUTH_URL && process.env.NEXTAUTH_URL) {
 const isBuild =
   process.env.NEXT_PHASE === 'phase-production-build' ||
   process.env.NEXT_PHASE === 'phase-development-build';
-if (isBuild && (!process.env.DATABASE_URL || !/^postgres(ql)?:\/\//i.test(process.env.DATABASE_URL))) {
+if (
+  isBuild &&
+  (!process.env.DATABASE_URL || !/^postgres(ql)?:\/\//i.test(process.env.DATABASE_URL))
+) {
   process.env.DATABASE_URL = 'postgresql://build:build@127.0.0.1:5432/build';
 }
 
@@ -21,24 +24,23 @@ const nextConfig = {
   reactStrictMode: true,
   compress: true,
   poweredByHeader: false,
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // NOTE: eslint/typescript ignores were removed — the codebase typechecks
+  // cleanly (tsc --noEmit: 0 errors) and lints with warnings only, so build
+  // failures now surface real problems instead of being hidden.
   images: {
     formats: ['image/avif', 'image/webp'],
     remotePatterns: [
       { protocol: 'https', hostname: 'images.unsplash.com' },
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
       { protocol: 'https', hostname: 'gravatar.com' },
-      { protocol: 'https', hostname: '**' }, // stock image CDN hosts
+      // NOTE: the previous `hostname: '**'` wildcard was removed — it let
+      // anyone proxy arbitrary hosts through this site's image optimizer.
+      // Add explicit stock-image CDN hosts here if next/image is adopted.
     ],
   },
   experimental: {
     serverComponentsExternalPackages: ['sharp'],
-    optimizePackageImports: ['lucide-react', '@tanstack/react-query', 'framer-motion', 'date-fns'],
+    optimizePackageImports: ['lucide-react', '@tanstack/react-query'],
     serverActions: { bodySizeLimit: '25mb' },
   },
   async headers() {
@@ -72,4 +74,3 @@ const nextConfig = {
 };
 
 export default nextConfig;
-

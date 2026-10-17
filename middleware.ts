@@ -2,8 +2,11 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { decode } from 'next-auth/jwt';
 
-const SECRET = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET!;
+const SECRET = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
 
+// Canonical cookie names, newest first. Auth.js v5 (next-auth@5) uses the
+// `authjs.session-token` pair; the `next-auth.*` pair is kept as a single
+// fallback for sessions minted before the v5 migration.
 const COOKIE_NAMES = [
   '__Secure-authjs.session-token',
   'authjs.session-token',
@@ -20,24 +23,27 @@ function getSessionCookie(req: NextRequest): { name: string; value: string } | n
   return null;
 }
 
+/**
+ * Decode the session JWT with at most two salt attempts: the cookie's own
+ * name, then its v4/v5 counterpart. The old code tried every salt for every
+ * cookie (up to 16 decode attempts per request on the edge); the salt is
+ * deterministic per cookie name, so one fallback is sufficient.
+ */
+function counterpartSalt(cookieName: string): string | null {
+  const pairs: Record<string, string> = {
+    '__Secure-authjs.session-token': '__Secure-next-auth.session-token',
+    'authjs.session-token': 'next-auth.session-token',
+    '__Secure-next-auth.session-token': '__Secure-authjs.session-token',
+    'next-auth.session-token': 'authjs.session-token',
+  };
+  return pairs[cookieName] ?? null;
+}
+
 async function decodeSessionToken(tokenValue: string, cookieName: string) {
   if (!SECRET) return null;
 
-  // 1. Try decoding with the exact cookie name (standard in Auth.js / NextAuth v5)
-  try {
-    const token = await decode({
-      token: tokenValue,
-      secret: SECRET,
-      salt: cookieName,
-    });
-    if (token) return token;
-  } catch {
-    // Try fallback salts
-  }
-
-  // 2. Try alternative known salts if exact cookie name failed
-  const fallbackSalts = COOKIE_NAMES.filter((s) => s !== cookieName);
-  for (const salt of fallbackSalts) {
+  const salts = [cookieName, counterpartSalt(cookieName)].filter(Boolean) as string[];
+  for (const salt of salts) {
     try {
       const token = await decode({
         token: tokenValue,
@@ -46,7 +52,7 @@ async function decodeSessionToken(tokenValue: string, cookieName: string) {
       });
       if (token) return token;
     } catch {
-      // Continue trying
+      // Try the next salt
     }
   }
 
@@ -88,4 +94,3 @@ export const config = {
   // Match every dashboard + admin route so the edge runs for them.
   matcher: ['/dashboard/:path*', '/admin/:path*'],
 };
-

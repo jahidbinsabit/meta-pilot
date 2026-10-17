@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db';
+import { revalidateTag, unstable_cache } from 'next/cache';
 import type { GeneratorSettings } from '@/lib/generator/types';
 
 const DEFAULT_ID = 'default';
@@ -26,15 +27,22 @@ function normalize(raw: any): GeneratorSettings {
 /**
  * Returns the single-row generator settings snapshot, creating the
  * default row if it does not exist yet (idempotent, safe to call from UI).
+ *
+ * Cached for 60s — this is global config read on every generate page load
+ * and every batch API call, so it must not hit the DB per request.
  */
-export async function getGeneratorSettings(): Promise<GeneratorSettings> {
-  const row = await prisma.generatorSettings.findUnique({ where: { id: DEFAULT_ID } });
-  if (!row) {
-    const created = await prisma.generatorSettings.create({ data: { id: DEFAULT_ID } });
-    return normalize(created);
-  }
-  return normalize(row);
-}
+export const getGeneratorSettings = unstable_cache(
+  async (): Promise<GeneratorSettings> => {
+    const row = await prisma.generatorSettings.findUnique({ where: { id: DEFAULT_ID } });
+    if (!row) {
+      const created = await prisma.generatorSettings.create({ data: { id: DEFAULT_ID } });
+      return normalize(created);
+    }
+    return normalize(row);
+  },
+  ['generator-settings-default'],
+  { revalidate: 60, tags: ['generator-settings'] },
+);
 
 /** Admin-only write. Updates the global generator defaults. */
 export async function updateGeneratorSettings(
@@ -84,6 +92,9 @@ export async function updateGeneratorSettings(
       after: normalize(after) as any,
     },
   });
+
+  // Invalidate the cached snapshot so admin changes take effect immediately.
+  revalidateTag('generator-settings');
 
   return normalize(after);
 }

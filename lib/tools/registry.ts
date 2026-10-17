@@ -8,6 +8,7 @@
  */
 
 import { prisma } from '@/lib/db';
+import { revalidateTag, unstable_cache } from 'next/cache';
 import { TOOL_SLUGS, TOOL_META, type ToolSlug } from '@/lib/tools/slugs';
 
 export interface ToolEntry {
@@ -102,26 +103,34 @@ function rowToEntry(r: any): ToolEntry {
 }
 
 /** Read every registered tool, merged with defaults for any missing slug. */
-export async function listTools(): Promise<ToolEntry[]> {
-  const rows = await prisma.toolRegistry.findMany({ orderBy: { sortOrder: 'asc' } });
-  const bySlug = new Map(rows.map((r) => [r.slug, r]));
-  const out: ToolEntry[] = [];
-  for (const slug of TOOL_SLUGS) {
-    const row = bySlug.get(slug);
-    out.push(row ? rowToEntry(row) : { slug, ...defaults(slug) });
-  }
-  return out;
-}
+export const listTools = unstable_cache(
+  async (): Promise<ToolEntry[]> => {
+    const rows = await prisma.toolRegistry.findMany({ orderBy: { sortOrder: 'asc' } });
+    const bySlug = new Map(rows.map((r) => [r.slug, r]));
+    const out: ToolEntry[] = [];
+    for (const slug of TOOL_SLUGS) {
+      const row = bySlug.get(slug);
+      out.push(row ? rowToEntry(row) : { slug, ...defaults(slug) });
+    }
+    return out;
+  },
+  ['tool-registry-list'],
+  { revalidate: 300, tags: ['tool-registry'] },
+);
 
 /** Read a single tool by slug, falling back to defaults. */
-export async function getTool(slug: string): Promise<ToolEntry | null> {
-  const row = await prisma.toolRegistry.findUnique({ where: { slug } });
-  if (row) return rowToEntry(row);
-  if ((TOOL_SLUGS as readonly string[]).includes(slug)) {
-    return { slug, ...defaults(slug) };
-  }
-  return null;
-}
+export const getTool = unstable_cache(
+  async (slug: string): Promise<ToolEntry | null> => {
+    const row = await prisma.toolRegistry.findUnique({ where: { slug } });
+    if (row) return rowToEntry(row);
+    if ((TOOL_SLUGS as readonly string[]).includes(slug)) {
+      return { slug, ...defaults(slug) };
+    }
+    return null;
+  },
+  ['tool-registry-by-slug'],
+  { revalidate: 300, tags: ['tool-registry'] },
+);
 
 /** Whether a tool is visible for the given user's plan tier. */
 export function toolVisibleFor(tool: ToolEntry, tier: string): boolean {
@@ -155,6 +164,8 @@ export async function upsertTool(
     update: data,
     create: data,
   });
+  // Invalidate cached registry reads so admin changes take effect immediately.
+  revalidateTag('tool-registry');
   return rowToEntry(row);
 }
 

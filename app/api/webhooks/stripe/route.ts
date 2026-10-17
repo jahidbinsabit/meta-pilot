@@ -24,8 +24,17 @@ export async function POST(req: Request) {
       });
     }
 
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error('[stripe-webhook] STRIPE_WEBHOOK_SECRET is not configured');
+      return new Response(JSON.stringify({ error: 'webhook_not_configured' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const stripe = getStripe();
-    const event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET!);
+    const event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
 
     console.log(`[stripe-webhook] Event received: ${event.type}`);
 

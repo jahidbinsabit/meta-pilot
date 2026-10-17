@@ -8,7 +8,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const session = await getServerSession();
   if (!session?.user?.email) redirect('/login');
 
-  const [user, siteSettings] = await Promise.all([
+  const [user, siteSettings, preNotifications] = await Promise.all([
     prisma.user.findUnique({
       where: { email: session.user.email },
       include: {
@@ -22,15 +22,32 @@ export default async function DashboardLayout({ children }: { children: React.Re
       },
     }),
     getSiteSettings(),
+    // Notifications for every audience in one query; filtered in-memory below
+    // so this runs in parallel with the user lookup instead of after it.
+    prisma.notification.findMany({
+      where: {
+        isActive: true,
+        AND: [
+          { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
+          { OR: [{ endsAt: null }, { endsAt: { gte: new Date() } }] },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        body: true,
+        ctaLabel: true,
+        ctaUrl: true,
+        audience: true,
+      },
+    }),
   ]);
 
   if (!user) redirect('/login');
 
   // Determine active plan tier and display name
-  const activePlanTier =
-    user.memberships[0]?.plan?.tier ||
-    user.membership ||
-    'FREE';
+  const activePlanTier = user.memberships[0]?.plan?.tier || user.membership || 'FREE';
 
   const activePlanName =
     user.memberships[0]?.plan?.name ||
@@ -93,24 +110,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const validAudiences = ['FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'];
   const audienceFilter = validAudiences.includes(rawTier) ? rawTier : 'FREE';
 
-  const notifications = await prisma.notification.findMany({
-    where: {
-      isActive: true,
-      AND: [
-        { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
-        { OR: [{ endsAt: null }, { endsAt: { gte: new Date() } }] },
-        { OR: [{ audience: 'ALL' }, { audience: audienceFilter as any }] },
-      ],
-    },
-    orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      title: true,
-      body: true,
-      ctaLabel: true,
-      ctaUrl: true,
-    },
-  });
+  // Filter the pre-fetched notifications in memory by audience — the DB query
+  // already ran in parallel with the user lookup above, so this is free.
+  const notifications = preNotifications
+    .filter((n) => n.audience === 'ALL' || n.audience === (audienceFilter as any))
+    .map(({ audience, ...rest }) => rest);
 
   const siteName = siteSettings?.siteName || 'StockForge AI';
   const logoUrl = siteSettings?.logoUrl;

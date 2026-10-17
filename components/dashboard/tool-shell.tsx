@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { motion } from 'framer-motion';
 import {
   ArrowLeft,
   Lock,
@@ -107,13 +106,8 @@ export function ToolShell({ tool, children, extraActions }: ToolShellProps) {
         </div>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2, ease: 'easeOut' }}
-      >
-        {children}
-      </motion.div>
+      {/* Subtle enter animation (CSS, was framer-motion) */}
+      <div className="animate-fade-in">{children}</div>
     </div>
   );
 }
