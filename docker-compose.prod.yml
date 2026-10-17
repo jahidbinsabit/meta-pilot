@@ -53,9 +53,10 @@ services:
       DATABASE_URL: postgresql://stockforge:${DB_PASSWORD}@db:5432/stockforge?schema=public
       REDIS_URL: redis://redis:6379
     # Localhost-only: host crontab curls the cron endpoints here.
-    # Public traffic goes through Caddy (80/443).
+    # Public traffic goes through the reverse proxy (Caddy or CyberPanel).
+    # NOTE: 3100, not 3000 — some VPS images run nghttpx on 127.0.0.1:3000.
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3100:3000"
     # Apply pending Prisma migrations on every (re)start, then boot Next.js.
     # The web process also starts the BullMQ workers itself (see lib/queue/bootstrap.ts).
     command: ["sh", "-c", "npx prisma migrate deploy && node server.js"]

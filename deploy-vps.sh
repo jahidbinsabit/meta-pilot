@@ -89,8 +89,8 @@ fi
 echo "=== [6/6] Cron jobs ==="
 CRON_SECRET="$(grep -E '^CRON_SECRET=' .env | cut -d= -f2 || true)"
 ( crontab -l 2>/dev/null | grep -v "api/cron/" || true
-  echo "0 0 * * * curl -s -H \"Authorization: Bearer ${CRON_SECRET}\" http://127.0.0.1:3000/api/cron/daily-credits >/dev/null 2>&1"
-  echo "0 1 * * * curl -s -H \"Authorization: Bearer ${CRON_SECRET}\" http://127.0.0.1:3000/api/cron/cleanup-uploads >/dev/null 2>&1"
+  echo "0 0 * * * curl -s -H \"Authorization: Bearer ${CRON_SECRET}\" http://127.0.0.1:3100/api/cron/daily-credits >/dev/null 2>&1"
+  echo "0 1 * * * curl -s -H \"Authorization: Bearer ${CRON_SECRET}\" http://127.0.0.1:3100/api/cron/cleanup-uploads >/dev/null 2>&1"
 ) | crontab -
 echo "crons installed (daily-credits 00:00, cleanup-uploads 01:00)"
 
@@ -100,13 +100,13 @@ if [ "$USE_CADDY" = "1" ]; then
   echo "App: https://$DOMAIN  (SSL automatic once DNS points here)"
 else
   cat <<EOF
-App stack is running on 127.0.0.1:3000 — expose it via CyberPanel:
+App stack is running on 127.0.0.1:3100 — expose it via CyberPanel:
 
   1. CyberPanel -> Websites -> Create Website: $DOMAIN
   2. Websites -> $DOMAIN -> vHost Conf, add at the top:
        extprocessor nodebackend {
          type            proxy
-         address         127.0.0.1:3000
+         address         127.0.0.1:3100
          maxConns        200
          pcKeepAliveTimeout 60
        }
