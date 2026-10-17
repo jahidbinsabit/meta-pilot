@@ -61,6 +61,10 @@ COPY --from=prisma /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
 
+# Writable uploads dir for USE_LOCAL_STORAGE mode (backed by a named volume
+# in docker-compose.prod.yml so files survive container recreates).
+RUN mkdir -p /app/public/uploads && chown nextjs:nextjs /app/public/uploads
+
 USER nextjs
 
 EXPOSE 3000

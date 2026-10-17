@@ -62,6 +62,17 @@ else
   echo ".env already exists — keeping it (edit $APP_DIR/.env to change values)"
 fi
 
+# Prefer local file storage unless a real S3 endpoint is configured.
+# (The .env.example ships a localhost MinIO placeholder that breaks uploads
+# on a prod VPS with no MinIO running.)
+if ! grep -qE "^USE_LOCAL_STORAGE=" .env 2>/dev/null; then
+  S3EP="$(grep -E "^S3_ENDPOINT=" .env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")"
+  if [ -z "$S3EP" ] || [[ "$S3EP" == *"localhost"* ]] || [[ "$S3EP" == *"127.0.0.1"* ]]; then
+    set_kv USE_LOCAL_STORAGE "true"
+    echo "USE_LOCAL_STORAGE=true (no real S3 endpoint configured)"
+  fi
+fi
+
 echo "=== [4/6] DNS check ==="
 RESOLVED="$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1 || true)"
 if [ -z "$RESOLVED" ]; then

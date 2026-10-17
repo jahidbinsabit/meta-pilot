@@ -57,6 +57,9 @@ services:
     # NOTE: 3100, not 3000 — some VPS images run nghttpx on 127.0.0.1:3000.
     ports:
       - "127.0.0.1:3100:3000"
+    volumes:
+      # Persistent uploads for USE_LOCAL_STORAGE mode (survives recreates).
+      - uploads:/app/public/uploads
     # Sync the DB schema on every (re)start, then boot Next.js.
     # `db push` (not `migrate deploy`): the repo's migration history is
     # incomplete — it only creates 3 of 31 tables and its first migration
@@ -84,5 +87,6 @@ services:
 volumes:
   pgdata:
   redisdata:
+  uploads:
   caddydata:
   caddyconfig:
