@@ -41,10 +41,21 @@ export abstract class BaseAdapter implements AiAdapter {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       attempts = attempt;
       try {
-        const result = await this.doGenerate(req);
+        // On retry after truncation, force the model back within bounds: the
+        // previous response was too verbose, so add an explicit length cap.
+        const attemptReq =
+          attempt > 1 && lastError?.includes('was truncated')
+            ? {
+                ...req,
+                systemPrompt: `${req.systemPrompt || ''}\n\nCRITICAL LENGTH OVERRIDE: Your previous response was too long and got cut off. This time, keep the prompt under 350 words. Stop when done — do not elaborate further.`,
+                maxTokens: Math.min(req.maxTokens ?? 2048, 1500),
+              }
+            : req;
+        const result = await this.doGenerate(attemptReq);
         text = result.text;
-        promptTokens = result.promptTokens;
-        completionTokens = result.completionTokens;
+        // Accumulate tokens across attempts for honest cost accounting.
+        promptTokens += result.promptTokens;
+        completionTokens += result.completionTokens;
         // Truncated output (hit max tokens) can never parse against a schema —
         // retry for a concise response instead of returning a certain failure.
         // (Gemini reports 'MAX_TOKENS', OpenAI/Grok report 'length'.)

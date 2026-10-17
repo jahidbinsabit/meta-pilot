@@ -21,12 +21,12 @@ export type MetadataResult = z.infer<typeof MetadataSchema>;
 
 /** Image → Prompt output (PROMPT 5). */
 export const ImagePromptSchema = z.object({
-  prompt: z.string().trim().min(1),
-  subject: z.string().trim().default(''),
-  style: z.string().trim().default(''),
-  lighting: z.string().trim().default(''),
-  composition: z.string().trim().default(''),
-  mood: z.string().trim().default(''),
+  prompt: z.string().trim().min(1).max(2500),
+  subject: z.string().trim().max(300).default(''),
+  style: z.string().trim().max(300).default(''),
+  lighting: z.string().trim().max(300).default(''),
+  composition: z.string().trim().max(300).default(''),
+  mood: z.string().trim().max(300).default(''),
 });
 
 export type ImagePromptResult = z.infer<typeof ImagePromptSchema>;

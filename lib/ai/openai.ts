@@ -81,6 +81,7 @@ export class OpenAiAdapter extends BaseAdapter {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!res.ok) {

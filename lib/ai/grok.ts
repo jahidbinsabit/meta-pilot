@@ -77,6 +77,7 @@ export class GrokAdapter extends BaseAdapter {
         Authorization: `Bearer ${this.apiKey.trim()}`,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!res.ok) {

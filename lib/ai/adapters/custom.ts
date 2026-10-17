@@ -113,6 +113,7 @@ export class CustomAdapter extends BaseAdapter {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60000),
     });
 
     // If 400 Bad Request and response_format was included, retry without response_format
@@ -122,6 +123,7 @@ export class CustomAdapter extends BaseAdapter {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(60000),
       });
     }
 

@@ -83,6 +83,9 @@ export class GeminiAdapter extends BaseAdapter {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      // Don't hang forever if the provider stalls; the retry loop treats
+      // timeouts as retryable.
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!res.ok) {

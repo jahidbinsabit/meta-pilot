@@ -141,9 +141,9 @@ describe('GeminiAdapter', () => {
     expect(body.generationConfig.response_schema).toEqual({
       type: 'object',
       properties: {
-        title: { type: 'string' },
+        title: { type: 'string', minLength: 1 },
         description: { type: 'string' },
-        keywords: { type: 'array', items: { type: 'string' } },
+        keywords: { type: 'array', items: { type: 'string', minLength: 1 } },
         altText: { type: 'string' },
       },
       required: ['title', 'description', 'keywords'],
