@@ -106,9 +106,16 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   const [regeneratingIds, setRegeneratingIds] = React.useState<Set<string>>(new Set());
 
   async function startStreamingGeneration() {
-    const ready = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
+    // Only send images that don't already have results — prevents double-charging
+    // when user clicks Generate multiple times.
+    const ready = files.filter(
+      (f) =>
+        f.status === 'done' &&
+        (f.previewUrl || f.dataUrl) &&
+        !results.find((r) => r.id === f.id)
+    );
     if (ready.length === 0) {
-      toast({ title: 'No images ready', description: 'Upload images first', variant: 'error' });
+      toast({ title: 'No new images to process', description: 'All uploaded images already have prompts. Upload new images or remove existing results to regenerate.', variant: 'info' });
       return;
     }
     if (!style) {
@@ -321,7 +328,12 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     }
   }
 
-  const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
+  const readyFiles = files.filter(
+    (f) =>
+      f.status === 'done' &&
+      (f.previewUrl || f.dataUrl) &&
+      !results.find((r) => r.id === f.id)
+  );
   const totalCost = readyFiles.length * costPerImage;
   const canGenerate =
     readyFiles.length > 0 && !isGenerating && credits >= totalCost && !!style;
