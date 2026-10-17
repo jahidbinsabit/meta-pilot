@@ -213,7 +213,7 @@ export async function POST(req: Request) {
                 imageUrls: [imageUrl],
                 responseSchema: ImagePromptSchema,
                 responseSchemaName: 'ImagePrompt',
-                maxTokens: 2048,
+                maxTokens: 8192,
                 // Low temperature for deterministic, schema-valid JSON.
                 temperature: 0.2,
                 userId: user.id,
@@ -229,7 +229,7 @@ export async function POST(req: Request) {
                   imageUrls: [imageUrl],
                   responseSchema: ImagePromptSchema,
                   responseSchemaName: 'ImagePrompt',
-                  maxTokens: 2048,
+                  maxTokens: 8192,
                   temperature: 0.2,
                   userId: user.id,
                 })

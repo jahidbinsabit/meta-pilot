@@ -15,6 +15,52 @@ import { zodToJsonSchema } from '@/lib/ai/json-schema';
 import { logAiCall } from '@/lib/ai/logging';
 import type { AiAdapter, AiRequest, AiResponse } from '@/lib/ai/types';
 
+/**
+ * Extracts usable fields from a truncated JSON response.
+ * When the model hits max tokens mid-output, the JSON is incomplete, but the
+ * "prompt" field (usually first) often contains a complete-enough value.
+ * Returns null if nothing salvageable is found.
+ */
+function salvageTruncatedJson(text: string): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {};
+
+  // Extract each string field via regex (handles incomplete JSON).
+  // Matches: "key": "value... (up to the truncation point)
+  const fieldPattern = /"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)/g;
+  let match;
+  while ((match = fieldPattern.exec(text)) !== null) {
+    const [, key, rawValue] = match;
+    try {
+      // Unescape the JSON string value
+      const value = JSON.parse(`"${rawValue}"`);
+      result[key] = value;
+    } catch {
+      // If unescape fails, use raw (truncated) value
+      result[key] = rawValue;
+    }
+  }
+
+  // Must have at least a prompt to be useful
+  if (!result.prompt || typeof result.prompt !== 'string' || !result.prompt.trim()) {
+    return null;
+  }
+
+  // Truncate prompt to ~400 words at a sentence boundary
+  const words = (result.prompt as string).split(/\s+/);
+  if (words.length > 400) {
+    const truncated = words.slice(0, 400).join(' ');
+    // Cut at last sentence boundary
+    const lastPeriod = Math.max(
+      truncated.lastIndexOf('. '),
+      truncated.lastIndexOf('! '),
+      truncated.lastIndexOf('? ')
+    );
+    result.prompt = (lastPeriod > 0 ? truncated.slice(0, lastPeriod + 1) : truncated).trim();
+  }
+
+  return result;
+}
+
 export abstract class BaseAdapter implements AiAdapter {
   abstract readonly id: string;
   abstract readonly name: string;
@@ -31,36 +77,32 @@ export abstract class BaseAdapter implements AiAdapter {
 
   async generate(req: AiRequest): Promise<AiResponse> {
     const started = Date.now();
-    const maxRetries = Math.max(1, req.maxRetries ?? 3);
+    const maxRetries = Math.max(1, req.maxRetries ?? 2);
     let lastError: string | undefined;
     let attempts = 0;
     let text = '';
     let promptTokens = 0;
     let completionTokens = 0;
+    let salvaged: Record<string, unknown> | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       attempts = attempt;
       try {
-        // On retry after truncation, force the model back within bounds: the
-        // previous response was too verbose, so add an explicit length cap.
-        const attemptReq =
-          attempt > 1 && lastError?.includes('was truncated')
-            ? {
-                ...req,
-                systemPrompt: `${req.systemPrompt || ''}\n\nCRITICAL LENGTH OVERRIDE: Your previous response was too long and got cut off. This time, keep the prompt under 350 words. Stop when done — do not elaborate further.`,
-                maxTokens: Math.min(req.maxTokens ?? 2048, 1500),
-              }
-            : req;
-        const result = await this.doGenerate(attemptReq);
+        const result = await this.doGenerate(req);
         text = result.text;
         // Accumulate tokens across attempts for honest cost accounting.
         promptTokens += result.promptTokens;
         completionTokens += result.completionTokens;
-        // Truncated output (hit max tokens) can never parse against a schema —
-        // retry for a concise response instead of returning a certain failure.
+        // Truncated output (hit max tokens): try to salvage the partial JSON
+        // instead of failing. The model usually wrote a good prompt — it just
+        // didn't stop. Extract what we can and return it.
         // (Gemini reports 'MAX_TOKENS', OpenAI/Grok report 'length'.)
-        // Include a preview of the runaway output in the error for diagnosis.
         if (result.finishReason === 'MAX_TOKENS' || result.finishReason === 'length') {
+          salvaged = salvageTruncatedJson(result.text);
+          if (salvaged) {
+            lastError = undefined;
+            break;
+          }
           const preview = result.text.slice(0, 400).replace(/\s+/g, ' ');
           lastError = `Model response was truncated (max tokens reached). Output preview: ${preview}...`;
         } else {
@@ -71,8 +113,7 @@ export abstract class BaseAdapter implements AiAdapter {
         lastError = e?.message || String(e);
       }
       if (attempt >= maxRetries) break;
-      // Back off with exponential delay before retrying a transient provider error (503 / 429 / network)
-      // or a truncated response.
+      // Back off with exponential delay before retrying a transient provider error (503 / 429 / network).
       const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
       await sleep(delayMs);
     }
@@ -87,9 +128,14 @@ export abstract class BaseAdapter implements AiAdapter {
     // Parse + validate against the caller's schema. A schema mismatch is
     // logged as parsedOk=false but does NOT throw — the caller decides how to
     // handle it (retry, refund, fall back to raw text).
+    // If we salvaged a truncated response, use that instead of parsing.
     let parsed: unknown = null;
     let parsedOk = false;
-    if (req.responseSchema) {
+    if (salvaged && req.responseSchema) {
+      const validated = req.responseSchema.safeParse(salvaged);
+      parsed = validated.success ? validated.data : salvaged;
+      parsedOk = true; // Salvaged output is usable even if not schema-perfect
+    } else if (req.responseSchema) {
       const parsedResult = parseAndValidate(text, req.responseSchema);
       parsed = parsedResult.value;
       parsedOk = parsedResult.ok;
