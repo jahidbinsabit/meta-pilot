@@ -1,35 +1,25 @@
 import { prisma } from '@/lib/db';
 
 /**
- * Batch upload limit per plan tier.
- * Free = 3, Pro = 25, Agency = unlimited (-1).
- * The limit is derived from the plan's `features.batchLimit` JSON field so
- * the admin can change it from the admin panel without a deploy.
+ * Batch upload limit — 100 for everyone (owner's policy, Oct 2026).
+ * A plan can still override via its `features.batchLimit` JSON field
+ * (positive number, or -1 / 'unlimited'), but any value is capped at the
+ * API maximum of 100 (see MAX_BATCH_SIZE in app/api/generate/batch/route.ts).
  */
+export const UNIVERSAL_BATCH_LIMIT = 100;
+
 export async function getBatchLimitForUser(userId: string): Promise<number> {
   const membership = await prisma.membership.findFirst({
     where: { userId, status: 'ACTIVE' },
     include: { plan: true },
     orderBy: { startedAt: 'desc' },
   });
-  if (!membership?.plan) return 3; // default free-tier limit
-  const features = (membership.plan.features as any) || {};
+  const features = (membership?.plan?.features as any) || {};
   const limit = features.batchLimit;
-  if (typeof limit === 'number' && limit > 0) return limit;
-  if (limit === -1 || limit === 'unlimited') return -1;
-  // Tier-based fallback.
-  switch (membership.plan.tier) {
-    case 'FREE':
-      return 3;
-    case 'PRO':
-      return 25;
-    case 'PLUS':
-      return 50;
-    case 'AGENCY':
-      return -1;
-    default:
-      return 3;
-  }
+  if (typeof limit === 'number' && limit > 0)
+    return Math.min(limit, UNIVERSAL_BATCH_LIMIT);
+  // -1 / 'unlimited' (and any unset value) → universal limit.
+  return UNIVERSAL_BATCH_LIMIT;
 }
 
 export async function getMembershipTier(userId: string): Promise<string> {

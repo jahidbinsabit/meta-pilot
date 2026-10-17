@@ -60,6 +60,8 @@ COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=prisma /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
+# tsconfig needed for `npm run db:seed` (ts-node + tsconfig-paths @/* aliases).
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 # Writable uploads dir for USE_LOCAL_STORAGE mode (backed by a named volume
 # in docker-compose.prod.yml so files survive container recreates).
