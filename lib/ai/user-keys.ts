@@ -114,7 +114,7 @@ export async function resolveUserAdapter(
   }
 
   if (target === 'gemini' && userKeys.geminiKey) {
-    return { adapter: new GeminiAdapter(userKeys.geminiKey, 'gemini-3.8-flash'), provider: 'gemini', isUserKey: true };
+    return { adapter: new GeminiAdapter(userKeys.geminiKey, 'gemini-3.5-flash-lite'), provider: 'gemini', isUserKey: true };
   }
   if (target === 'grok' && userKeys.grokKey) {
     return { adapter: new GrokAdapter(userKeys.grokKey, 'grok-2-latest'), provider: 'grok', isUserKey: true };
@@ -125,7 +125,7 @@ export async function resolveUserAdapter(
 
   // If preferred not available, pick whichever key the user has
   if (userKeys.geminiKey) {
-    return { adapter: new GeminiAdapter(userKeys.geminiKey, 'gemini-3.8-flash'), provider: 'gemini', isUserKey: true };
+    return { adapter: new GeminiAdapter(userKeys.geminiKey, 'gemini-3.5-flash-lite'), provider: 'gemini', isUserKey: true };
   }
   if (userKeys.grokKey) {
     return { adapter: new GrokAdapter(userKeys.grokKey, 'grok-2-latest'), provider: 'grok', isUserKey: true };

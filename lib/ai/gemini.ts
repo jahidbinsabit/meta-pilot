@@ -33,32 +33,12 @@ export class GeminiAdapter extends BaseAdapter {
     completionTokens: number;
     finishReason?: string;
   }> {
-    // Model fallback chain: try the preferred model first, fall back on
-    // 404 (not available to this key) or 503 (overloaded/unavailable).
-    // Other errors (400, 401, 429) propagate immediately.
-    let primary = req.model || this.modelDefault || 'gemini-3.8-flash';
-    if (primary === 'gemini-2.0-flash') primary = 'gemini-3.8-flash';
-
-    const chain =
-      primary === 'gemini-3.8-flash'
-        ? ['gemini-3.8-flash', 'gemini-3.5-flash-lite']
-        : [primary];
-
-    let lastErr: any;
-    for (const model of chain) {
-      try {
-        return await this.doGenerateWithModel(req, model);
-      } catch (e: any) {
-        const msg = e?.message || String(e);
-        if (/Gemini API (404|503)/.test(msg)) {
-          console.log(`[Gemini] ${model} unavailable, trying fallback (${msg.slice(0, 100)})`);
-          lastErr = e;
-          continue;
-        }
-        throw e;
-      }
+    // Use gemini-3.5-flash-lite (original behavior).
+    let model = req.model || this.modelDefault || 'gemini-3.5-flash-lite';
+    if (model === 'gemini-2.0-flash' || model === 'gemini-3.8-flash') {
+      model = 'gemini-3.5-flash-lite';
     }
-    throw lastErr;
+    return this.doGenerateWithModel(req, model);
   }
 
   private async doGenerateWithModel(
