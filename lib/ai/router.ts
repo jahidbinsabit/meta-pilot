@@ -88,7 +88,8 @@ export async function generateWithAI(opts: {
         // (see BaseAdapter) — that's a model issue, not a key issue, so don't
         // blame the user's key for it.
         const isParseFailure =
-          !!result.errorMessage && /did not match the expected format/i.test(result.errorMessage);
+          !!result.errorMessage &&
+          /did not match the expected format|was truncated/i.test(result.errorMessage);
         const detail = result.errorMessage || 'unknown error';
         const prefix = isParseFailure ? 'Generation failed' : 'User API key failed';
         throw new Error(`[${userResolved.provider}] ${prefix}: ${detail}`);

@@ -48,8 +48,10 @@ export abstract class BaseAdapter implements AiAdapter {
         // Truncated output (hit max tokens) can never parse against a schema —
         // retry for a concise response instead of returning a certain failure.
         // (Gemini reports 'MAX_TOKENS', OpenAI/Grok report 'length'.)
+        // Include a preview of the runaway output in the error for diagnosis.
         if (result.finishReason === 'MAX_TOKENS' || result.finishReason === 'length') {
-          lastError = 'Model response was truncated (max tokens reached)';
+          const preview = result.text.slice(0, 400).replace(/\s+/g, ' ');
+          lastError = `Model response was truncated (max tokens reached). Output preview: ${preview}...`;
         } else {
           lastError = undefined;
           break;
