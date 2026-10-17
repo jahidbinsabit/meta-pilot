@@ -15,6 +15,47 @@ import { zodToJsonSchema } from '@/lib/ai/json-schema';
 import { logAiCall } from '@/lib/ai/logging';
 import type { AiAdapter, AiRequest, AiResponse } from '@/lib/ai/types';
 
+/**
+ * Extracts usable fields from a truncated JSON response.
+ * When the model hits max tokens mid-output, the JSON is incomplete, but the
+ * "prompt" field (usually first) often contains a complete-enough value.
+ * Returns null if nothing salvageable is found.
+ */
+function salvageTruncatedJson(text: string): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {};
+
+  // Extract each string field via regex (handles incomplete JSON).
+  const fieldPattern = /"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)/g;
+  let match;
+  while ((match = fieldPattern.exec(text)) !== null) {
+    const [, key, rawValue] = match;
+    try {
+      const value = JSON.parse(`"${rawValue}"`);
+      result[key] = value;
+    } catch {
+      result[key] = rawValue;
+    }
+  }
+
+  if (!result.prompt || typeof result.prompt !== 'string' || !result.prompt.trim()) {
+    return null;
+  }
+
+  // Truncate prompt to ~400 words at a sentence boundary
+  const words = (result.prompt as string).split(/\s+/);
+  if (words.length > 400) {
+    const truncated = words.slice(0, 400).join(' ');
+    const lastPeriod = Math.max(
+      truncated.lastIndexOf('. '),
+      truncated.lastIndexOf('! '),
+      truncated.lastIndexOf('? ')
+    );
+    result.prompt = (lastPeriod > 0 ? truncated.slice(0, lastPeriod + 1) : truncated).trim();
+  }
+
+  return result;
+}
+
 export abstract class BaseAdapter implements AiAdapter {
   abstract readonly id: string;
   abstract readonly name: string;
@@ -31,29 +72,41 @@ export abstract class BaseAdapter implements AiAdapter {
 
   async generate(req: AiRequest): Promise<AiResponse> {
     const started = Date.now();
-    const maxRetries = Math.max(1, req.maxRetries ?? 3);
+    const maxRetries = Math.max(1, req.maxRetries ?? 2);
     let lastError: string | undefined;
     let attempts = 0;
     let text = '';
     let promptTokens = 0;
     let completionTokens = 0;
+    let salvaged: Record<string, unknown> | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       attempts = attempt;
       try {
         const result = await this.doGenerate(req);
         text = result.text;
-        promptTokens = result.promptTokens;
-        completionTokens = result.completionTokens;
-        lastError = undefined;
-        break;
+        promptTokens += result.promptTokens;
+        completionTokens += result.completionTokens;
+        // Truncated output: try to salvage the partial JSON instead of failing.
+        // (Gemini reports 'MAX_TOKENS', OpenAI/Grok report 'length'.)
+        if (result.finishReason === 'MAX_TOKENS' || result.finishReason === 'length') {
+          salvaged = salvageTruncatedJson(result.text);
+          if (salvaged) {
+            lastError = undefined;
+            break;
+          }
+          lastError = 'Model response was truncated (max tokens reached)';
+        } else {
+          lastError = undefined;
+          break;
+        }
       } catch (e: any) {
         lastError = e?.message || String(e);
-        if (attempt >= maxRetries) break;
-        // Back off with exponential delay before retrying a transient provider error (503 / 429 / network)
-        const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
-        await sleep(delayMs);
       }
+      if (attempt >= maxRetries) break;
+      // Back off with exponential delay before retrying a transient provider error (503 / 429 / network)
+      const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+      await sleep(delayMs);
     }
 
     const latencyMs = Date.now() - started;
@@ -66,9 +119,14 @@ export abstract class BaseAdapter implements AiAdapter {
     // Parse + validate against the caller's schema. A schema mismatch is
     // logged as parsedOk=false but does NOT throw — the caller decides how to
     // handle it (retry, refund, fall back to raw text).
+    // If we salvaged a truncated response, use that instead of parsing.
     let parsed: unknown = null;
     let parsedOk = false;
-    if (req.responseSchema) {
+    if (salvaged && req.responseSchema) {
+      const validated = req.responseSchema.safeParse(salvaged);
+      parsed = validated.success ? validated.data : salvaged;
+      parsedOk = true;
+    } else if (req.responseSchema) {
       const parsedResult = parseAndValidate(text, req.responseSchema);
       parsed = parsedResult.value;
       parsedOk = parsedResult.ok;

@@ -152,7 +152,6 @@ export async function POST(req: Request) {
 
   const systemPrompt = buildImagePromptSystemInstruction(activePreset.systemInstruction, false);
   const userPrompt = buildImagePromptUserPrompt({ strict: false });
-  const strictSystem = buildImagePromptSystemInstruction(activePreset.systemInstruction, true);
 
   const encoder = new TextEncoder();
   const results: any[] = [];
@@ -203,7 +202,9 @@ export async function POST(req: Request) {
             const { data, mime } = await toBase64(img);
             const imageUrl = `data:${mime};base64,${data}`;
 
-            let result = (
+            // Single pass: base.ts salvages truncated output automatically,
+            // so no second "strict" pass is needed.
+            const result = (
               await generateWithAI({
                 toolSlug: TOOL_SLUG,
                 systemPrompt,
@@ -211,27 +212,11 @@ export async function POST(req: Request) {
                 imageUrls: [imageUrl],
                 responseSchema: ImagePromptSchema,
                 responseSchemaName: 'ImagePrompt',
-                maxTokens: 8192,
+                maxTokens: 4000,
                 temperature: 0.7,
                 userId: user.id,
               })
             ).parsed as ImagePromptResult | null;
-
-            if (!result) {
-              result = (
-                await generateWithAI({
-                  toolSlug: TOOL_SLUG,
-                  systemPrompt: strictSystem,
-                  userPrompt: buildImagePromptUserPrompt({ strict: true }),
-                  imageUrls: [imageUrl],
-                  responseSchema: ImagePromptSchema,
-                  responseSchemaName: 'ImagePrompt',
-                  maxTokens: 8192,
-                  temperature: 0.2,
-                  userId: user.id,
-                })
-              ).parsed as ImagePromptResult | null;
-            }
 
             if (!result) throw new Error('malformed_response');
 
