@@ -1,0 +1,82 @@
+# StockForge AI — PRODUCTION compose for VPS hosting.
+#
+#   1. cp .env.example .env   (then fill in: DOMAIN, DB_PASSWORD, AUTH_SECRET,
+#      GOOGLE_*, STRIPE_*, S3_*, CRON_SECRET, NEXTAUTH_URL=https://<DOMAIN>, ...)
+#   2. docker compose -f docker-compose.prod.yml up -d --build
+#   3. Add the two cron lines from the output of `docker compose ... logs` / DEPLOY notes.
+#
+# What you get: app + Postgres 16 + Redis 7 + Caddy (automatic HTTPS).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stockforge
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      POSTGRES_DB: stockforge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stockforge -d stockforge"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?Set NEXT_PUBLIC_APP_URL in .env (https://<DOMAIN>)}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Point the app at the compose services (overrides .env values)
+      DATABASE_URL: postgresql://stockforge:${DB_PASSWORD}@db:5432/stockforge?schema=public
+      REDIS_URL: redis://redis:6379
+    # Localhost-only: host crontab curls the cron endpoints here.
+    # Public traffic goes through Caddy (80/443).
+    ports:
+      - "127.0.0.1:3000:3000"
+    # Apply pending Prisma migrations on every (re)start, then boot Next.js.
+    # The web process also starts the BullMQ workers itself (see lib/queue/bootstrap.ts).
+    command: ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env (e.g. app.example.com)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:
+  caddyconfig:

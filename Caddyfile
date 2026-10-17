@@ -1,0 +1,4 @@
+# {$DOMAIN} is passed from the app service environment (see docker-compose.yml)
+{$DOMAIN} {
+	reverse_proxy app:3000
+}
