@@ -6,8 +6,8 @@ import { listFiles, deleteFile } from '@/lib/s3/client';
  *
  * S3 key pattern:  uploads/<userId>/<timestamp>-<filename>
  *
- * Vercel Cron calls this daily at 01:00 UTC (see vercel.json). When CRON_SECRET
- * env var is set, Vercel automatically sends: Authorization: Bearer <CRON_SECRET>
+ * Called every 30 minutes from the VPS host crontab (see deploy-vps.sh).
+ * Uploads are temporary by design — files live at most ~35 minutes.
  * GET /api/cron/cleanup-uploads
  */
 

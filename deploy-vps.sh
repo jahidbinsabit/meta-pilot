@@ -101,9 +101,11 @@ echo "=== [6/6] Cron jobs ==="
 CRON_SECRET="$(grep -E '^CRON_SECRET=' .env | cut -d= -f2 || true)"
 ( crontab -l 2>/dev/null | grep -v "api/cron/" || true
   echo "0 0 * * * curl -s -H \"Authorization: Bearer ${CRON_SECRET}\" http://127.0.0.1:3100/api/cron/daily-credits >/dev/null 2>&1"
-  echo "0 1 * * * curl -s -H \"Authorization: Bearer ${CRON_SECRET}\" http://127.0.0.1:3100/api/cron/cleanup-uploads >/dev/null 2>&1"
+  # Uploads are temporary by design (owner's policy): delete every 30 min.
+  # The endpoint itself only deletes files older than 5 minutes (TTL).
+  echo "*/30 * * * * curl -s -H \"Authorization: Bearer ${CRON_SECRET}\" http://127.0.0.1:3100/api/cron/cleanup-uploads >/dev/null 2>&1"
 ) | crontab -
-echo "crons installed (daily-credits 00:00, cleanup-uploads 01:00)"
+echo "crons installed (daily-credits 00:00, cleanup-uploads every 30 min)"
 
 echo ""
 echo "================= DONE ================="
