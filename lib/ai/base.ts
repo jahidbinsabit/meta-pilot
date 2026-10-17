@@ -77,7 +77,13 @@ export abstract class BaseAdapter implements AiAdapter {
       parsedOk = true;
     }
 
-    const success = !lastError && parsedOk;
+    // A parse failure with no transport error means the model returned
+    // unparseable output — record a real message instead of leaving it
+    // undefined (which surfaced to users as "...failed: undefined").
+    const finalError =
+      lastError ||
+      (!parsedOk ? 'Model returned a response that did not match the expected format' : undefined);
+    const success = !finalError && parsedOk;
     await logAiCall({
       toolSlug: req.toolSlug,
       provider: this.id,
@@ -87,7 +93,7 @@ export abstract class BaseAdapter implements AiAdapter {
       completionTokens: usage.completionTokens,
       totalTokens: usage.totalTokens,
       success,
-      errorMessage: lastError,
+      errorMessage: finalError,
       responseSchema: req.responseSchemaName,
       parsedOk,
     });
@@ -100,7 +106,7 @@ export abstract class BaseAdapter implements AiAdapter {
       model: req.model || this.defaultModelName(),
       latencyMs,
       success,
-      errorMessage: lastError,
+      errorMessage: finalError,
       attempts,
     };
   }

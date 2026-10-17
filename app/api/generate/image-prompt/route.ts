@@ -162,7 +162,9 @@ export async function POST(req: Request) {
             responseSchema: ImagePromptSchema,
             responseSchemaName: 'ImagePrompt',
             maxTokens: 8192,
-            temperature: 0.7,
+            // Low temperature for deterministic, schema-valid JSON.
+            // (0.7 caused occasional rambling → unparseable output.)
+            temperature: 0.2,
             userId: user.id,
           })
         ).parsed as ImagePromptResult | null;

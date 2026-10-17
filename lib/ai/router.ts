@@ -83,8 +83,15 @@ export async function generateWithAI(opts: {
         console.log(`[AI Router] User ${userResolved.provider} key failed with retryable error: ${result.errorMessage}, trying system fallbacks...`);
         // Continue to system providers below
       } else {
-        // Non-retryable error (auth, quota, etc.) - inform user their key failed
-        throw new Error(`[${userResolved.provider}] User API key failed: ${result.errorMessage}`);
+        // Non-retryable error (auth, quota, etc.) - inform user their key failed.
+        // Note: a schema-parse failure surfaces here with a descriptive message
+        // (see BaseAdapter) — that's a model issue, not a key issue, so don't
+        // blame the user's key for it.
+        const isParseFailure =
+          !!result.errorMessage && /did not match the expected format/i.test(result.errorMessage);
+        const detail = result.errorMessage || 'unknown error';
+        const prefix = isParseFailure ? 'Generation failed' : 'User API key failed';
+        throw new Error(`[${userResolved.provider}] ${prefix}: ${detail}`);
       }
     }
   } else {
