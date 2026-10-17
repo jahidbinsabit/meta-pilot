@@ -76,10 +76,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const settings = await getSiteSettings();
   const gaId = settings?.gaMeasurementId;
   const gscVerify = settings?.gscVerification;
+  const siteIconUrl = settings?.siteIconUrl;
 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {siteIconUrl && <link rel="icon" href={siteIconUrl} />}
         {gscVerify && <meta name="google-site-verification" content={gscVerify} />}
         {gaId && (
           <>

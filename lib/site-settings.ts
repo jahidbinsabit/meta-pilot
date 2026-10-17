@@ -5,6 +5,8 @@ import { ensureDatabaseSchema } from '@/lib/db-sync';
 export interface CachedSiteSettings {
   id: string;
   siteName: string;
+  logoUrl: string | null;
+  siteIconUrl: string | null;
   tagline: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
@@ -27,6 +29,8 @@ export const getSiteSettings = unstable_cache(
         select: {
           id: true,
           siteName: true,
+          logoUrl: true,
+          siteIconUrl: true,
           tagline: true,
           metaTitle: true,
           metaDescription: true,

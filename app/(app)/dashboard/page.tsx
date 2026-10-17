@@ -20,14 +20,14 @@ import { prisma } from '@/lib/db';
 
 const QUICK_ACTIONS = [
   {
-    href: '/dashboard/generator',
+    href: '/dashboard/generate',
     icon: Sparkles,
     title: 'Generate Metadata',
     desc: 'AI-powered titles, descriptions & keywords',
     primary: true,
   },
   {
-    href: '/dashboard/image-to-prompt',
+    href: '/dashboard/generate?tab=prompt',
     icon: Image,
     title: 'Image to Prompt',
     desc: 'Extract prompts from your images',
@@ -261,7 +261,7 @@ export default async function DashboardPage() {
               <CardTitle>Recent Activity</CardTitle>
               <CardDescription className="mt-0.5">Your latest metadata generations</CardDescription>
             </div>
-            <Link href="/dashboard/generator">
+            <Link href="/dashboard/generate">
               <Button variant="ghost" size="sm" className="gap-1.5">
                 New generation
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -279,7 +279,7 @@ export default async function DashboardPage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Create AI-powered metadata for your first image
               </p>
-              <Link href="/dashboard/generator" className="mt-4">
+              <Link href="/dashboard/generate" className="mt-4">
                 <Button size="sm" className="gap-1.5">
                   <Play className="h-3.5 w-3.5" />
                   Generate Now

@@ -16,6 +16,7 @@ import {
 interface AppShellProps {
   children: React.ReactNode;
   siteName?: string;
+  logoUrl?: string | null;
   user: {
     name?: string | null;
     email: string;
@@ -30,6 +31,7 @@ interface AppShellProps {
 export function AppShell({
   children,
   siteName = 'StockForge AI',
+  logoUrl,
   user,
   notifications = [],
 }: AppShellProps) {
@@ -51,6 +53,7 @@ export function AppShell({
             onCollapse={setCollapsed}
             user={user}
             siteName={siteName}
+            logoUrl={logoUrl}
           />
         </motion.aside>
 
@@ -70,6 +73,7 @@ export function AppShell({
           onClose={() => setMobileOpen(false)}
           user={user}
           siteName={siteName}
+          logoUrl={logoUrl}
         />
       </div>
     </CreditsProvider>

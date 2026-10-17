@@ -386,6 +386,8 @@ model Session {
 model SiteSettings {
   id                    String   @id @default("default")
   siteName              String   @default("StockForge AI")
+  logoUrl               String?
+  siteIconUrl           String?
   tagline               String?
   metaTitle             String?
   metaDescription       String?

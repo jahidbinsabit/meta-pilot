@@ -35,8 +35,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { label: 'Overview', href: '/dashboard', icon: LayoutGrid },
-  { label: 'Metadata Generator', href: '/dashboard/generator', icon: Sparkles },
-  { label: 'Image → Prompt', href: '/dashboard/image-to-prompt', icon: Image },
+  { label: 'Generate', href: '/dashboard/generate', icon: Sparkles },
   { label: 'Adobe Analytics', href: '/dashboard/adobe-analytics', icon: BarChart3 },
   { label: 'Tools', href: '/dashboard/tools', icon: Wrench },
   { label: 'Billing', href: '/dashboard/billing', icon: CreditCard },
@@ -50,11 +49,13 @@ export function Sidebar({
   onCollapse,
   user,
   siteName = 'StockForge',
+  logoUrl,
 }: {
   collapsed: boolean;
   onCollapse: (v: boolean) => void;
   user: { name?: string | null; email: string; credits: number; membership: string; role: string };
   siteName?: string;
+  logoUrl?: string | null;
 }) {
   const pathname = usePathname();
   const { credits } = useCredits();
@@ -70,9 +71,14 @@ export function Sidebar({
     <div className="flex h-full flex-col">
       {/* Brand */}
       <div className="flex h-16 items-center gap-2 px-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
-          <Zap className="h-5 w-5" />
-        </div>
+        {logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logoUrl} alt={siteName} className="h-9 w-9 object-contain rounded-lg" />
+        ) : (
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
+            <Zap className="h-5 w-5" />
+          </div>
+        )}
         {!collapsed && (
           <span className="font-display text-lg font-semibold tracking-tight truncate">
             {siteName}

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { revalidateTag } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { requireApiAdmin } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { z } from 'zod';
@@ -7,6 +7,8 @@ import { ensureDatabaseSchema } from '@/lib/db-sync';
 
 const patchSchema = z.object({
   siteName: z.string().optional(),
+  logoUrl: z.string().optional(),
+  siteIconUrl: z.string().optional(),
   tagline: z.string().optional(),
   metaTitle: z.string().optional(),
   metaDescription: z.string().optional(),
@@ -58,6 +60,12 @@ export async function PATCH(req: Request) {
     revalidateTag('site-settings');
   } catch {
     /* ignore in non-cache contexts */
+  }
+
+  try {
+    revalidatePath('/', 'layout');
+  } catch {
+    /* ignore */
   }
 
   await prisma.auditLog.create({

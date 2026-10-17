@@ -113,10 +113,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   });
 
   const siteName = siteSettings?.siteName || 'StockForge AI';
+  const logoUrl = siteSettings?.logoUrl;
 
   return (
     <AppShell
       siteName={siteName}
+      logoUrl={logoUrl}
       user={{
         name: user.name,
         email: user.email,

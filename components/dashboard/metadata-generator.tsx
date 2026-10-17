@@ -21,6 +21,7 @@ import {
   Download,
   Mail,
   ChevronDown,
+  ChevronUp,
   Settings,
   X,
   Plus,
@@ -28,6 +29,10 @@ import {
   Layers,
   Info,
   Loader2,
+  StopCircle,
+  FileText,
+  FileCode,
+  Pen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -41,12 +46,17 @@ import { PLATFORMS } from '@/lib/generator/types';
 import { buildCsv, csvFilename, formatLabel } from '@/lib/generator/csv';
 import { compressImageForUpload } from '@/lib/tools/client-image';
 import { MetadataSuccessModal } from '@/components/dashboard/metadata-success-modal';
+import { ImageUploader } from '@/components/dashboard/image-uploader';
+import { ControlsRail } from '@/components/dashboard/generator/controls-rail';
+import { ResultCard } from '@/components/dashboard/generator/result-card';
 
 interface Props {
   initialSettings: GeneratorSettings;
   batchLimit: number;
   initialCredits: number;
-  user: { id: string; email: string; name: string | null };
+  user: { id: string; email: string; name: string | null; preferredAiProvider?: string };
+  activeTab?: 'metadata' | 'prompt';
+  onTabChange?: (tab: 'metadata' | 'prompt') => void;
 }
 
 const STATUS_LABEL: Record<UploadedFile['status'], string> = {
@@ -72,7 +82,15 @@ function fileExt(file: File): string {
   return ('.' + file.name.split('.').pop() || '').toLowerCase();
 }
 
-export function MetadataGenerator({ initialSettings, batchLimit, initialCredits, user }: Props) {
+export function MetadataGenerator({
+  initialSettings,
+  batchLimit,
+  initialCredits,
+  user,
+  activeTab,
+  onTabChange,
+}: Props) {
+  const [mounted, setMounted] = React.useState(false);
   const [settings, setSettings] = React.useState<GeneratorSettings>(initialSettings);
   const [selectedPlatform, setSelectedPlatform] = React.useState<TargetPlatform>('adobe');
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
@@ -99,10 +117,24 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
   const [showExportPanel, setShowExportPanel] = React.useState(false);
   const [successModalOpen, setSuccessModalOpen] = React.useState(false);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
+  const [batchGeneration, setBatchGeneration] = React.useState(true);
+  const [dropzoneExpanded, setDropzoneExpanded] = React.useState(true);
+
+  // Abort controller for streaming generation cancellation
+  const abortRef = React.useRef<AbortController | null>(null);
+  // ETA tracking: timestamps when each result arrives
+  const genStartRef = React.useRef<number>(0);
+  const completedCountRef = React.useRef<number>(0);
 
   const toast = useToast();
   const queryClient = useQueryClient();
   const { credits } = useCredits();
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+
 
   // Persist last-used settings per user (localStorage + server backup).
   React.useEffect(() => {
@@ -170,197 +202,9 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
     }
   }
 
-  // Store File objects in a ref to access them during upload
-  const fileMapRef = React.useRef<Map<string, File>>(new Map());
 
-  // File handling
-  const addFiles = React.useCallback(
-    (list: FileList | File[]) => {
-      const arr = Array.from(list);
-      const valid = arr.filter((f) => ACCEPT.includes(fileExt(f)));
-      if (valid.length < arr.length) {
-        toast({
-          title: 'Unsupported format',
-          description: 'Only JPG, PNG, EPS, AI, SVG are accepted.',
-          variant: 'error',
-        });
-      }
-      if (valid.length === 0) return;
-      setFiles((prev) => {
-        const next = valid.map((f) => {
-          const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          // Store the File object for later use
-          fileMapRef.current.set(id, f);
-          const ext = ('.' + (f.name.split('.').pop() || '')).toLowerCase();
-          const isRaster = ext === '.jpg' || ext === '.jpeg' || ext === '.png';
-          let initialDataUrl = '';
-          if (isRaster && typeof window !== 'undefined') {
-            try {
-              initialDataUrl = URL.createObjectURL(f);
-            } catch {
-              // ignore
-            }
-          }
-          return {
-            id,
-            name: f.name,
-            size: f.size,
-            type: f.type || 'application/octet-stream',
-            dataUrl: initialDataUrl,
-            status: 'queued' as const,
-            progress: 0,
-          };
-        });
-        const combined = [...prev, ...next];
-        if (batchLimit > 0 && combined.length > batchLimit) {
-          toast({
-            title: 'Batch limit reached',
-            description: `Your plan allows ${batchLimit} images per batch.`,
-            variant: 'error',
-          });
-          return prev.slice(0, batchLimit);
-        }
-        next.forEach((f) => void processFile(f));
-        return combined;
-      });
-    },
-    [batchLimit],
-  );
 
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    addFiles(e.dataTransfer.files);
-  }
 
-  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files) addFiles(e.target.files);
-    e.target.value = '';
-  }
-
-  async function processFile(meta: UploadedFile) {
-    setFiles((prev) =>
-      prev.map((f) => (f.id === meta.id ? { ...f, status: 'analyzing', progress: 10 } : f)),
-    );
-
-    try {
-      // Get the original File object
-      const file = fileMapRef.current.get(meta.id);
-      if (!file) {
-        throw new Error('file_not_found');
-      }
-
-      const ext = fileExt(file);
-      const isVector = ext === '.svg' || ext === '.eps' || ext === '.ai';
-
-      if (isVector) {
-        // For vector files, use server-side rasterization
-        const form = new FormData();
-        form.append('file', file);
-        const res = await fetch('/api/uploads/rasterize', { method: 'POST', body: form });
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(j.error || 'rasterize_failed');
-        }
-        const { key, previewUrl, dataUrl, mime } = await res.json();
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === meta.id
-              ? {
-                  ...f,
-                  status: 'done',
-                  progress: 100,
-                  key,
-                  mimeType: mime,
-                  previewUrl,
-                  dataUrl: dataUrl || previewUrl,
-                }
-              : f,
-          ),
-        );
-        // Clean up the file reference
-        fileMapRef.current.delete(meta.id);
-        return;
-      }
-
-      // For raster files (JPG, PNG), downscale to max 1024px & compress before upload
-      let uploadFile = file;
-      try {
-        uploadFile = await compressImageForUpload(file, 1024, 0.78);
-        if (uploadFile.size !== file.size) {
-          setFiles((prev) => prev.map((f) => (f.id === meta.id ? { ...f, size: uploadFile.size } : f)));
-        }
-      } catch (compErr) {
-        console.warn('Compression skipped:', compErr);
-      }
-
-      // Upload via server proxy — avoids CORS issues with S3/R2 direct PUT
-      let key: string, mime: string, previewUrl: string;
-
-      try {
-        // Step 1: Get a key reservation from the server
-        const presign = await fetch('/api/uploads/preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: uploadFile.name, size: uploadFile.size, type: uploadFile.type }),
-        });
-        if (!presign.ok) {
-          const j = await presign.json().catch(() => ({}));
-          throw new Error(j.error || 'preview_failed');
-        }
-        const presignData = await presign.json();
-
-        setFiles((prev) => prev.map((f) => (f.id === meta.id ? { ...f, progress: 30 } : f)));
-
-        // Step 2: Upload the file through the server (always — avoids CORS)
-        const form = new FormData();
-        form.append('file', uploadFile);
-        form.append('reservedKey', presignData.key); // tell server to use this key
-        const direct = await fetch('/api/uploads/direct', { method: 'POST', body: form });
-        if (!direct.ok) {
-          const j = await direct.json().catch(() => ({}));
-          throw new Error(j.error || 'upload_failed');
-        }
-        const directData = await direct.json();
-        key = directData.key;
-        mime = directData.mime;
-        previewUrl = directData.previewUrl;
-
-        setFiles((prev) => prev.map((f) => (f.id === meta.id ? { ...f, progress: 75 } : f)));
-      } catch (uploadError: any) {
-        throw uploadError;
-      }
-
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.id === meta.id
-            ? {
-                ...f,
-                status: 'done',
-                progress: 100,
-                key,
-                mimeType: mime,
-                previewUrl,
-                dataUrl: previewUrl,
-              }
-            : f,
-        ),
-      );
-
-      // Clean up the file reference
-      fileMapRef.current.delete(meta.id);
-    } catch (e: any) {
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.id === meta.id
-            ? { ...f, status: 'error', progress: 0, error: e?.message || 'error' }
-            : f,
-        ),
-      );
-      // Clean up the file reference even on error
-      fileMapRef.current.delete(meta.id);
-    }
-  }
 
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [generatingIds, setGeneratingIds] = React.useState<Set<string>>(new Set());
@@ -371,6 +215,11 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
       toast({ title: 'No images ready', description: 'Upload images first', variant: 'error' });
       return;
     }
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    genStartRef.current = Date.now();
+    completedCountRef.current = 0;
 
     setIsGenerating(true);
     setGeneratingIds(new Set(ready.map((f) => f.id)));
@@ -402,6 +251,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -448,8 +298,8 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                   error: result.error,
                   platform: result.platform || selectedPlatform,
                 };
-                
-                // Add/update this result and remove from generating
+
+                completedCountRef.current += 1;
                 setRows(prev => {
                   const existing = prev.find(r => r.id === result.id);
                   if (existing) {
@@ -467,6 +317,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
               } else if (data.type === 'done') {
                 setIsGenerating(false);
                 setGeneratingIds(new Set());
+                abortRef.current = null;
                 queryClient.invalidateQueries({ queryKey: ['credits'] });
                 setSuccessModalOpen(true);
                 
@@ -492,8 +343,31 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
         }
       }
     } catch (error: any) {
+      // If we aborted, keep completed rows and handle gracefully
+      if (controller.signal.aborted) {
+        setIsGenerating(false);
+        setGeneratingIds(new Set());
+        abortRef.current = null;
+        queryClient.invalidateQueries({ queryKey: ['credits'] });
+        const doneCount = completedCountRef.current;
+        if (doneCount > 0) {
+          toast({
+            title: `Stopped: ${doneCount} completed`,
+            description: 'Generation stopped. Credits for unprocessed files will be refunded automatically.',
+            variant: 'warning',
+          });
+        } else {
+          toast({
+            title: 'Generation stopped',
+            description: 'Credits for unprocessed files will be refunded automatically.',
+            variant: 'warning',
+          });
+        }
+        return;
+      }
       setIsGenerating(false);
       setGeneratingIds(new Set());
+      abortRef.current = null;
       queryClient.invalidateQueries({ queryKey: ['credits'] });
       toast({ 
         title: 'Generation failed', 
@@ -501,6 +375,17 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
         variant: 'error' 
       });
     }
+  }
+
+  function stopGeneration() {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  }
+
+  function removeFile(id: string) {
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+    setRows((prev) => prev.filter((r) => r.id !== id));
   }
 
   function updateRow(id: string, field: string, value: string | string[]) {
@@ -682,9 +567,40 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
 
   const readyCount = files.filter((f) => f.status === 'done').length;
   const hasResults = rows.length > 0;
+  const completedRows = rows.filter((r) => r.status === 'complete');
+  const failedRows = rows.filter((r) => r.status === 'failed');
   const canGenerate = readyCount > 0 && !isGenerating && credits >= readyCount;
   const batchLabel = batchLimit < 0 ? 'unlimited' : `${readyCount}/${batchLimit}`;
   const currentPlatformConfig = PLATFORMS[selectedPlatform];
+
+  // Total file sizes
+  const totalFileSize = React.useMemo(() => {
+    const bytes = files.reduce((sum, f) => sum + (f.size || 0), 0);
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }, [files]);
+
+  // Generation progress tracking
+  const genTotal = React.useMemo(() => {
+    if (!isGenerating) return 0;
+    return files.filter((f) => f.status === 'done' || generatingIds.has(f.id)).length + completedCountRef.current;
+  }, [isGenerating, files, generatingIds]);
+  const genDone = rows.length;
+  const genSucceeded = completedRows.length;
+  const genFailed = failedRows.length;
+  const genProgress = genTotal > 0 ? Math.round((genDone / genTotal) * 100) : 0;
+
+  // ETA computation
+  const etaLabel = React.useMemo(() => {
+    if (!isGenerating || completedCountRef.current < 2 || genStartRef.current === 0) return '';
+    const elapsed = (Date.now() - genStartRef.current) / 1000;
+    const avgPerFile = elapsed / completedCountRef.current;
+    const remaining = genTotal - genDone;
+    if (remaining <= 0) return '';
+    const etaSec = Math.round(avgPerFile * remaining);
+    return `~${etaSec}s`;
+  }, [isGenerating, genTotal, genDone]);
 
   // Presentational lookup: result rows echo back the uploaded file id, so we
   // can show the source thumbnail + original file size without any API change.
@@ -727,218 +643,198 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
   }
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div>
-        <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
-          Stock Photo & Vector AI Suite
-        </p>
-        <h1 className="mt-0.5 font-display text-xl font-bold tracking-tight">
-          Image → Stock Metadata Generator
-        </h1>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
-          Generate SEO-engineered titles, descriptions, and keywords optimized for individual stock
-          agency algorithms.
-        </p>
-      </div>
+    <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
+      {/* Left: Control Rail */}
+      <ControlsRail
+        activeTab={activeTab || 'metadata'}
+        onTabChange={onTabChange || (() => {})}
+        selectedPlatform={selectedPlatform}
+        handlePlatformChange={handlePlatformChange}
+        settings={settings}
+        setSettings={setSettings}
+        persistSettings={persistSettings}
+        currentPlatformConfig={currentPlatformConfig}
+        includeDescription={includeDescription}
+        setIncludeDescription={setIncludeDescription}
+        prefixEnabled={prefixEnabled}
+        setPrefixEnabled={setPrefixEnabled}
+        prefixText={prefixText}
+        setPrefixText={setPrefixText}
+        suffixEnabled={suffixEnabled}
+        setSuffixEnabled={setSuffixEnabled}
+        suffixText={suffixText}
+        setSuffixText={setSuffixText}
+        negWordsEnabled={negWordsEnabled}
+        setNegWordsEnabled={setNegWordsEnabled}
+        negWords={negWords}
+        negKwsEnabled={negKwsEnabled}
+        setNegKwsEnabled={setNegKwsEnabled}
+        negKws={negKws}
+        addTag={addTag}
+        removeTag={removeTag}
+        batchGeneration={batchGeneration}
+        setBatchGeneration={setBatchGeneration}
+        user={user}
+      />
 
-      {/* Target Agency / Platform Selector */}
-      <Card className="border-border bg-card">
-        <CardContent className="p-3">
-          <div className="flex flex-col gap-2.5">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <Layers className="h-3.5 w-3.5 text-accent" />
-                Target Stock Agency / Algorithm
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                Active: <strong className="text-foreground">{currentPlatformConfig.label}</strong>
-              </span>
-            </div>
-
-            {/* Platform selection pills */}
-            <div className="grid grid-cols-2 gap-1.5">
-              {(Object.keys(PLATFORMS) as TargetPlatform[]).map((platKey) => {
-                const p = PLATFORMS[platKey];
-                const isActive = selectedPlatform === platKey;
-                return (
-                  <button
-                    key={platKey}
-                    type="button"
-                    onClick={() => handlePlatformChange(platKey)}
-                    className={cn(
-                      'flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
-                      isActive
-                        ? 'border-accent bg-accent/10 text-accent'
-                        : 'border-border bg-card-2 text-muted-foreground hover:border-accent/40 hover:text-foreground',
-                    )}
-                  >
-                    <span className="flex-1 truncate text-xs font-semibold">{p.shortLabel}</span>
-                    {isActive && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Algorithm Info Banner */}
-            <div className="flex items-start gap-2.5 rounded-lg border border-accent/20 bg-accent/5 p-2.5 text-xs text-foreground">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
-              <div className="space-y-1">
-                <p className="font-medium text-foreground">
-                  {currentPlatformConfig.label} SEO Rules Applied:
-                </p>
-                <p className="text-[11px] text-muted-foreground">{currentPlatformConfig.description}</p>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {currentPlatformConfig.features.map((feat, idx) => (
-                    <span
-                      key={idx}
-                      className="inline-flex items-center rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent"
-                    >
-                      {feat}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
-        {/* Left: uploader + results */}
-        <div className="space-y-4">
+      {/* Right: Workspace */}
+      <div className="space-y-4">
+          {/* ═══ A) Upload Card ═══ */}
           <Card>
             <CardHeader className="p-4 pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm">Images</CardTitle>
-                <span className="text-[11px] text-muted-foreground">
-                  {files.length} file{files.length === 1 ? '' : 's'} · {batchLabel}
-                </span>
-              </div>
-              <CardDescription className="text-[11px]">1 credit per image</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 p-4 pt-0">
-              <div
-                onDrop={onDrop}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragLeave={() => setDragOver(false)}
-                onClick={() =>
-                  (document.getElementById('generator-file-input') as HTMLInputElement)?.click()
-                }
-                className={cn(
-                  'flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-card-2 p-6 text-center transition-colors',
-                  dragOver ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/60',
-                )}
-              >
-                <ImageIcon className="h-7 w-7 text-muted-foreground" />
-                <span className="mt-1.5 text-[13px] font-medium text-foreground">
-                  Click to upload or drag &amp; drop
-                </span>
-                <span className="mt-0.5 text-[11px] text-muted-foreground/80">
-                  JPG, PNG, SVG, EPS, AI
-                </span>
-                <input
-                  id="generator-file-input"
-                  type="file"
-                  multiple
-                  accept={ACCEPT.join(',')}
-                  className="hidden"
-                  onChange={onPick}
-                />
-              </div>
-
-              {files.length > 0 && (
-                <>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-muted-foreground">
-                      {files.length} file{files.length === 1 ? '' : 's'} selected
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFiles([]);
-                        setRows([]);
-                        fileMapRef.current.clear();
-                      }}
-                      className="flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/15"
-                    >
-                      <X className="h-3 w-3" />
-                      Clear all
-                    </button>
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent/10">
+                    <Upload className="h-3.5 w-3.5 text-accent" />
                   </div>
-                  <ul className="space-y-1.5">
-                    {files.map((f) => (
-                    <li
-                      key={f.id}
-                      className="flex items-center gap-2.5 rounded-lg border border-border bg-card-2 p-1.5"
-                    >
-                      {f.dataUrl || f.previewUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={f.dataUrl || f.previewUrl}
-                          alt={f.name}
-                          className="h-10 w-10 shrink-0 rounded object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-muted">
-                          {f.status === 'analyzing' ? (
-                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                          ) : (
-                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-medium text-foreground">{f.name}</p>
-                        {f.error && <p className="text-[11px] text-destructive">{f.error}</p>}
-                      </div>
-                      <Badge variant={STATUS_VARIANT[f.status]} className="shrink-0 text-[10px]">
-                        {STATUS_LABEL[f.status]}
-                      </Badge>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${f.name}`}
-                        onClick={() => {
-                          setFiles((prev) => prev.filter((x) => x.id !== f.id));
-                          fileMapRef.current.delete(f.id);
-                        }}
-                        className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-
-              <Button
-                size="sm"
-                className="h-9 w-full text-[13px]"
-                onClick={() => startStreamingGeneration()}
-                disabled={!canGenerate}
-              >
-                {isGenerating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
+                  <CardTitle className="text-sm">Upload Files</CardTitle>
+                  {files.length > 0 && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      {readyCount}/{files.length} ready
+                    </Badge>
+                  )}
+                </div>
+                {files.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setDropzoneExpanded((v) => !v)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    {dropzoneExpanded ? 'Collapse' : 'Expand'}
+                    {dropzoneExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </button>
                 )}
-                {isGenerating
-                  ? `Generating for ${currentPlatformConfig.shortLabel}…`
-                  : `Generate ${currentPlatformConfig.shortLabel} Metadata${readyCount > 1 ? ` (${readyCount})` : ''}`}
-              </Button>
-              {readyCount > 0 && credits < readyCount && (
-                <p className="text-[11px] text-amber-400">
-                  You need {readyCount} credits but have {credits}.
-                </p>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0 space-y-3">
+              {(dropzoneExpanded || files.length === 0) && (
+                <ImageUploader
+                  files={files}
+                  onFilesChange={setFiles}
+                  batchLimit={batchLimit}
+                  disabled={isGenerating}
+                />
               )}
             </CardContent>
           </Card>
 
+          {/* ═══ B) Action Bar ═══ */}
+          {files.length > 0 && (
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  {/* Left block: status + progress */}
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <p className="text-[11px] text-muted-foreground leading-snug truncate">
+                      {isGenerating ? (
+                        <>
+                          Processing: {genDone}/{genTotal} | Success: {genSucceeded}, Failed: {genFailed}
+                          {etaLabel && <> | ETA: {etaLabel}</>}
+                        </>
+                      ) : (
+                        <>
+                          {readyCount} file{readyCount === 1 ? '' : 's'} ready for metadata | Single: 1 file per request | Total: {totalFileSize}
+                        </>
+                      )}
+                    </p>
+                    <div
+                      className="h-1.5 w-full rounded-full bg-border/60 overflow-hidden"
+                      role="progressbar"
+                      aria-valuenow={isGenerating ? genProgress : (hasResults ? 100 : 0)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
+                      <div
+                        className="h-full rounded-full bg-foreground transition-all duration-500 ease-out"
+                        style={{ width: `${isGenerating ? genProgress : (hasResults ? 100 : 0)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Right block: buttons */}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {isGenerating ? (
+                      <>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="h-9 rounded-lg text-[13px]"
+                          onClick={stopGeneration}
+                        >
+                          <StopCircle className="h-4 w-4" />
+                          Stop
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-9 rounded-lg text-[13px]"
+                          disabled
+                        >
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Processing…
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="h-9 rounded-lg text-[13px]"
+                          onClick={() => {
+                            setFiles([]);
+                            setRows([]);
+                            setShowExportPanel(false);
+                            setDropzoneExpanded(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Clear All
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-9 rounded-lg text-[13px]"
+                          onClick={() => startStreamingGeneration()}
+                          disabled={!canGenerate}
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          Generate All ({readyCount})
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-9 rounded-lg text-[13px]"
+                          disabled
+                          title="Coming soon"
+                        >
+                          <FileText className="h-4 w-4" />
+                          Embed Metadata
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-9 rounded-lg text-[13px]"
+                          disabled={completedRows.length === 0}
+                          onClick={() => setShowExportPanel((v) => !v)}
+                        >
+                          <Download className="h-4 w-4" />
+                          Export CSV
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Credit warning */}
+                {!isGenerating && readyCount > 0 && credits < readyCount && (
+                  <p className="mt-2 text-[11px] text-amber-400">
+                    You need {readyCount} credits but have {credits}.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Results table (editable before export) */}
+          {files.length > 0 && (
           <Card>
             <CardHeader className="p-4 pb-2">
               <div className="flex items-center justify-between gap-3">
@@ -959,7 +855,6 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                       onClick={() => {
                         setFiles([]);
                         setRows([]);
-                        fileMapRef.current.clear();
                         setShowExportPanel(false);
                       }}
                     >
@@ -1078,7 +973,7 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
                 </div>
               )}
 
-              {displayedItems.length === 0 ? (
+                            {displayedItems.length === 0 ? (
                 <div className="flex min-h-[160px] flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
                   <Layers className="h-8 w-8 text-muted-foreground/50" />
                   <span>No metadata generated yet. Upload images above to get started.</span>
@@ -1086,519 +981,44 @@ export function MetadataGenerator({ initialSettings, batchLimit, initialCredits,
               ) : (
                 <div className="space-y-4">
                   {displayedItems.map((item) => {
-                    if (item.type === 'generating') {
-                      const file = item.file;
-                      return (
-                        <div
-                          key={`generating-${file.id}`}
-                          className="ai-card-generating transition-all duration-300"
-                        >
-                          <div className="flex gap-3.5 p-3.5">
-                            {/* Source thumbnail with soft AI badge */}
-                            <div className="relative w-[132px] shrink-0">
-                              {file.dataUrl || file.previewUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={file.dataUrl || file.previewUrl}
-                                  alt={file.name}
-                                  className="aspect-square w-full rounded-md border border-border bg-card object-cover opacity-80"
-                                />
-                              ) : (
-                                <div className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-card">
-                                  <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
-                                </div>
-                              )}
-                              <p className="mt-1.5 truncate text-[10px] text-muted-foreground font-medium">
-                                {file.name}
-                              </p>
-                            </div>
-                            
-                            {/* Shimmer content */}
-                            <div className="min-w-0 flex-1 space-y-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="secondary" className="text-[10px]">
-                                    {currentPlatformConfig.shortLabel}
-                                  </Badge>
-                                  <div className="flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5">
-                                    <Sparkles className="h-3 w-3 animate-spin text-accent" />
-                                    <span className="text-[10px] font-medium text-accent">
-                                      AI generating metadata…
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                              
-                              {/* Sleek AI Shimmer Skeleton Lines */}
-                              <div className="space-y-2">
-                                {/* Title placeholder */}
-                                <div className="ai-skeleton-bar h-5 w-4/5"></div>
-                                {/* Description placeholder */}
-                                <div className="ai-skeleton-bar h-4 w-full"></div>
-                                {/* Keyword pill placeholders */}
-                                <div className="flex gap-1.5 flex-wrap pt-1">
-                                  <div className="ai-skeleton-bar h-5 w-16"></div>
-                                  <div className="ai-skeleton-bar h-5 w-20"></div>
-                                  <div className="ai-skeleton-bar h-5 w-14"></div>
-                                  <div className="ai-skeleton-bar h-5 w-24"></div>
-                                  <div className="ai-skeleton-bar h-5 w-16"></div>
-                                  <div className="ai-skeleton-bar h-5 w-12"></div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    const r = item.row;
-                    const rowPlatform = (r.platform || selectedPlatform) as TargetPlatform;
-                    const rowPlatConfig = PLATFORMS[rowPlatform] || PLATFORMS.adobe;
-                    const isAdobe = rowPlatform === 'adobe';
-                    const srcFile = item.file || fileById.get(r.id);
-                    const preview = srcFile?.dataUrl || srcFile?.previewUrl;
-                    const isRowGenerating = generatingIds.has(r.id);
+                    const file = item.file || (item.type === "row" ? fileById.get(item.row.id) : undefined);
+                    const row = item.type === "row" ? item.row : rows.find((r) => r.id === item.file.id);
+                    const isRowGenerating = item.type === "generating" || (file ? generatingIds.has(file.id) : false) || (row ? generatingIds.has(row.id) : false);
+                    const cardId = file?.id || row?.id || Math.random().toString();
 
                     return (
-                      <div
-                        key={r.id}
-                        className={cn(
-                          "overflow-hidden rounded-lg border border-border bg-card-2 transition-all duration-300",
-                          isRowGenerating && "opacity-60 pointer-events-none"
-                        )}
-                      >
-                        <div className="flex gap-3 p-3">
-                          {/* Source thumbnail */}
-                          <div className="w-[132px] shrink-0">
-                            {preview ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={preview}
-                                alt={r.fileName}
-                                className="aspect-square w-full rounded-md border border-border bg-card object-cover"
-                              />
-                            ) : (
-                              <div className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-card">
-                                <ImageIcon className="h-5 w-5 text-muted-foreground/50" />
-                              </div>
-                            )}
-                            <p className="mt-1.5 truncate text-[10px] text-muted-foreground">
-                              {r.fileName}
-                            </p>
-                            {srcFile && (
-                              <p className="text-[10px] text-muted-foreground/70">
-                                Size: {formatSize(srcFile.size)}
-                              </p>
-                            )}
-                          </div>
-
-                          {/* Editable metadata */}
-                          <div className="min-w-0 flex-1 space-y-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5">
-                                <Badge variant="secondary" className="text-[10px]">
-                                  {rowPlatConfig.shortLabel}
-                                </Badge>
-                                {isAdobe && (
-                                  <span className="text-[10px] text-muted-foreground">
-                                    Top 10 keywords rank highest
-                                  </span>
-                                )}
-                              </div>
-                              <Badge
-                                variant={r.status === 'complete' ? 'success' : 'destructive'}
-                                className="shrink-0 text-[10px]"
-                              >
-                                {r.status === 'complete' ? 'complete' : 'failed'}
-                              </Badge>
-                            </div>
-
-                            {r.status === 'failed' ? (
-                              <p className="text-xs text-muted-foreground">
-                                {r.error || 'Generation failed'} — credit refunded automatically.
-                              </p>
-                            ) : (
-                              <>
-                                <div>
-                                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                                    Title ({r.title.length} chars)
-                                  </label>
-                                  <Input
-                                    value={r.title}
-                                    onChange={(e) => updateRow(r.id, 'title', e.target.value)}
-                                    className="mt-1 h-9 text-[13px]"
-                                  />
-                                </div>
-
-                                {(includeDescription || r.description) && (
-                                  <div>
-                                    <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                                      Description ({r.description.length} chars)
-                                    </label>
-                                    <Input
-                                      value={r.description}
-                                      onChange={(e) =>
-                                        updateRow(r.id, 'description', e.target.value)
-                                      }
-                                      className="mt-1 h-9 text-[13px]"
-                                    />
-                                  </div>
-                                )}
-
-                                <div>
-                                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                                    Keywords ({r.keywords.length})
-                                  </label>
-                                  <div className="mt-1 rounded-md border border-border bg-card p-2">
-                                    <div className="flex flex-wrap gap-1">
-                                      {r.keywords.map((k, i) => {
-                                        const isTopAdobe = isAdobe && i < 10;
-                                        return (
-                                          <span
-                                            key={`${k}-${i}`}
-                                            className={cn(
-                                              'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium transition-colors',
-                                              isTopAdobe
-                                                ? 'border-accent/40 bg-accent/15 text-accent'
-                                                : 'border-border bg-card-2 text-foreground',
-                                            )}
-                                          >
-                                            {isTopAdobe && (
-                                              <span className="font-mono text-[9px] opacity-70">
-                                                #{i + 1}
-                                              </span>
-                                            )}
-                                            {k}
-                                            <button
-                                              type="button"
-                                              onClick={() => removeRowKeyword(r.id, i)}
-                                              className="text-muted-foreground hover:text-destructive"
-                                              aria-label={`Remove keyword ${k}`}
-                                            >
-                                              <X className="h-3 w-3" />
-                                            </button>
-                                          </span>
-                                        );
-                                      })}
-                                    </div>
-                                    <form
-                                      onSubmit={(e) => {
-                                        e.preventDefault();
-                                        const input = e.currentTarget.elements.namedItem(
-                                          'newKw',
-                                        ) as HTMLInputElement;
-                                        if (input && input.value.trim()) {
-                                          addRowKeyword(r.id, input.value.trim());
-                                          input.value = '';
-                                        }
-                                      }}
-                                      className="mt-1.5"
-                                    >
-                                      <input
-                                        name="newKw"
-                                        placeholder="Add keyword…"
-                                        className="h-7 w-full rounded border border-border bg-background/60 px-2 text-[11px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                      />
-                                    </form>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Footer actions */}
-                        {r.status === 'complete' && (
-                          <div className="flex items-center justify-between gap-2 border-t border-border bg-card px-3 py-2">
-                            <div className="flex items-center gap-1.5">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-[11px]"
-                                onClick={async () => {
-                                  await navigator.clipboard.writeText(r.title);
-                                  setCopiedId(`title-${r.id}`);
-                                  setTimeout(() => setCopiedId(null), 1500);
-                                }}
-                              >
-                                {copiedId === `title-${r.id}` ? (
-                                  <Check className="h-3 w-3 text-emerald-400" />
-                                ) : (
-                                  <Copy className="h-3 w-3" />
-                                )}
-                                Copy Title
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-[11px]"
-                                onClick={async () => {
-                                  await navigator.clipboard.writeText(r.keywords.join(', '));
-                                  setCopiedId(`kw-${r.id}`);
-                                  setTimeout(() => setCopiedId(null), 1500);
-                                }}
-                              >
-                                {copiedId === `kw-${r.id}` ? (
-                                  <Check className="h-3 w-3 text-emerald-400" />
-                                ) : (
-                                  <Copy className="h-3 w-3" />
-                                )}
-                                Copy Keywords
-                              </Button>
-                            </div>
-                            <Button
-                              size="sm"
-                              className="h-7 text-[11px]"
-                              onClick={() => regenerateSingle(r.id)}
-                              disabled={isGenerating || isRowGenerating}
-                            >
-                              {isRowGenerating ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Sparkles className="h-3 w-3" />
-                              )}
-                              Regenerate
-                            </Button>
-                          </div>
-                        )}
-                      </div>
+                      <ResultCard
+                        key={`result-${cardId}`}
+                        file={file}
+                        row={row}
+                        isGenerating={isRowGenerating}
+                        includeDescription={includeDescription}
+                        currentPlatformConfig={currentPlatformConfig}
+                        onUpdateRow={updateRow}
+                        onRemove={removeFile}
+                        onRegenerate={regenerateSingle}
+                        onCopyTitle={async (title, id) => {
+                          await navigator.clipboard.writeText(title);
+                          setCopiedId(`title-${id}`);
+                          setTimeout(() => setCopiedId(null), 1500);
+                        }}
+                        onCopyKeywords={async (keywords, id) => {
+                          await navigator.clipboard.writeText(keywords.join(", "));
+                          setCopiedId(`kw-${id}`);
+                          setTimeout(() => setCopiedId(null), 1500);
+                        }}
+                        copiedId={copiedId}
+                      />
                     );
                   })}
                 </div>
               )}
-            </CardContent>
+                        </CardContent>
           </Card>
+          )}
         </div>
 
-        {/* Right: controls rail */}
-        <div className="space-y-3 lg:sticky lg:top-6 lg:self-start">
-          {/* Controls Card - Title Length only */}
-          <Card>
-            <CardHeader className="p-4 pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm">Controls</CardTitle>
-                <Badge variant="secondary" className="text-[10px]">
-                  {currentPlatformConfig.shortLabel} Specs
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4 p-4 pt-0">
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Title Length
-                  </label>
-                  <span className="font-mono text-[11px] text-foreground">
-                    {settings.titleLength} chars (~{Math.round(settings.titleLength / 6)} words)
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5">
-                  <span>Min: {currentPlatformConfig.limits.titleMin}</span>
-                  <span className="text-accent font-medium">
-                    Rec: ~{currentPlatformConfig.limits.recommendedTitleLength}
-                  </span>
-                  <span>Max: {currentPlatformConfig.limits.titleMax}</span>
-                </div>
-                <Slider
-                  value={[settings.titleLength]}
-                  min={currentPlatformConfig.limits.titleMin}
-                  max={currentPlatformConfig.limits.titleMax}
-                  step={1}
-                  onValueChange={(v) => {
-                    const titleLength = v[0];
-                    setSettings((s) => ({ ...s, titleLength }));
-                    persistSettings({ titleLength });
-                  }}
-                  className="mt-1.5"
-                />
-              </div>
-
-              {/* Keywords Count */}
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Keywords Count
-                  </label>
-                  <span className="font-mono text-[11px] text-foreground">
-                    {settings.keywordsCount} tags
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5">
-                  <span>Min: {currentPlatformConfig.limits.keywordsMin}</span>
-                  <span className="text-accent font-medium">
-                    Rec: {currentPlatformConfig.limits.recommendedKeywordsCount}
-                  </span>
-                  <span>Max: {currentPlatformConfig.limits.keywordsMax}</span>
-                </div>
-                <Slider
-                  value={[settings.keywordsCount]}
-                  min={currentPlatformConfig.limits.keywordsMin}
-                  max={currentPlatformConfig.limits.keywordsMax}
-                  step={1}
-                  onValueChange={(v) => {
-                    const keywordsCount = v[0];
-                    setSettings((s) => ({ ...s, keywordsCount }));
-                    persistSettings({ keywordsCount });
-                  }}
-                  className="mt-1.5"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Advanced Settings - Collapsible */}
-          <div className="space-y-2.5">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex w-full items-center justify-between rounded-lg border border-border bg-card-2 px-3 py-2 text-[13px] font-medium transition-colors hover:bg-card hover:border-accent/40"
-            >
-              <span className="flex items-center gap-2">
-                <Settings className="h-3.5 w-3.5 text-accent" />
-                Advanced
-              </span>
-              <ChevronDown
-                className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform',
-                  showAdvanced && 'rotate-180')}
-              />
-            </button>
-
-            {showAdvanced && (
-              <div className="space-y-2.5 animate-in slide-in-from-top-2 duration-200">
-                {/* Description Length */}
-                <Card>
-                  <CardContent className="p-3 space-y-4">
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                          <Lock className="h-3 w-3" />
-                          Description Length
-                        </label>
-                        {!includeDescription && (
-                          <Badge variant="secondary" className="text-[10px] text-muted-foreground">
-                            Disabled
-                          </Badge>
-                        )}
-                      </div>
-                      <p
-                        className={cn(
-                          'mt-1 rounded-lg border px-3 py-1.5 font-mono text-[11px] transition-colors',
-                          includeDescription
-                            ? 'border-border bg-card-2 text-muted-foreground'
-                            : 'border-border/50 bg-card-2/50 text-muted-foreground/50 line-through',
-                        )}
-                      >
-                        {settings.descriptionLength} chars (~{Math.round(settings.descriptionLength / 6)}{' '}
-                        words)
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Options */}
-                <Card>
-                  <CardHeader className="p-4 pb-0">
-                    <CardTitle className="text-sm">Options</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3 p-4">
-                    <div>
-                      <Toggle
-                        label="Description"
-                        checked={includeDescription}
-                        onCheckedChange={(v) => {
-                          setIncludeDescription(v);
-                          persistSettings({ includeDescription: v });
-                        }}
-                      />
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {includeDescription
-                          ? 'AI will generate a stock description/caption for each image.'
-                          : 'Disabled. Only title and keywords will be generated.'}
-                      </p>
-                    </div>
-
-                    <div>
-                      <Toggle
-                        label="Prefix"
-                        checked={prefixEnabled}
-                        onCheckedChange={(v) => {
-                          setPrefixEnabled(v);
-                          persistSettings({ prefix: v ? prefixText : ''  });
-                        }}
-                      />
-                      {prefixEnabled && (
-                        <Input
-                          value={prefixText}
-                          onChange={(e) => {
-                            setPrefixText(e.target.value);
-                            persistSettings({ prefix: e.target.value });
-                          }}
-                          placeholder="Prepended to every title"
-                          className="mt-2"
-                        />
-                      )}
-                    </div>
-
-                    <div>
-                      <Toggle
-                        label="Suffix"
-                        checked={suffixEnabled}
-                        onCheckedChange={(v) => {
-                          setSuffixEnabled(v);
-                          persistSettings({ suffix: v ? suffixText : ''  });
-                        }}
-                      />
-                      {suffixEnabled && (
-                        <Input
-                          value={suffixText}
-                          onChange={(e) => {
-                            setSuffixText(e.target.value);
-                            persistSettings({ suffix: e.target.value });
-                          }}
-                          placeholder="Appended to every title"
-                          className="mt-2"
-                        />
-                      )}
-                    </div>
-
-                    <div>
-                      <Toggle
-                        label="Negative Title Words"
-                        checked={negWordsEnabled}
-                        onCheckedChange={setNegWordsEnabled}
-                      />
-                      {negWordsEnabled && (
-                        <TagInput
-                          values={negWords}
-                          onAdd={(v) => addTag('negWords', v)}
-                          onRemove={(i) => removeTag('negWords', i)}
-                          placeholder="Word to avoid in titles"
-                        />
-                      )}
-                    </div>
-
-                    <div>
-                      <Toggle
-                        label="Negative Keywords"
-                        checked={negKwsEnabled}
-                        onCheckedChange={setNegKwsEnabled}
-                      />
-                      {negKwsEnabled && (
-                        <TagInput
-                          values={negKws}
-                          onAdd={(v) => addTag('negKws', v)}
-                          onRemove={(i) => removeTag('negKws', i)}
-                          placeholder="Keyword to avoid"
-                        />
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* Success Modal */}
 
       {/* Success Modal */}
       <MetadataSuccessModal

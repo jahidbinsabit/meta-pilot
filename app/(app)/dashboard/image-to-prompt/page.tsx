@@ -3,7 +3,7 @@ import getServerSession from '@/lib/server-session';
 import { prisma } from '@/lib/db';
 import { getBatchLimitForUser } from '@/lib/generator/limits';
 import { getToolCost } from '@/lib/credits/cost';
-import { ImageToPrompt } from '@/components/dashboard/image-to-prompt';
+import { ImageToPromptPageClient } from '@/components/dashboard/image-to-prompt-page-client';
 
 export default async function ImageToPromptPage() {
   const session = await getServerSession();
@@ -17,5 +17,11 @@ export default async function ImageToPromptPage() {
     getToolCost('image-to-prompt'),
   ]);
 
-  return <ImageToPrompt batchLimit={batchLimit} costPerImage={costPerImage} userId={user.id} />;
+  return (
+    <ImageToPromptPageClient
+      batchLimit={batchLimit}
+      costPerImage={costPerImage}
+      user={{ id: user.id, email: user.email, name: user.name }}
+    />
+  );
 }

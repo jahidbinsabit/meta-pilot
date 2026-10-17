@@ -14,7 +14,7 @@ const NAV_LINKS = [
   { label: 'About', href: '/about' },
 ];
 
-export function Navbar({ siteName = 'StockForge AI' }: { siteName?: string }) {
+export function Navbar({ siteName = 'StockForge AI', logoUrl }: { siteName?: string; logoUrl?: string | null }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const { data: session, status } = useSession();
   const pathname = usePathname();
@@ -27,8 +27,13 @@ export function Navbar({ siteName = 'StockForge AI' }: { siteName?: string }) {
     <header className="sticky top-0 z-50 w-full border-b border-border/50 bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
-            <Zap className="h-5 w-5" />
+          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={siteName} className="absolute inset-0 h-full w-full rounded-lg object-contain" />
+            ) : (
+              <Zap className="h-5 w-5" />
+            )}
           </div>
           <span className="font-display text-lg font-bold tracking-tight text-foreground">
             {siteName}

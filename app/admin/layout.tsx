@@ -19,10 +19,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!user || user.role !== 'ADMIN') redirect('/dashboard');
 
   const siteName = siteSettings?.siteName || 'StockForge AI';
+  const logoUrl = siteSettings?.logoUrl;
 
   return (
     <AdminShell
       siteName={siteName}
+      logoUrl={logoUrl}
       user={{ name: user.name, email: user.email, role: user.role }}
     >
       {children}

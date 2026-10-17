@@ -119,7 +119,6 @@ export function SignupClient() {
   async function onGoogleSignIn() {
     if (busy || googleBusy) return;
     setGoogleBusy(true);
-    setError(null);
     try {
       await signIn("google", { callbackUrl: "/dashboard" });
     } catch {

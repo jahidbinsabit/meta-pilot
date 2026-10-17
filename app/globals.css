@@ -34,6 +34,23 @@
   --ring: 160 60% 50%;
 }
 
+/* ===== Custom Thin Scrollbar (Premium Look) ===== */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
 /* ===== Fast & Responsive Button Interactions ===== */
 button {
   cursor: pointer;

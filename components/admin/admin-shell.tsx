@@ -52,12 +52,14 @@ interface AdminShellProps {
   children: React.ReactNode;
   user: { name?: string | null; email: string; role: string };
   siteName?: string;
+  logoUrl?: string | null;
 }
 
 export function AdminShell({
   children,
   user,
   siteName = 'StockForge AI',
+  logoUrl,
 }: AdminShellProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = React.useState(false);
@@ -71,9 +73,14 @@ export function AdminShell({
         )}
       >
         <div className="flex h-16 items-center gap-2 px-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
-            <Shield className="h-5 w-5" />
-          </div>
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt={siteName} className="h-9 w-9 object-contain rounded-lg" />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
+              <Shield className="h-5 w-5" />
+            </div>
+          )}
           {!collapsed && (
             <div className="flex flex-col min-w-0 leading-tight">
               <span className="font-display text-sm font-semibold tracking-tight truncate">

@@ -8,6 +8,7 @@ import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { ControlsRail } from '@/components/dashboard/generator/controls-rail';
 import {
   Copy,
   Check,
@@ -20,6 +21,9 @@ import {
   Trash2,
   RotateCcw,
   Image as ImageIcon,
+  Upload,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import {
@@ -32,6 +36,9 @@ interface Props {
   batchLimit: number;
   costPerImage: number;
   userId: string;
+  activeTab?: 'metadata' | 'prompt';
+  onTabChange?: (tab: 'metadata' | 'prompt') => void;
+  user?: { id: string; email: string; name: string | null; preferredAiProvider?: string };
 }
 
 interface ResultRow {
@@ -48,13 +55,15 @@ interface ResultRow {
   error?: string;
 }
 
-export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
+export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onTabChange, user }: Props) {
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
   const [style, setStyle] = React.useState('');
   const [results, setResults] = React.useState<ResultRow[]>([]);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
   const [copiedAll, setCopiedAll] = React.useState(false);
   const [exportFormat, setExportFormat] = React.useState<PromptExportFormat>('csv');
+  const [dropzoneExpanded, setDropzoneExpanded] = React.useState(true);
+
   const toast = useToast();
   const { credits } = useCredits();
   const queryClient = useQueryClient();
@@ -107,9 +116,18 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
       return;
     }
 
+    const totalCost = ready.length * costPerImage;
+    if (credits < totalCost) {
+      toast({
+        title: 'Insufficient credits',
+        description: `You need ${totalCost} credits but have ${credits}.`,
+        variant: 'error',
+      });
+      return;
+    }
+
     setIsGenerating(true);
     setGeneratingIds(new Set(ready.map((f) => f.id)));
-    setResults((prev) => prev.filter((r) => !ready.some((f) => f.id === r.id)));
 
     try {
       const res = await fetch('/api/generate/image-prompt/stream', {
@@ -121,7 +139,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
             id: f.id,
             fileName: f.name,
             key: f.key,
-            previewUrl: f.previewUrl,
+            previewUrl: f.previewUrl || f.dataUrl,
             mimeType: f.mimeType || f.type,
           })),
         }),
@@ -151,14 +169,12 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
             try {
               const data = JSON.parse(line.slice(6));
               
-              if (data.type === 'init') {
-                console.log(`Starting prompt generation for ${data.total} images`);
+              if (data.type === 'start') {
+                toast({ title: `Synthesizing prompts for ${data.total} images`, variant: 'info' });
               } else if (data.type === 'processing') {
-                // Image is being processed - shimmer already showing
+                // Image is being processed
               } else if (data.type === 'result') {
                 const result = data.result;
-                
-                // Add or update this result and remove from generating
                 setResults((prev) => {
                   const existing = prev.find((r) => r.id === result.id);
                   if (existing) {
@@ -171,7 +187,6 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
                   next.delete(result.id);
                   return next;
                 });
-
               } else if (data.type === 'done') {
                 setIsGenerating(false);
                 setGeneratingIds(new Set());
@@ -263,15 +278,12 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
               
               if (data.type === 'result') {
                 const result = data.result;
-                
-                // Update the existing result
                 setResults((prev) => prev.map(r => r.id === result.id ? result : r));
                 setRegeneratingIds(prev => {
                   const next = new Set(prev);
                   next.delete(result.id);
                   return next;
                 });
-
               } else if (data.type === 'done') {
                 setRegeneratingIds(prev => {
                   const next = new Set(prev);
@@ -280,7 +292,6 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
                 });
                 queryClient.invalidateQueries({ queryKey: ['credits'] });
                 toast({ title: 'Prompt regenerated', variant: 'success' });
-                
               } else if (data.type === 'error') {
                 throw new Error(data.error || 'Regeneration failed');
               }
@@ -377,79 +388,101 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
   }, [files, results, generatingIds]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Image → Prompt
-        </p>
-        <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">
-          Reconstruct an image as a prompt
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Upload images and get a detailed, paste-ready prompt capturing subject, style, lighting,
-          composition, and mood.
-        </p>
-      </div>
+    <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
+      {/* Left: Control Rail */}
+      <ControlsRail
+        activeTab={activeTab || 'prompt'}
+        onTabChange={onTabChange || (() => {})}
+        batchGeneration={true}
+        setBatchGeneration={() => {}}
+        user={user}
+        style={style}
+        onStyleChange={onStyleChange}
+        styles={styles}
+        costPerImage={costPerImage}
+      />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Left: uploader + the single control */}
+      {/* Right: Workspace */}
+      <div className="space-y-4">
+        {/* A) Upload Card */}
         <Card>
-          <CardHeader>
-            <CardTitle>Images</CardTitle>
-            <CardDescription>
-              {costPerImage} credit{readyFiles.length > 0 ? 's' : ''} per image
-              {readyFiles.length > 1 ? ` — ${totalCost} total` : ''}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <ImageUploader
-              files={files}
-              onFilesChange={setFiles}
-              batchLimit={batchLimit}
-              disabled={isGenerating}
-            />
-
-            <div>
-              <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Prompt Style
-              </label>
-              <select
-                value={style}
-                onChange={(e) => onStyleChange(e.target.value)}
-                disabled={!styles?.length}
-                className="mt-1 block w-full rounded-lg border border-input bg-background/60 px-3 py-2 text-sm disabled:opacity-50"
-              >
-                {!styles?.length && <option value="">Loading presets…</option>}
-                {styles?.map((s: { slug: string; label: string }) => (
-                  <option key={s.slug} value={s.slug}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-muted-foreground">
-                The admin defines which styles are available and what each one asks the model for.
-              </p>
-            </div>
-
+          <CardHeader className="p-4 pb-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">
-                {readyFiles.length > 0
-                  ? `${readyFiles.length} image${readyFiles.length === 1 ? '' : 's'} · ${totalCost} credit${totalCost === 1 ? '' : 's'}`
-                  : `${costPerImage} credit per image`}
-              </span>
-              <Button onClick={() => startStreamingGeneration()} disabled={!canGenerate}>
-                {isGenerating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent/10">
+                  <Upload className="h-3.5 w-3.5 text-accent" />
+                </div>
+                <CardTitle className="text-sm">Upload Files</CardTitle>
+                {files.length > 0 && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    {readyFiles.length}/{files.length} ready
+                  </Badge>
                 )}
-                {isGenerating
-                  ? 'Generating…'
-                  : `Generate ${readyFiles.length > 1 ? `${readyFiles.length} prompts` : 'prompt'}`}
-              </Button>
+              </div>
+              {files.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setDropzoneExpanded((v) => !v)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {dropzoneExpanded ? 'Collapse' : 'Expand'}
+                  {dropzoneExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+              )}
             </div>
+          </CardHeader>
+          <CardContent className="p-4 pt-0 space-y-3">
+            {(dropzoneExpanded || files.length === 0) && (
+              <ImageUploader
+                files={files}
+                onFilesChange={setFiles}
+                batchLimit={batchLimit}
+                disabled={isGenerating}
+              />
+            )}
 
-            {readyFiles.length > 0 && credits < totalCost && (
+            {/* Action bar / status banner */}
+            {files.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card-2 p-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                    <span>{readyFiles.length} image{readyFiles.length === 1 ? '' : 's'} ready</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">{totalCost} credit{totalCost === 1 ? '' : 's'} total</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {costPerImage} credit per image
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 rounded-lg text-xs border-destructive/40 bg-destructive/5 text-destructive hover:bg-destructive/15 hover:text-destructive"
+                    onClick={() => {
+                      setFiles([]);
+                      setResults([]);
+                      setDropzoneExpanded(true);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Clear All
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-9 rounded-lg text-xs"
+                    onClick={() => startStreamingGeneration()}
+                    disabled={!canGenerate}
+                  >
+                    {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {isGenerating ? 'Generating…' : `Generate ${readyFiles.length > 1 ? `${readyFiles.length} prompts` : 'prompt'}`}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {files.length > 0 && credits < totalCost && (
               <p className="flex items-center gap-1.5 text-xs text-amber-400">
                 <AlertCircle className="h-3.5 w-3.5" />
                 You need {totalCost} credits but have {credits}. Top up in Billing to continue.
@@ -458,138 +491,132 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId }: Props) {
           </CardContent>
         </Card>
 
-        {/* Right: results */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle>Generated prompts</CardTitle>
-                <CardDescription>
-                  {results.length > 0
-                    ? `${successCount} of ${results.length} succeeded`
-                    : 'Copy any prompt straight into your generator of choice.'}
-                </CardDescription>
-              </div>
-              {results.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setResults([])}
-                    className="gap-1.5 border-destructive/40 bg-destructive/5 text-destructive hover:bg-destructive/15 hover:text-destructive"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Clear
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={copyAll} disabled={successCount === 0}>
-                    {copiedAll ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    {copiedAll ? 'Copied' : 'Copy all'}
-                  </Button>
+        {/* B) Generated Prompts Card */}
+        {files.length > 0 && (
+          <Card>
+            <CardHeader className="p-4 pb-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm">Generated Prompts</CardTitle>
+                  <CardDescription className="text-[11px]">
+                    {results.length > 0
+                      ? `${successCount} of ${results.length} succeeded`
+                      : 'Copy any prompt straight into your generator of choice.'}
+                  </CardDescription>
                 </div>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {displayedItems.length === 0 ? (
-              <div className="flex min-h-[220px] flex-col items-center justify-center text-center text-muted-foreground">
-                <ImageIconEmpty />
-                <p className="mt-2 text-sm">Your prompts will appear here.</p>
-              </div>
-            ) : (
-              <>
-                {displayedItems.map((item) => {
-                  if (item.type === 'generating') {
-                    const file = item.file;
-                    return (
-                      <div
-                        key={`generating-${file.id}`}
-                        className="ai-card-generating p-3.5 transition-all duration-300"
-                      >
-                        <div className="flex gap-3.5">
-                          {/* Source thumbnail */}
-                          <div className="relative w-20 shrink-0">
-                            {file.dataUrl || file.previewUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={file.dataUrl || file.previewUrl}
-                                alt={file.name}
-                                className="aspect-square w-full rounded-md border border-border bg-card object-cover opacity-80"
-                              />
-                            ) : (
-                              <div className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-card">
-                                <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
-                              </div>
-                            )}
-                            <p className="mt-1 truncate text-[10px] text-muted-foreground font-medium">
-                              {file.name}
-                            </p>
-                          </div>
-
-                          {/* Shimmer content */}
-                          <div className="min-w-0 flex-1 space-y-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5">
-                                <Sparkles className="h-3 w-3 animate-spin text-accent" />
-                                <span className="text-xs font-semibold text-accent">Synthesizing Prompt</span>
-                              </div>
-                              <span className="text-[10px] text-muted-foreground font-medium">
-                                AI Vision Analyzing…
-                              </span>
-                            </div>
-
-                            <div className="space-y-2 pt-1">
-                              <div className="ai-skeleton-bar h-4 w-full"></div>
-                              <div className="ai-skeleton-bar h-4 w-5/6"></div>
-                              <div className="ai-skeleton-bar h-4 w-4/6"></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  const r = item.result;
-                  const srcFile = files.find((f) => f.id === r.id);
-                  const preview = srcFile?.dataUrl || srcFile?.previewUrl;
-
-                  return (
-                    <PromptCard 
-                      key={r.id} 
-                      row={r} 
-                      previewUrl={preview}
-                      onCopy={copyOne} 
-                      copied={copiedId === r.id}
-                      onRegenerate={regenerateSingle}
-                      isRegenerating={regeneratingIds.has(r.id)}
-                    />
-                  );
-                })}
-
-                {successCount > 0 && (
-                  <div className="flex items-center gap-2 pt-1">
-                    <select
-                      value={exportFormat}
-                      onChange={(e) => setExportFormat(e.target.value as PromptExportFormat)}
-                      aria-label="Export format"
-                      className="rounded-lg border border-input bg-background/60 px-2 py-1.5 text-xs"
-                    >
-                      <option value="csv">CSV</option>
-                      <option value="txt">TXT</option>
-                    </select>
-                    <Button variant="outline" size="sm" onClick={doExport}>
-                      {exportFormat === 'csv' ? (
-                        <FileSpreadsheet className="h-4 w-4" />
-                      ) : (
-                        <FileText className="h-4 w-4" />
-                      )}
-                      Export
+                {results.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={copyAll} disabled={successCount === 0} className="h-7 text-[11px]">
+                      {copiedAll ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                      {copiedAll ? 'Copied' : 'Copy all'}
                     </Button>
                   </div>
                 )}
-              </>
-            )}
-          </CardContent>
-        </Card>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 space-y-3">
+              {displayedItems.length === 0 ? (
+                <div className="flex min-h-[200px] flex-col items-center justify-center text-center text-muted-foreground">
+                  <ImageIcon className="h-8 w-8 opacity-40 mb-2" />
+                  <p className="text-sm">Your prompts will appear here.</p>
+                </div>
+              ) : (
+                <>
+                  {displayedItems.map((item) => {
+                    if (item.type === 'generating') {
+                      const file = item.file;
+                      return (
+                        <div
+                          key={`generating-${file.id}`}
+                          className="rounded-2xl border border-border bg-card p-4 ai-card-generating transition-all duration-300"
+                        >
+                          <div className="flex gap-4 items-start">
+                            <div className="relative w-[240px] shrink-0">
+                              {file.dataUrl || file.previewUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={file.dataUrl || file.previewUrl}
+                                  alt={file.name}
+                                  className="aspect-square w-full rounded-xl border border-border bg-card object-cover opacity-80"
+                                />
+                              ) : (
+                                <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-border bg-card">
+                                  <ImageIcon className="h-6 w-6 text-muted-foreground/40" />
+                                </div>
+                              )}
+                              <p className="mt-2 truncate text-xs text-muted-foreground font-medium">
+                                {file.name}
+                              </p>
+                            </div>
+
+                            <div className="min-w-0 flex-1 space-y-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-0.5">
+                                  <Sparkles className="h-3.5 w-3.5 animate-spin text-accent" />
+                                  <span className="text-xs font-semibold text-accent">Synthesizing Prompt</span>
+                                </div>
+                                <span className="text-[11px] text-muted-foreground font-medium">
+                                  AI Vision Analyzing…
+                                </span>
+                              </div>
+
+                              <div className="space-y-2.5 pt-2">
+                                <div className="ai-skeleton-bar h-16 w-full rounded-xl" />
+                                <div className="ai-skeleton-bar h-10 w-3/4 rounded-xl" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const r = item.result;
+                    const srcFile = files.find((f) => f.id === r.id);
+                    const preview = srcFile?.dataUrl || srcFile?.previewUrl;
+
+                    return (
+                      <PromptCard
+                        key={r.id}
+                        row={r}
+                        previewUrl={preview}
+                        onCopy={copyOne}
+                        copied={copiedId === r.id}
+                        onRegenerate={regenerateSingle}
+                        isRegenerating={regeneratingIds.has(r.id)}
+                        onRemove={(id) => {
+                          setFiles((prev) => prev.filter((f) => f.id !== id));
+                          setResults((prev) => prev.filter((res) => res.id !== id));
+                        }}
+                      />
+                    );
+                  })}
+
+                  {successCount > 0 && (
+                    <div className="flex items-center gap-2 pt-2">
+                      <select
+                        value={exportFormat}
+                        onChange={(e) => setExportFormat(e.target.value as PromptExportFormat)}
+                        aria-label="Export format"
+                        className="rounded-xl border border-input bg-background px-3 py-1.5 text-xs text-foreground"
+                      >
+                        <option value="csv">CSV</option>
+                        <option value="txt">TXT</option>
+                      </select>
+                      <Button variant="outline" size="sm" onClick={doExport} className="h-8 text-xs">
+                        {exportFormat === 'csv' ? (
+                          <FileSpreadsheet className="h-4 w-4" />
+                        ) : (
+                          <FileText className="h-4 w-4" />
+                        )}
+                        Export Prompts
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
@@ -602,6 +629,7 @@ function PromptCard({
   copied,
   onRegenerate,
   isRegenerating,
+  onRemove,
 }: {
   row: ResultRow;
   previewUrl?: string;
@@ -609,107 +637,117 @@ function PromptCard({
   copied: boolean;
   onRegenerate: (id: string) => void;
   isRegenerating: boolean;
+  onRemove: (id: string) => void;
 }) {
   if (row.status === 'failed') {
     return (
-      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+      <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-4">
         <div className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-destructive">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" />
             <span className="truncate">{row.fileName}</span>
           </span>
-          <Badge variant="muted" className="shrink-0">
+          <Badge variant="muted" className="shrink-0 text-[10px]">
             refunded
           </Badge>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {row.error || 'Generation failed'} — the credit for this image was refunded.
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          {row.error || 'Generation failed'} — the credit for this image was refunded automatically.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card-2 p-3">
-      <div className="flex gap-3.5">
-        {/* Source image thumbnail */}
-        <div className="relative w-24 shrink-0">
-          {previewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={previewUrl}
-              alt={row.fileName}
-              className="aspect-square w-full rounded-md border border-border bg-card object-cover"
-            />
-          ) : (
-            <div className="flex aspect-square w-full items-center justify-center rounded-md border border-border bg-card">
-              <ImageIcon className="h-5 w-5 text-muted-foreground/50" />
-            </div>
-          )}
-          <p className="mt-1.5 truncate text-[10px] text-muted-foreground font-medium">
-            {row.fileName}
-          </p>
-        </div>
+    <div className="rounded-2xl border border-border bg-card p-4 transition-all duration-200 shadow-sm hover:border-accent/40">
+      <div className="flex flex-col lg:flex-row gap-5 items-start">
+        {/* Left Column: Thumbnail & Metadata (~240px) */}
+        <div className="w-full lg:w-[240px] shrink-0 space-y-2.5">
+          <div className="relative aspect-square w-full rounded-xl bg-muted/50 border border-border/80 overflow-hidden flex items-center justify-center p-2">
+            {previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewUrl}
+                alt={row.fileName}
+                className="h-full w-full object-contain rounded-lg"
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center text-muted-foreground/50">
+                <ImageIcon className="h-8 w-8 mb-1" />
+                <span className="text-[10px]">No Preview</span>
+              </div>
+            )}
 
-        {/* Generated prompt content */}
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
+            {/* Float Delete Button */}
+            <button
+              type="button"
+              onClick={() => onRemove(row.id)}
+              className="absolute top-2.5 right-2.5 flex h-7 w-7 items-center justify-center rounded-full bg-background/85 backdrop-blur-sm border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors shadow-sm"
+              aria-label="Remove file"
+              title="Remove file"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <div className="space-y-1 px-0.5">
+            <p className="truncate text-[12px] font-medium text-foreground" title={row.fileName}>
+              {row.fileName}
+            </p>
+            <div className="pt-1 flex items-center gap-1.5">
               {row.styleLabel && (
-                <Badge variant="secondary" className="text-[10px]">
+                <Badge variant="secondary" className="text-[10px] font-normal">
                   {row.styleLabel}
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-1">
+          </div>
+        </div>
+
+        {/* Right Column: Content Fields (flex-1) */}
+        <div className="flex-1 w-full min-w-0 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Generated Prompt ({row.prompt.length} chars)
+            </span>
+            <div className="flex items-center gap-1.5">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="xs"
                 onClick={() => onRegenerate(row.id)}
                 disabled={isRegenerating}
                 aria-label={`Regenerate prompt for ${row.fileName}`}
-                className="text-muted-foreground hover:text-accent"
+                className="h-7 gap-1 text-xs"
               >
                 {isRegenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                Regenerate
               </Button>
               <Button
-                variant="ghost"
+                variant="outline"
                 size="xs"
                 onClick={() => onCopy(row.id, row.prompt)}
                 aria-label={`Copy prompt for ${row.fileName}`}
+                className="h-7 gap-1 text-xs"
               >
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 {copied ? 'Copied' : 'Copy'}
               </Button>
             </div>
           </div>
-          
-          <p className="whitespace-pre-wrap text-sm text-foreground leading-relaxed">{row.prompt}</p>
-          
+
+          <div className="rounded-xl border border-input bg-card-2/60 p-3.5 text-sm text-foreground leading-relaxed whitespace-pre-wrap select-all">
+            {row.prompt}
+          </div>
+
           {(row.subject || row.lighting || row.mood) && (
-            <div className="mt-2 flex flex-wrap gap-1.5 pt-1">
-              {row.mood && <Badge variant="muted">mood: {row.mood}</Badge>}
-              {row.lighting && <Badge variant="muted">light: {row.lighting}</Badge>}
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {row.subject && <Badge variant="muted" className="text-[10px]">subject: {row.subject}</Badge>}
+              {row.mood && <Badge variant="muted" className="text-[10px]">mood: {row.mood}</Badge>}
+              {row.lighting && <Badge variant="muted" className="text-[10px]">light: {row.lighting}</Badge>}
             </div>
           )}
         </div>
       </div>
     </div>
-  );
-}
-
-function ImageIconEmpty() {
-  return (
-    <svg
-      className="h-10 w-10 opacity-40"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <circle cx="8.5" cy="8.5" r="1.5" />
-      <path d="m21 15-5-5L5 21" />
-    </svg>
   );
 }

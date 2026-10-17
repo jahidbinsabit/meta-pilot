@@ -17,6 +17,8 @@ export async function ensureDatabaseSchema(): Promise<void> {
       BEGIN 
         -- SiteSettings columns
         BEGIN
+          ALTER TABLE "SiteSettings" ADD COLUMN IF NOT EXISTS "logoUrl" TEXT;
+          ALTER TABLE "SiteSettings" ADD COLUMN IF NOT EXISTS "siteIconUrl" TEXT;
           ALTER TABLE "SiteSettings" ADD COLUMN IF NOT EXISTS "apifyApiToken" TEXT;
           ALTER TABLE "SiteSettings" ADD COLUMN IF NOT EXISTS "apifyActorId" TEXT;
         EXCEPTION WHEN OTHERS THEN NULL;

@@ -48,8 +48,8 @@ const DEFAULT_CATEGORIES: Record<string, string> = {
 };
 
 const DEFAULT_ROUTES: Record<string, string> = {
-  'metadata-generator': '/dashboard/generator',
-  'image-to-prompt': '/dashboard/image-to-prompt',
+  'metadata-generator': '/dashboard/generate',
+  'image-to-prompt': '/dashboard/generate?tab=prompt',
   'bg-remover': '/dashboard/tools/bg-remover',
   'bento-builder': '/dashboard/tools/bento-builder',
   palette: '/dashboard/tools/palette',

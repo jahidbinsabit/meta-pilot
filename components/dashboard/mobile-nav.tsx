@@ -25,8 +25,7 @@ import { signOut } from 'next-auth/react';
 
 const NAV: Array<{ label: string; href: string; icon: any; badge?: string; admin?: boolean }> = [
   { label: 'Overview', href: '/dashboard', icon: LayoutGrid },
-  { label: 'Metadata Generator', href: '/dashboard/generator', icon: Sparkles },
-  { label: 'Image → Prompt', href: '/dashboard/image-to-prompt', icon: Image },
+  { label: 'Generate', href: '/dashboard/generate', icon: Sparkles },
   { label: 'Adobe Analytics', href: '/dashboard/adobe-analytics', icon: BarChart3 },
   { label: 'Tools', href: '/dashboard/tools', icon: Wrench },
   { label: 'Billing', href: '/dashboard/billing', icon: CreditCard },
@@ -39,6 +38,7 @@ interface MobileNavProps {
   onClose: () => void;
   user: { name?: string | null; email: string; credits: number; membership: string; role: string };
   siteName?: string;
+  logoUrl?: string | null;
 }
 
 export function MobileNav({
@@ -46,6 +46,7 @@ export function MobileNav({
   onClose,
   user,
   siteName = 'StockForge',
+  logoUrl,
 }: MobileNavProps) {
   const pathname = usePathname();
   const { credits } = useCredits();
@@ -71,9 +72,14 @@ export function MobileNav({
           >
             <div className="flex h-16 items-center justify-between px-4">
               <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
-                  <Zap className="h-5 w-5" />
-                </div>
+                {logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={logoUrl} alt={siteName} className="h-9 w-9 object-contain rounded-lg" />
+                ) : (
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
+                    <Zap className="h-5 w-5" />
+                  </div>
+                )}
                 <span className="font-display text-lg font-semibold tracking-tight truncate">
                   {siteName}
                 </span>

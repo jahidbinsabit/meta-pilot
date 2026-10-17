@@ -14,6 +14,8 @@ import { Server, Shield, Save, Loader2, Bot, Eye, EyeOff, CheckCircle2, XCircle,
 
 type SiteSettings = {
   siteName?: string | null;
+  logoUrl?: string | null;
+  siteIconUrl?: string | null;
   tagline?: string | null;
   metaTitle?: string | null;
   metaDescription?: string | null;
@@ -37,6 +39,8 @@ export function SettingsClient({
 }) {
   const [settings, setSettings] = React.useState<SiteSettings>({
     siteName: initialSettings?.siteName ?? 'StockForge AI',
+    logoUrl: initialSettings?.logoUrl ?? '',
+    siteIconUrl: initialSettings?.siteIconUrl ?? '',
     tagline: initialSettings?.tagline ?? '',
     metaTitle: initialSettings?.metaTitle ?? '',
     metaDescription: initialSettings?.metaDescription ?? '',
@@ -313,6 +317,40 @@ export function SettingsClient({
                 value={settings.tagline || ''}
                 onChange={(e) => setSettings((s) => ({ ...s, tagline: e.target.value }))}
               />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="logoUrl">Project Logo URL</Label>
+              <div className="flex gap-2 items-center">
+                <Input
+                  id="logoUrl"
+                  type="url"
+                  value={settings.logoUrl || ''}
+                  onChange={(e) => setSettings((s) => ({ ...s, logoUrl: e.target.value }))}
+                  placeholder="https://.../logo.png"
+                />
+                {settings.logoUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={settings.logoUrl} alt="Logo Preview" className="h-9 w-9 object-contain rounded border border-border" />
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="siteIconUrl">Browser Favicon / Icon URL</Label>
+              <div className="flex gap-2 items-center">
+                <Input
+                  id="siteIconUrl"
+                  type="url"
+                  value={settings.siteIconUrl || ''}
+                  onChange={(e) => setSettings((s) => ({ ...s, siteIconUrl: e.target.value }))}
+                  placeholder="https://.../favicon.ico"
+                />
+                {settings.siteIconUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={settings.siteIconUrl} alt="Favicon Preview" className="h-8 w-8 object-contain rounded border border-border" />
+                )}
+              </div>
             </div>
           </div>
           <div className="space-y-2">
