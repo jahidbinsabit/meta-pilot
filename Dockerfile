@@ -62,6 +62,8 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
 # tsconfig needed for `npm run db:seed` (ts-node + tsconfig-paths @/* aliases).
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
+# lib/ sources needed for `npm run db:seed` (seed imports @/lib/*).
+COPY --from=builder /app/lib ./lib
 
 # Writable uploads dir for USE_LOCAL_STORAGE mode (backed by a named volume
 # in docker-compose.prod.yml so files survive container recreates).
