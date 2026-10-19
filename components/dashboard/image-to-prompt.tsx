@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { useCredits } from '@/components/dashboard/credits-provider';
+import { ApiKeyRequiredDialog } from '@/components/dashboard/api-key-required-dialog';
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -102,6 +103,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   };
 
   const [isGenerating, setIsGenerating] = React.useState(false);
+  const [apiKeyDialogOpen, setApiKeyDialogOpen] = React.useState(false);
   const [generatingIds, setGeneratingIds] = React.useState<Set<string>>(new Set());
   const [regeneratingIds, setRegeneratingIds] = React.useState<Set<string>>(new Set());
   const abortRef = React.useRef<AbortController | null>(null);
@@ -237,11 +239,16 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     } catch (error: any) {
       // Aborted (unmount / Clear All) — not a real failure, stay silent.
       if (error?.name !== 'AbortError' && !controller.signal.aborted) {
-        toast({
-          title: 'Generation failed',
-          description: error.message || 'Unknown error',
-          variant: 'error'
-        });
+        // API key required → show the add-key popup instead of a generic toast.
+        if (error.message === 'user_api_key_required') {
+          setApiKeyDialogOpen(true);
+        } else {
+          toast({
+            title: 'Generation failed',
+            description: error.message || 'Unknown error',
+            variant: 'error'
+          });
+        }
       }
     } finally {
       // Always reset loading state — the stream may end without a 'done'
@@ -673,6 +680,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
           </Card>
         )}
       </div>
+      <ApiKeyRequiredDialog open={apiKeyDialogOpen} onOpenChange={setApiKeyDialogOpen} />
     </div>
   );
 }

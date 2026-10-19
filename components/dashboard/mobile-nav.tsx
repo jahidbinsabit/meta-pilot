@@ -16,7 +16,6 @@ import {
   Zap,
   TrendingUp,
   LogOut,
-  FolderOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -26,7 +25,6 @@ import { signOut } from 'next-auth/react';
 const NAV: Array<{ label: string; href: string; icon: any; badge?: string; admin?: boolean }> = [
   { label: 'Overview', href: '/dashboard', icon: LayoutGrid },
   { label: 'Generate', href: '/dashboard/generate', icon: Sparkles },
-  { label: 'Library', href: '/dashboard/library', icon: FolderOpen },
   { label: 'Adobe Analytics', href: '/dashboard/adobe-analytics', icon: BarChart3 },
   { label: 'Tools', href: '/dashboard/tools', icon: Wrench },
   { label: 'Billing', href: '/dashboard/billing', icon: CreditCard },

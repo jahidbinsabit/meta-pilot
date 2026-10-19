@@ -21,6 +21,7 @@ import {
   Shield,
   Package,
   ClipboardList,
+  Ticket,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,7 @@ const NAV = [
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Plans', href: '/admin/plans', icon: Crown },
   { label: 'Credit Packages', href: '/admin/credit-packages', icon: Package },
+  { label: 'Coupons', href: '/admin/coupons', icon: Ticket },
   { label: 'Payments', href: '/admin/payments', icon: CreditCard },
   { label: 'AI Providers', href: '/admin/ai-providers', icon: Zap },
   { label: 'Tools', href: '/admin/tools', icon: Wrench },

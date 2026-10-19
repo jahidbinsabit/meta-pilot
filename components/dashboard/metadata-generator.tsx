@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { useCredits } from '@/components/dashboard/credits-provider';
+import { ApiKeyRequiredDialog } from '@/components/dashboard/api-key-required-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
@@ -207,6 +208,7 @@ export function MetadataGenerator({
 
 
   const [isGenerating, setIsGenerating] = React.useState(false);
+  const [apiKeyDialogOpen, setApiKeyDialogOpen] = React.useState(false);
   const [generatingIds, setGeneratingIds] = React.useState<Set<string>>(new Set());
 
   async function startStreamingGeneration() {
@@ -373,11 +375,16 @@ export function MetadataGenerator({
       setGeneratingIds(new Set());
       abortRef.current = null;
       queryClient.invalidateQueries({ queryKey: ['credits'] });
-      toast({ 
-        title: 'Generation failed', 
-        description: error.message || 'Unknown error', 
-        variant: 'error' 
-      });
+      // API key required → show the add-key popup instead of a generic toast.
+      if (error.message === 'user_api_key_required') {
+        setApiKeyDialogOpen(true);
+      } else {
+        toast({ 
+          title: 'Generation failed', 
+          description: error.message || 'Unknown error', 
+          variant: 'error' 
+        });
+      }
     }
   }
 
@@ -1049,6 +1056,7 @@ export function MetadataGenerator({
           setSuccessModalOpen(false);
         }}
       />
+      <ApiKeyRequiredDialog open={apiKeyDialogOpen} onOpenChange={setApiKeyDialogOpen} />
     </div>
   );
 }

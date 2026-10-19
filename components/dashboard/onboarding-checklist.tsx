@@ -19,6 +19,13 @@ type Step = {
 
 const STEPS: Step[] = [
   {
+    id: 'api-key',
+    title: 'Add your API key',
+    desc: 'Use your own Gemini/OpenAI key (BYOK)',
+    href: '/dashboard/settings',
+    icon: Key,
+  },
+  {
     id: 'generate-metadata',
     title: 'Generate your first metadata',
     desc: 'Create AI titles, descriptions & keywords',
@@ -31,13 +38,6 @@ const STEPS: Step[] = [
     desc: 'Extract prompts from your images',
     href: '/dashboard/generate?tab=prompt',
     icon: ImageIcon,
-  },
-  {
-    id: 'api-key',
-    title: 'Add your API key',
-    desc: 'Use your own Gemini/OpenAI key (BYOK)',
-    href: '/dashboard/settings',
-    icon: Key,
   },
   {
     id: 'invite',
