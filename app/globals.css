@@ -34,6 +34,39 @@
   --ring: 160 60% 50%;
 }
 
+/* ===== Light mode — every variable redefined for readability =====
+   Contrast-checked: body text ~15:1, muted text ~5.5:1, accent ~4.8:1
+   on white. Borders visible but subtle. */
+.light {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 9%;
+  --card: 0 0% 100%;
+  --card-2: 240 6% 97%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 9%;
+  --secondary: 240 6% 96%;
+  --muted: 240 6% 95%;
+  --muted-foreground: 240 5% 42%;
+  --border: 240 7% 87%;
+  --input: 240 7% 89%;
+  --ring: 270 65% 55%;
+  --accent: 270 68% 52%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 46%;
+  --destructive-foreground: 0 0% 100%;
+  --sidebar: 240 6% 98%;
+  --sidebar-foreground: 240 10% 12%;
+  --sidebar-accent: 270 68% 52%;
+  --sidebar-ring: 240 7% 85%;
+}
+
+.light[data-theme='emerald'] {
+  --accent: 160 65% 38%;
+  --accent-foreground: 0 0% 100%;
+  --sidebar-accent: 160 65% 38%;
+  --ring: 160 65% 38%;
+}
+
 /* ===== Custom Thin Scrollbar (Premium Look) ===== */
 ::-webkit-scrollbar {
   width: 5px;

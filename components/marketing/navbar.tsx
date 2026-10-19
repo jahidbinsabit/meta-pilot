@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Zap, Menu, X, ArrowRight, LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 const NAV_LINKS = [
   { label: 'Features', href: '/#features' },
@@ -86,6 +87,7 @@ export function Navbar({ siteName = 'StockForge AI', logoUrl }: { siteName?: str
               </Link>
             </>
           )}
+          <ThemeToggle />
         </div>
 
         <button

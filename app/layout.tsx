@@ -83,6 +83,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <head>
         {siteIconUrl && <link rel="icon" href={siteIconUrl} />}
         {gscVerify && <meta name="google-site-verification" content={gscVerify} />}
+        {/* Theme: apply saved light/dark choice before paint to avoid flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('metapilot-theme');if(t==='light'){document.documentElement.classList.add('light');}}catch(e){}})();`,
+          }}
+        />
         {gaId && (
           <>
             <Script

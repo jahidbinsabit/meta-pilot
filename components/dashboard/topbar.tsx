@@ -6,6 +6,7 @@ import { Bell, Key, Menu, Search } from 'lucide-react';
 import { useCredits } from '@/components/dashboard/credits-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { UserApiKeysModal } from '@/components/dashboard/user-api-keys-dialog';
 
 export function TopBar({
@@ -49,6 +50,7 @@ export function TopBar({
         <Badge variant={unlimited || credits > 0 ? 'success' : 'warning'} className="hidden sm:inline-flex">
           {unlimited ? 'Unlimited' : `${credits} credits`}
         </Badge>
+        <ThemeToggle />
         <button className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground">
           <Bell className="h-4 w-4" />
         </button>
