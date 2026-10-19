@@ -6,19 +6,6 @@ import { TOOL_META, type ToolSlug } from '@/lib/tools/slugs';
  * Reads the active provider config from the DB so the price follows the
  * admin-controlled model/cost settings — no env hardcoding.
  */
-export async function estimateCostCents(opts: {
-  provider: string;
-  model: string;
-  promptTokens: number;
-  completionTokens: number;
-}): Promise<number> {
-  const cfg = await prisma.aiProviderConfig.findUnique({ where: { provider: opts.provider } });
-  if (!cfg) return 0;
-  const inCost = (opts.promptTokens / 1000) * cfg.costPer1kIn;
-  const outCost = (opts.completionTokens / 1000) * cfg.costPer1kOut;
-  return Math.max(0, Math.round((inCost + outCost) * 100));
-}
-
 /** Flat per-image fee when provider cost can't be computed (fallback). */
 export const FLAT_METADATA_FEE = 1;
 

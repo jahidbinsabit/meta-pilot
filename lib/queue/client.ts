@@ -16,10 +16,6 @@ export function getRedisUrl(): string | undefined {
   return url;
 }
 
-export function isRedisEnabled(): boolean {
-  return !!getRedisUrl();
-}
-
 let _connection: IORedis | null | undefined;
 
 export function getConnection(): IORedis | null {
@@ -63,14 +59,6 @@ function maybeQueue(name: string): Queue | null {
 export const metadataQueue = maybeQueue('metadata');
 export const imagePromptQueue = maybeQueue('image-prompt');
 export const analyticsQueue = maybeQueue('analytics');
-
-export function getWorker(name: string, handler: (job: any) => Promise<void>) {
-  const conn = getConnection();
-  if (!conn) {
-    throw new Error('Redis is not configured; cannot start worker ' + name);
-  }
-  return new Worker(name, handler, { connection: conn });
-}
 
 export async function closeQueue() {
   await Promise.all(

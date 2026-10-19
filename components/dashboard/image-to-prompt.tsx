@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { useCredits } from '@/components/dashboard/credits-provider';
+import { isApiKeyError } from '@/lib/tools/client-api-key';
 import { ApiKeyRequiredDialog } from '@/components/dashboard/api-key-required-dialog';
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
@@ -248,16 +249,8 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         // API key required → show the add-key popup instead of a generic toast.
         // The backend may return {"error":"user_api_key_required",...} as a raw
         // JSON string, or as an SSE event: data: {"type":"error","error":...}.
-        let isApiKeyError = error.message === 'user_api_key_required';
-        if (!isApiKeyError && typeof error.message === 'string') {
-          try {
-            let text = error.message.trim();
-            if (text.startsWith('data:')) text = text.slice(5).trim();
-            const parsed = JSON.parse(text);
-            isApiKeyError = parsed?.error === 'user_api_key_required';
-          } catch { /* not JSON — leave as-is */ }
-        }
-        if (isApiKeyError) {
+        const needsApiKey = isApiKeyError(error.message);
+        if (needsApiKey) {
           setApiKeyDialogOpen(true);
         } else {
           toast({

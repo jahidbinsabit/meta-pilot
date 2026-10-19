@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { randomString } from '@/lib/utils';
+import { rateLimitResponse } from '@/lib/rate-limit';
 
 /**
  * Mask an sk_ secret for list display — the full secret is only ever shown
@@ -39,6 +40,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  // Rate-limit key creation — prevents mass key minting.
+  const limited = rateLimitResponse(req, { max: 10, windowMs: 60_000, scope: 'keys-create' });
+  if (limited) return limited;
+
   const user = await requireApiUser();
   const body = await req.json();
   const name = body.name || 'Untitled key';

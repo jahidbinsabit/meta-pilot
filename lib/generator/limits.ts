@@ -22,11 +22,3 @@ export async function getBatchLimitForUser(userId: string): Promise<number> {
   return UNIVERSAL_BATCH_LIMIT;
 }
 
-export async function getMembershipTier(userId: string): Promise<string> {
-  const membership = await prisma.membership.findFirst({
-    where: { userId, status: 'ACTIVE' },
-    include: { plan: true },
-    orderBy: { startedAt: 'desc' },
-  });
-  return membership?.plan?.tier || 'FREE';
-}

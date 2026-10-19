@@ -6,16 +6,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatNumber(n: number | null | undefined, opts: Intl.NumberFormatOptions = {}) {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2, ...opts }).format(n);
-}
-
-export function formatCurrency(n: number | null | undefined, currency = 'USD') {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(n);
-}
-
 export function formatCredits(n: number | null | undefined) {
   if (n == null) return '—';
   return new Intl.NumberFormat('en-US').format(n);
@@ -24,15 +14,6 @@ export function formatCredits(n: number | null | undefined) {
 export function truncate(str: string, n = 80) {
   if (!str) return '';
   return str.length > n ? str.slice(0, n - 1) + '…' : str;
-}
-
-export function slugify(str: string) {
-  return str
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/[\s_-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 export function capitalize(s: string) {
@@ -83,11 +64,3 @@ export function pct(part: number, total: number) {
   return (part / total) * 100;
 }
 
-export function estimateWords(text: string) {
-  if (!text) return 0;
-  return text.trim().split(/\s+/).length;
-}
-
-export function estimateChars(text: string) {
-  return text?.length ?? 0;
-}

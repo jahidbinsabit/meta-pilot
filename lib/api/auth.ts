@@ -28,13 +28,6 @@ export async function requireApiAdmin(req?: Request): Promise<User> {
   return user;
 }
 
-export function jsonError(res: Response, status: number, message: string) {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
 /**
  * Validate an `Authorization: Bearer sk_...` API key.
  * Returns the owning user if the key is valid, active, and has the required scope.

@@ -36,6 +36,3 @@ export function isInsufficientCreditsError(e: unknown): e is InsufficientCredits
   return e instanceof InsufficientCreditsError;
 }
 
-export function isPlanRequiredError(e: unknown): e is PlanRequiredError {
-  return e instanceof PlanRequiredError;
-}

@@ -133,13 +133,6 @@ export const getTool = unstable_cache(
 );
 
 /** Whether a tool is visible for the given user's plan tier. */
-export function toolVisibleFor(tool: ToolEntry, tier: string): boolean {
-  if (!tool.isEnabled) return false;
-  const tiers = tool.enabledForTiers;
-  if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return true;
-  return tiers.includes(tier);
-}
-
 /** Upsert a tool registry row, applying defaults for any unset fields. */
 export async function upsertTool(
   slug: string,

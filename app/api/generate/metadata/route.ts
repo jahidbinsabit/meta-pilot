@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireApiUserOrKey } from '@/lib/api/auth';
-import { deductCredits, refundCredits } from '@/lib/credits/engine';
-import { isInsufficientCreditsError } from '@/lib/credits/errors';
+import { refundCredits } from '@/lib/credits/engine';
+import { chargeCredits } from '@/lib/credits/charge';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { prisma } from '@/lib/db';
 import { buildMetadataPrompt } from '@/lib/generator/prompt';
 import type { TargetPlatform } from '@/lib/generator/types';
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
+import { getToolCost } from '@/lib/credits/cost';
 
 const MetadataRequestSchema = z.object({
   prompt: z.string().trim().min(1, 'prompt_required').max(5000, 'prompt_too_long'),
@@ -26,7 +27,9 @@ const MetadataRequestSchema = z.object({
 export async function POST(req: Request) {
   let userId: string | null = null;
   let deducted = false;
-  const cost = 1;
+  // Per-image cost comes from the admin-configured ToolCreditCost table
+  // (was hardcoded to 1, ignoring admin pricing).
+  const cost = await getToolCost('metadata-generator');
   try {
     // Accept session auth OR Bearer sk_... API key (scope: metadata:generate).
     const user = await requireApiUserOrKey(req, 'metadata:generate');
@@ -58,28 +61,13 @@ export async function POST(req: Request) {
     }
 
     const targetPlatform: TargetPlatform = platform || 'adobe';
-    let deduction;
-    try {
-      deduction = await deductCredits(user.id, cost, 'SPEND', {
-        prompt: prompt.slice(0, 120),
-        toolSlug: 'metadata-generator',
-        platform: targetPlatform,
-      });
-    } catch (e) {
-      if (isInsufficientCreditsError(e)) {
-        return new Response(
-          JSON.stringify({ error: 'insufficient_credits', balance: e.balance, needed: e.needed }),
-          { status: 402, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      throw e;
-    }
-    if (!deduction.ok) {
-      return new Response(
-        JSON.stringify({ error: 'insufficient_credits', balance: deduction.balance }),
-        { status: 402, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
+    const charged = await chargeCredits(user.id, cost, 'SPEND', {
+      prompt: prompt.slice(0, 120),
+      toolSlug: 'metadata-generator',
+      platform: targetPlatform,
+    });
+    if (charged instanceof NextResponse) return charged;
+    const deduction = charged;
     // Only mark as deducted if credits were actually taken (not unlimited mode).
     deducted = deduction.deducted === true;
 

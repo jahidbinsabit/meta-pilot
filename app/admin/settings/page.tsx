@@ -14,7 +14,7 @@ export default async function AdminSettingsPage() {
   try {
     const [u, p, s] = await Promise.all([
       prisma.user.count().catch(() => 0),
-      prisma.order.count({ where: { status: 'PAID' } }).catch(() => 0),
+      prisma.payment.count({ where: { status: 'COMPLETED' } }).catch(() => 0), // M-B6: Order is write-dead
       prisma.siteSettings.findUnique({ where: { id: 'default' } }).catch(() => null),
     ]);
     users = u;

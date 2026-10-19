@@ -122,10 +122,6 @@ export function downloadBlob(blob: Blob, filename: string) {
 }
 
 /** Convert a canvas to a data URL (PNG). */
-export function canvasToDataURL(canvas: HTMLCanvasElement): string {
-  return canvas.toDataURL('image/png');
-}
-
 /**
  * Compress and downscale a raster image (JPEG, PNG, WebP) in the browser
  * before upload. Preserves aspect ratio with max dimension capped at maxDim (default 1024px)
@@ -206,23 +202,3 @@ export async function compressImageForUpload(
 }
 
 /** Resize a PixelData to fit within maxDim while preserving aspect ratio. */
-export function resizePixels(pixels: PixelData, maxDim: number): PixelData {
-  if (pixels.width <= maxDim && pixels.height <= maxDim) return pixels;
-  const scale = Math.min(maxDim / pixels.width, maxDim / pixels.height);
-  const w = Math.max(1, Math.round(pixels.width * scale));
-  const h = Math.max(1, Math.round(pixels.height * scale));
-  const canvas = pixelsToCanvas(pixels);
-  const out = document.createElement('canvas');
-  out.width = w;
-  out.height = h;
-  const ctx = out.getContext('2d')!;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'medium';
-  ctx.drawImage(canvas, 0, 0, w, h);
-  return {
-    data: ctx.getImageData(0, 0, w, h).data,
-    width: w,
-    height: h,
-  };
-}
-

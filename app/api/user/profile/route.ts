@@ -38,8 +38,14 @@ export async function GET(req: Request) {
     });
     return NextResponse.json(profile);
   } catch (e: any) {
+    if (e?.message === 'UNAUTHORIZED' || e?.message === 'FORBIDDEN') {
+      return NextResponse.json(
+        { error: 'unauthorized' },
+        { status: e.message === 'FORBIDDEN' ? 403 : 401 },
+      );
+    }
     console.error('profile fetch failed', e);
-    return NextResponse.json({ error: 'internal_error' }, { status: 401 });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }
 
@@ -84,13 +90,28 @@ export async function PATCH(req: Request) {
         imageUrl = publicUrl(key);
       }
     } else {
-      // JSON body — name only
+      // JSON body — name only, plus an avatar URL that must point at our own
+      // upload storage (prevents arbitrary-URL avatars / XSS via javascript:).
       const body = await req.json();
       if (typeof body.name === 'string') {
         name = body.name.trim() || undefined;
       }
-      if (typeof body.image === 'string') {
-        imageUrl = body.image || undefined;
+      if (typeof body.image === 'string' && body.image) {
+        const candidate = body.image.trim();
+        let ok = false;
+        try {
+          const parsed = new URL(candidate);
+          ok =
+            (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+            (parsed.pathname.startsWith('/uploads/') ||
+              parsed.pathname.startsWith('/api/s3/'));
+        } catch {
+          ok = false;
+        }
+        if (!ok) {
+          return NextResponse.json({ error: 'invalid_avatar_url' }, { status: 400 });
+        }
+        imageUrl = candidate;
       }
     }
 

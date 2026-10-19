@@ -1,14 +1,21 @@
 import GoogleProvider from 'next-auth/providers/google';
 import CredentialsProvider from 'next-auth/providers/credentials';
+import { CredentialsSignin } from 'next-auth';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import { prisma } from '@/lib/db';
 import { randomString } from '@/lib/utils';
 import { decode } from 'next-auth/jwt';
+import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import bcrypt from 'bcryptjs';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+/** Thrown when the login rate limit is hit — surfaced as "too_many_attempts". */
+class LoginRateLimited extends CredentialsSignin {
+  code = 'too_many_attempts';
+}
 
 /** Embed role + membershipPlan into the JWT so every request can read them
  *  without hitting the DB. Refreshed whenever the membership changes. */
@@ -79,8 +86,18 @@ export const authOptions: any = {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials: any) {
+      async authorize(credentials: any, request: any) {
         if (!credentials?.email || !credentials?.password) return null;
+        // Rate-limit credential-stuffing: 10 attempts/min per IP.
+        try {
+          const req = request instanceof Request ? request : undefined;
+          const ip = req ? getClientIp(req) : 'unknown';
+          const rl = rateLimit(`login:${ip}`, { max: 10, windowMs: 60_000 });
+          if (!rl.allowed) throw new LoginRateLimited();
+        } catch (e) {
+          if (e instanceof LoginRateLimited) throw e;
+          // If IP detection fails, fail open (don't block legitimate logins).
+        }
         const user = await prisma.user.findUnique({
           where: { email: String(credentials.email).trim().toLowerCase() },
         });

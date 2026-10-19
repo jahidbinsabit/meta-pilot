@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireApiUserOrKey } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
-import { deductCredits, refundCredits } from '@/lib/credits/engine';
-import { isInsufficientCreditsError } from '@/lib/credits/errors';
+import { refundCredits } from '@/lib/credits/engine';
+import { chargeCredits } from '@/lib/credits/charge';
 import { getToolCost } from '@/lib/credits/cost';
 import { generateWithAI } from '@/lib/ai';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
@@ -103,29 +103,14 @@ export async function POST(req: Request) {
 
     const costPerImage = await getToolCost(TOOL_SLUG);
     total = images.length * costPerImage;
-    let deduction;
-    try {
-      deduction = await deductCredits(user.id, total, 'SPEND', {
-        imageCount: images.length,
-        costPerImage,
-        style: preset.slug,
-        toolSlug: TOOL_SLUG,
-      });
-    } catch (e) {
-      if (isInsufficientCreditsError(e)) {
-        return NextResponse.json(
-          { error: 'insufficient_credits', balance: e.balance, needed: e.needed },
-          { status: 402 },
-        );
-      }
-      throw e;
-    }
-    if (!deduction.ok) {
-      return NextResponse.json(
-        { error: 'insufficient_credits', balance: deduction.balance, needed: total },
-        { status: 402 },
-      );
-    }
+    const charged = await chargeCredits(user.id, total, 'SPEND', {
+      imageCount: images.length,
+      costPerImage,
+      style: preset.slug,
+      toolSlug: TOOL_SLUG,
+    });
+    if (charged instanceof NextResponse) return charged;
+    const deduction = charged;
     // Only refund when credits were actually taken (not unlimited mode).
     deducted = deduction.deducted === true;
 

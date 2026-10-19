@@ -237,10 +237,3 @@ export function formatLabel(format: ExportFormat): string {
   }
 }
 
-export function adobeRequiredColumns(): string[] {
-  return ['Filename', 'Title', 'Keywords', 'Category', 'Releases'];
-}
-
-export function shutterstockRequiredColumns(): string[] {
-  return ['Media File', 'Title', 'Description', 'Keywords', 'Category', 'Submission Type'];
-}

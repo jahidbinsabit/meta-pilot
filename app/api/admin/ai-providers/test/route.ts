@@ -51,12 +51,12 @@ export async function POST(req: Request) {
           response: '',
         });
       }
-    } catch (err: any) {
+    } catch {
       const latencyMs = Date.now() - startMs;
       return NextResponse.json({
         ok: false,
         latencyMs,
-        error: err.message || 'Provider test failed',
+        error: 'provider_test_failed',
         response: '',
       });
     }

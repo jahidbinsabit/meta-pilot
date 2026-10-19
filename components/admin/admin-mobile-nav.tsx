@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { X, Shield, LogOut } from 'lucide-react';
+import { X, Shield, LogOut, ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ADMIN_NAV } from '@/components/admin/admin-shell';
 
@@ -110,7 +110,7 @@ export function AdminMobileNav({
             onClick={onClose}
             className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/10 hover:text-foreground"
           >
-            <LogOut className="h-4 w-4" /> Back to dashboard
+            <ArrowLeft className="h-4 w-4" /> Back to dashboard
           </Link>
         </div>
       </aside>

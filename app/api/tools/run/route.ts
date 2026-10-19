@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
 import { getToolCost } from '@/lib/credits/cost';
-import { deductCredits, refundCredits } from '@/lib/credits/engine';
-import { isInsufficientCreditsError } from '@/lib/credits/errors';
+import { refundCredits } from '@/lib/credits/engine';
+import { chargeCredits } from '@/lib/credits/charge';
 import { prisma } from '@/lib/db';
+import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 import { generateWithAI } from '@/lib/ai';
 import { AdobeKeywordsSchema } from '@/lib/ai/schemas';
 
@@ -24,6 +25,12 @@ export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
     userId = user.id;
+    // M-B7: BYOK gate BEFORE deduction — so the frontend API-key dialog
+    // fires instead of a generic 500 after deduct+refund.
+    const keyError = await requireUserApiKeyIfNeeded(user.id);
+    if (keyError) {
+      return NextResponse.json(keyError, { status: 400 });
+    }
     const body = await req.json();
     const { slug, input, metadata } = body;
     if (!slug) {
@@ -36,24 +43,9 @@ export async function POST(req: Request) {
     cost = await getToolCost(slug);
     let balance = 0;
     if (cost > 0) {
-      let deduction;
-      try {
-        deduction = await deductCredits(user.id, cost, 'SPEND', { slug });
-      } catch (e) {
-        if (isInsufficientCreditsError(e)) {
-          return new Response(
-            JSON.stringify({ error: 'insufficient_credits', balance: e.balance, needed: e.needed }),
-            { status: 402, headers: { 'Content-Type': 'application/json' } },
-          );
-        }
-        throw e;
-      }
-      if (!deduction.ok) {
-        return new Response(
-          JSON.stringify({ error: 'insufficient_credits', balance: deduction.balance }),
-          { status: 402, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
+      const charged = await chargeCredits(user.id, cost, 'SPEND', { slug });
+      if (charged instanceof NextResponse) return charged;
+      const deduction = charged;
       balance = deduction.balance;
       // Only refund when credits were actually taken (not unlimited mode).
       deducted = deduction.deducted === true;

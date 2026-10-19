@@ -131,15 +131,6 @@ export async function deductCredits(
 }
 
 /** Single entry point for every credit-consuming tool action. */
-export async function spendCredits(
-  userId: string,
-  toolSlug: string,
-  amount: number,
-  metadata?: Record<string, unknown>,
-): Promise<CreditResult> {
-  return deductCredits(userId, amount, 'SPEND', { ...metadata, toolSlug });
-}
-
 /** Refund a failed generation. Writes a `refund` transaction. */
 export async function refundCredits(
   userId: string,

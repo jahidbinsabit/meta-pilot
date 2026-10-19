@@ -47,14 +47,6 @@ export async function getActiveProviderForTool(toolSlug: string): Promise<string
   return cfg?.provider || process.env.ACTIVE_AI_PROVIDER || 'gemini';
 }
 
-export async function getActiveProvider(): Promise<string> {
-  const cfg = await prisma.aiProviderConfig.findFirst({
-    where: { enabled: true },
-    orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
-  });
-  return cfg?.provider || process.env.ACTIVE_AI_PROVIDER || 'gemini';
-}
-
 function getEnvironmentApiKey(provider: string): string | undefined {
   if (provider === 'gemini') return process.env.GEMINI_API_KEY?.trim() || undefined;
   if (provider === 'openai') return process.env.OPENAI_API_KEY?.trim() || undefined;

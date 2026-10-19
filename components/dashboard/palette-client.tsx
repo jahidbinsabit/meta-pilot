@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { useToolGating } from '@/components/dashboard/use-tool-gating';
+import { isApiKeyError } from '@/lib/tools/client-api-key';
 import { ApiKeyRequiredDialog } from '@/components/dashboard/api-key-required-dialog';
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
@@ -46,16 +47,8 @@ export function PaletteClient({ tool }: { tool: ToolEntry }) {
       // API key required → show the add-key popup instead of a generic toast.
       // The backend may return "user_api_key_required" as a plain code, a raw
       // JSON string, or an SSE event: data: {"type":"error","error":...}.
-      let isApiKeyError = e?.message === 'user_api_key_required';
-      if (!isApiKeyError && typeof e?.message === 'string') {
-        try {
-          let text = e.message.trim();
-          if (text.startsWith('data:')) text = text.slice(5).trim();
-          const parsed = JSON.parse(text);
-          isApiKeyError = parsed?.error === 'user_api_key_required';
-        } catch { /* not JSON — leave as-is */ }
-      }
-      if (isApiKeyError) {
+      const needsApiKey = isApiKeyError(e?.message);
+      if (needsApiKey) {
         setApiKeyDialogOpen(true);
       } else {
         toast({ title: 'Failed', description: e.message, variant: 'error' });

@@ -300,17 +300,17 @@ export async function POST(req: Request) {
   const isSelf = user.id === admin.id;
   const isOtherAdmin = user.role === 'ADMIN' && !isSelf;
   const guardAdminTarget = (actionName: string): NextResponse | null => {
-    const selfDestructive = ['set_role', 'set_status', 'delete'].includes(actionName);
+    const selfDestructive = ['set_role', 'set_status', 'delete', 'set_credits', 'adjust_credits', 'set_membership'].includes(actionName);
     if (isSelf && selfDestructive) {
       return NextResponse.json(
-        { error: 'cannot_modify_self', message: 'You cannot change your own role, status, or delete your own account.' },
+        { error: 'cannot_modify_self', message: 'You cannot change your own role, status, credits, membership, or delete your own account.' },
         { status: 403 },
       );
     }
-    const adminTargetBlocked = ['set_role', 'set_status', 'set_password', 'delete'].includes(actionName);
+    const adminTargetBlocked = ['set_role', 'set_status', 'set_password', 'delete', 'set_credits', 'adjust_credits', 'set_membership'].includes(actionName);
     if (isOtherAdmin && adminTargetBlocked) {
       return NextResponse.json(
-        { error: 'cannot_modify_admin', message: 'You cannot change the role, password, status, or delete another admin account.' },
+        { error: 'cannot_modify_admin', message: 'You cannot change the role, password, status, credits, membership, or delete another admin account.' },
         { status: 403 },
       );
     }
@@ -362,6 +362,8 @@ export async function POST(req: Request) {
     }
 
     case 'adjust_credits': {
+      const guard = guardAdminTarget('adjust_credits');
+      if (guard) return guard;
       const { amount, reason } = body;
       if (!reason || !reason.trim())
         return NextResponse.json({ error: 'reason_required' }, { status: 400 });
@@ -383,6 +385,8 @@ export async function POST(req: Request) {
     }
 
     case 'set_credits': {
+      const guard = guardAdminTarget('set_credits');
+      if (guard) return guard;
       const { balance, reason } = body;
       if (typeof balance !== 'number' || !Number.isInteger(balance) || balance < 0) {
         return NextResponse.json({ error: 'invalid_balance' }, { status: 400 });
@@ -448,6 +452,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: after.status });
     }
     case 'set_membership': {
+      const guard = guardAdminTarget('set_membership');
+      if (guard) return guard;
       const { membership: targetTier, planId } = body;
       const normalizedTier = String(targetTier || '').toUpperCase();
       const validTiers = ['FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'];

@@ -25,22 +25,6 @@ export const ACCEPTED_MIME: Record<string, string> = {
 
 export const ACCEPTED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.svg', '.eps', '.ai']);
 
-export function isAccepted(file: File): boolean {
-  const ext = ('.' + file.name.split('.').pop() || '').toLowerCase();
-  if (ACCEPTED_EXTENSIONS.has(ext)) return true;
-  return !!ACCEPTED_MIME[file.type];
-}
-
-export function isVector(file: File): boolean {
-  const ext = ('.' + file.name.split('.').pop() || '').toLowerCase();
-  return ext === '.svg' || ext === '.eps' || ext === '.ai';
-}
-
-export function isRasterizableVector(file: File): boolean {
-  const ext = ('.' + file.name.split('.').pop() || '').toLowerCase();
-  return ext === '.eps' || ext === '.ai';
-}
-
 export async function convertSvgToPng(input: Buffer): Promise<Buffer> {
   try {
     // Sharp handles SVG directly with white background
@@ -220,14 +204,3 @@ export async function storePreview(
   return { key, url: publicUrl(key) };
 }
 
-export async function imageDimensions(buffer: Buffer): Promise<{ width: number; height: number } | null> {
-  try {
-    const metadata = await sharp(buffer).metadata();
-    if (metadata.width && metadata.height) {
-      return { width: metadata.width, height: metadata.height };
-    }
-  } catch (e) {
-    console.error('Image dimension detection failed:', e);
-  }
-  return null;
-}

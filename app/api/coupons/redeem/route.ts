@@ -42,19 +42,20 @@ export async function POST(req: Request) {
     }
 
     // Everything below runs in ONE transaction: the per-user idempotency
-    // check, the atomic usedCount increment, and the credit grant. Splitting
-    // them across separate transactions let two concurrent redeems both pass
-    // the check and double-grant — that was the double-redeem race.
+    // insert (unique constraint on couponId+userId makes double-redeem
+    // impossible even under concurrency), the atomic usedCount increment,
+    // and the credit grant.
     const result = await prisma.$transaction(async (tx) => {
-      // Per-user idempotency: the coupon id is stored in transaction metadata.
-      const already = await tx.creditTransaction.findFirst({
-        where: {
-          userId: user.id,
-          type: 'BONUS',
-          metadata: { path: ['couponId'], equals: coupon.id } as any,
-        },
-      });
-      if (already) throw new Error('already_redeemed');
+      // Per-user idempotency: unique (couponId, userId) — a concurrent
+      // duplicate hits the constraint and throws P2002.
+      try {
+        await tx.couponRedemption.create({
+          data: { couponId: coupon.id, userId: user.id },
+        });
+      } catch (e: any) {
+        if (e?.code === 'P2002') throw new Error('already_redeemed');
+        throw e;
+      }
 
       // Atomic: increment usedCount only if under maxUses. The conditional
       // update takes the coupon row's write lock, so concurrent redeems

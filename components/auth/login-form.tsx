@@ -48,7 +48,11 @@ export function LoginForm({ signupCredits = 20 }: { signupCredits?: number }) {
     try {
       const result = await signIn("credentials", { email, password, redirect: false });
       if (result?.error) {
-        setError("Invalid email or password. Please check your credentials.");
+        if (result.error === "too_many_attempts") {
+          setError("Too many login attempts. Please try again in a minute.");
+        } else {
+          setError("Invalid email or password. Please check your credentials.");
+        }
         setBusy(false);
       } else if (result?.ok) {
         const params = new URLSearchParams(window.location.search);

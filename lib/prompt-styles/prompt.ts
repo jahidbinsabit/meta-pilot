@@ -57,25 +57,3 @@ ${
  * payload has no usable prompt, which the caller treats as a failure so the
  * credit is refunded.
  */
-export function parseImagePromptResult(raw: string): ImagePromptResult | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object') return null;
-  const obj = parsed as Record<string, unknown>;
-  const prompt = typeof obj.prompt === 'string' ? obj.prompt.trim() : '';
-  if (!prompt) return null;
-  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
-  return {
-    ...obj,
-    prompt,
-    subject: str(obj.subject),
-    style: str(obj.style),
-    lighting: str(obj.lighting),
-    composition: str(obj.composition),
-    mood: str(obj.mood),
-  };
-}

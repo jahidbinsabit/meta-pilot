@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ownsStorageKey } from '@/lib/api/ownership';
 import { requireApiUser } from '@/lib/api/auth';
 import { getToolCost } from '@/lib/credits/cost';
 import { prisma } from '@/lib/db';
@@ -28,13 +29,8 @@ export async function POST(req: Request) {
     }
 
     // M1: ownership check — the key comes straight from the client, so
-    // prove it belongs to this user before downloading another user's
-    // file. Same prefix pattern as app/uploads/[...file]/route.ts; the
-    // trailing dash prevents prefix collisions between user ids.
-    const owned =
-      key.startsWith(`uploads-${user.id}-`) ||
-      key.startsWith(`previews-${user.id}-`);
-    if (!owned) {
+    // prove it belongs to this user before downloading another user's file.
+    if (!ownsStorageKey(user.id, key)) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 

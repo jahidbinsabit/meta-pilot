@@ -107,6 +107,3 @@ export const TOOL_META: Record<ToolSlug, { title: string; desc: string; cost: nu
   },
 };
 
-export function isToolSlug(s: string): s is ToolSlug {
-  return (TOOL_SLUGS as readonly string[]).includes(s);
-}

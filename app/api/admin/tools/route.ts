@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireApiUser } from '@/lib/api/auth';
+import { requireApiAdmin } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { upsertTool, type ToolEntry } from '@/lib/tools/registry';
 import { writeAudit } from '@/lib/audit';
@@ -14,13 +14,7 @@ export const runtime = 'nodejs';
  */
 export async function POST(req: Request) {
   try {
-    const user = await requireApiUser(req);
-    if (user.role !== 'ADMIN') {
-      return new Response(JSON.stringify({ error: 'forbidden' }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    const user = await requireApiAdmin(req);
 
     const body = await req.json();
     const tools: ToolEntry[] = body.tools;

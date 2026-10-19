@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireApiAdmin } from '@/lib/api/auth';
-import { listGatewayConfigsAdmin, saveGatewayConfig } from '@/lib/payments/config';
+import { listGatewayConfigsAdmin, saveGatewayConfig, maskCredentials } from '@/lib/payments/config';
 
 export const runtime = 'nodejs';
 
@@ -8,7 +8,9 @@ export async function GET() {
   try {
     await requireApiAdmin();
     const gateways = await listGatewayConfigsAdmin();
-    return NextResponse.json({ gateways });
+    // Never return full secrets — mask credential values.
+    const masked = gateways.map((g) => ({ ...g, credentials: maskCredentials(g.credentials) }));
+    return NextResponse.json({ gateways: masked });
   } catch (error: any) {
     console.error('Admin get gateways error:', error);
     const status = error.message === 'FORBIDDEN' ? 403 : error.message === 'UNAUTHORIZED' ? 401 : 500;

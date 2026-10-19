@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireApiUser } from '@/lib/api/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,11 +28,18 @@ function isAllowedHost(urlStr: string): boolean {
 }
 
 export async function GET(req: Request) {
+  // Authenticated users only — this proxies third-party image bytes.
+  try {
+    await requireApiUser(req);
+  } catch {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
   const url = new URL(req.url);
   const targetUrl = url.searchParams.get('url');
 
   if (!targetUrl || !isAllowedHost(targetUrl)) {
-    return new NextResponse('Invalid or forbidden image URL', { status: 400 });
+    return NextResponse.json({ error: 'invalid_image_url' }, { status: 400 });
   }
 
   try {
@@ -50,17 +58,17 @@ export async function GET(req: Request) {
 
     // Reject redirects outright rather than following them.
     if (res.status >= 300 && res.status < 400) {
-      return new NextResponse('Redirects not allowed', { status: 400 });
+      return NextResponse.json({ error: 'redirect_not_allowed' }, { status: 400 });
     }
 
     if (!res.ok) {
-      return new NextResponse(`Upstream returned ${res.status}`, { status: res.status });
+      return NextResponse.json({ error: 'upstream_error' }, { status: 502 });
     }
 
     // 10MB cap — refuse to buffer huge responses into memory.
     const len = Number(res.headers.get('content-length') || 0);
     if (len > 10 * 1024 * 1024) {
-      return new NextResponse('Image too large', { status: 413 });
+      return NextResponse.json({ error: 'image_too_large' }, { status: 413 });
     }
 
     const contentType = res.headers.get('content-type') || 'image/jpeg';
@@ -74,7 +82,7 @@ export async function GET(req: Request) {
         'Access-Control-Allow-Origin': '*',
       },
     });
-  } catch (err: any) {
-    return new NextResponse(err.message || 'Image proxy failed', { status: 502 });
+  } catch {
+    return NextResponse.json({ error: 'image_proxy_failed' }, { status: 502 });
   }
 }

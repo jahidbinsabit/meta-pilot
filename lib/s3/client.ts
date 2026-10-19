@@ -83,35 +83,10 @@ export function publicUrl(key: string) {
   return `${base}/api/s3/${encodeURIComponent(key)}`;
 }
 
-export async function presignedGet(key: string, expires = 900) {
-  if (USE_LOCAL_STORAGE) {
-    // For local storage, just return the public URL
-    return publicUrlLocal(key);
-  }
-  
-  return getSignedUrl(s3!, new GetObjectCommand({ Bucket: bucket, Key: key }), {
-    expiresIn: expires,
-  });
-}
-
 /**
  * Presigned URL for a direct browser → S3 PUT. Lets the uploader hand the file
  * off without proxying the bytes through this app.
  */
-export async function presignedPutUrl(key: string, contentType: string, expires = 900) {
-  if (USE_LOCAL_STORAGE) {
-    // Local storage doesn't support presigned uploads
-    // Return null to signal caller to use direct upload fallback
-    return null;
-  }
-  
-  return getSignedUrl(
-    s3!,
-    new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType }),
-    { expiresIn: expires },
-  );
-}
-
 export async function listFiles(prefix: string): Promise<Array<{ key: string; lastModified?: Date }>> {
   if (USE_LOCAL_STORAGE) {
     return listFilesLocal(prefix);

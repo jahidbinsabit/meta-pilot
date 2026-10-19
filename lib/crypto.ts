@@ -56,8 +56,3 @@ export function decryptSecret(payload: string): string {
   }
 }
 
-export function isEncrypted(payload: string): boolean {
-  if (!payload) return false;
-  const key = getKey();
-  return !!key;
-}

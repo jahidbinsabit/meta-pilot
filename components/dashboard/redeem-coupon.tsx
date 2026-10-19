@@ -66,7 +66,7 @@ export function RedeemCoupon() {
         {message && (
           <p
             className={`mt-3 flex items-center gap-1.5 text-sm ${
-              message.ok ? 'text-green-600 dark:text-green-400' : 'text-destructive'
+              message.ok ? 'text-green-600' : 'text-destructive'
             }`}
           >
             {message.ok && <CheckCircle2 className="h-4 w-4" />}

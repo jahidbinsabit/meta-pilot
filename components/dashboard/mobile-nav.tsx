@@ -16,6 +16,7 @@ import {
   Zap,
   TrendingUp,
   LogOut,
+  UserCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +29,8 @@ const NAV: Array<{ label: string; href: string; icon: any; badge?: string; admin
   { label: 'Adobe Analytics', href: '/dashboard/adobe-analytics', icon: BarChart3 },
   { label: 'Tools', href: '/dashboard/tools', icon: Wrench },
   { label: 'Billing', href: '/dashboard/billing', icon: CreditCard },
-  { label: 'Settings', href: '/dashboard/settings', icon: Settings, admin: true },
+  { label: 'Profile', href: '/dashboard/profile', icon: UserCircle },
+  { label: 'Settings', href: '/dashboard/settings', icon: Settings },
   { label: 'Admin', href: '/admin', icon: Shield, admin: true },
 ];
 

@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
+import { ownsStorageKey } from '@/lib/api/ownership';
 import { requireApiUser } from '@/lib/api/auth';
 import { getToolCost } from '@/lib/credits/cost';
-import { deductCredits, refundCredits } from '@/lib/credits/engine';
-import { isInsufficientCreditsError } from '@/lib/credits/errors';
+import { refundCredits } from '@/lib/credits/engine';
+import { chargeCredits } from '@/lib/credits/charge';
 import { prisma } from '@/lib/db';
+import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 import { downloadFile } from '@/lib/s3/client';
 import { storePreview } from '@/lib/generator/images';
 import { buildLayeredPsd } from '@/lib/tools/psd-builder';
@@ -21,6 +23,12 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
+    // M-B7: BYOK gate BEFORE deduction — so the frontend API-key dialog
+    // fires instead of a generic 500 after deduct+refund.
+    const keyError = await requireUserApiKeyIfNeeded(user.id);
+    if (keyError) {
+      return NextResponse.json(keyError, { status: 400 });
+    }
     const body = await req.json();
     const { key, fileName } = body;
     if (!key) {
@@ -32,70 +40,57 @@ export async function POST(req: Request) {
 
     // M1: ownership check — the key comes straight from the client, so
     // prove it belongs to this user before downloading (and spending
-    // credits on) another user's file. Same prefix pattern as
-    // app/uploads/[...file]/route.ts; the trailing dash prevents prefix
-    // collisions between user ids.
-    const owned =
-      key.startsWith(`uploads-${user.id}-`) ||
-      key.startsWith(`previews-${user.id}-`);
-    if (!owned) {
+    // Ownership check — same helper as app/uploads/[...file]/route.ts.
+    if (!ownsStorageKey(user.id, key)) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
     const cost = await getToolCost('image-to-psd');
-    let deduction;
-    try {
-      deduction = await deductCredits(user.id, cost, 'SPEND', { 
-        key,
-        toolSlug: 'image-to-psd',
-      });
-    } catch (e) {
-      if (isInsufficientCreditsError(e)) {
-        return new Response(
-          JSON.stringify({ error: 'insufficient_credits', balance: e.balance, needed: e.needed }),
-          { status: 402, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      throw e;
+    if (!Number.isFinite(cost) || cost < 0) {
+      return NextResponse.json({ error: 'invalid_tool_cost' }, { status: 500 });
     }
-    if (!deduction.ok) {
-      return new Response(
-        JSON.stringify({ error: 'insufficient_credits', balance: deduction.balance }),
-        { status: 402, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
+    const charged = await chargeCredits(user.id, cost, 'SPEND', {
+      key,
+      toolSlug: 'image-to-psd',
+    });
+    if (charged instanceof NextResponse) return charged;
+    const deduction = charged;
 
     let out: Buffer;
+    let outKey: string;
+    let url: string;
     try {
       const original = await downloadFile(key);
       out = await buildLayeredPsd(original);
+      // H-A2: storePreview + toolUsage.create are inside the refund guard —
+      // a failure here must refund, not 500 with lost credits.
+      const stored = await storePreview(
+        user.id,
+        (fileName || 'layered.psd').replace(/\.(png|jpg|jpeg)$/i, '.psd'),
+        out,
+        'image/vnd.adobe.photoshop',
+      );
+      outKey = stored.key;
+      url = stored.url;
+      await prisma.toolUsage.create({
+        data: {
+          userId: user.id,
+          tool: 'image-to-psd',
+          metadata: { key, outKey, layers: ['background', 'subject'] },
+        },
+      });
     } catch (e: any) {
       // Only refund when credits were actually deducted (not unlimited mode).
       // Refund failure must not mask the original error.
       if (deduction.deducted === true) {
         try {
-          await refundCredits(user.id, 'image-to-psd', cost);
+          await refundCredits(user.id, '', cost, { toolSlug: 'image-to-psd' });
         } catch (refundErr) {
           console.error('image-to-psd refund failed', refundErr);
         }
       }
       throw e;
     }
-
-    const { key: outKey, url } = await storePreview(
-      user.id,
-      (fileName || 'layered.psd').replace(/\.(png|jpg|jpeg)$/i, '.psd'),
-      out,
-      'image/vnd.adobe.photoshop',
-    );
-
-    await prisma.toolUsage.create({
-      data: {
-        userId: user.id,
-        tool: 'image-to-psd',
-        metadata: { key, outKey, layers: ['background', 'subject'] },
-      },
-    });
 
     return NextResponse.json({
       psdUrl: url,

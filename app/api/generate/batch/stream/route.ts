@@ -32,10 +32,21 @@ export async function POST(req: Request) {
   try {
     user = await requireApiUserOrKey(req, 'tools:run');
   } catch {
-    return new Response('Unauthorized', { status: 401 });
+    return new Response(sse({ type: 'error', error: 'unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
   }
 
-  const body = await req.json();
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(sse({ type: 'error', error: 'invalid_json' }), {
+      status: 400,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  }
   const { images, settings: overrides, platform = 'adobe' } = body as {
     images: BatchImage[];
     settings?: Partial<Record<string, unknown>>;
@@ -89,7 +100,11 @@ export async function POST(req: Request) {
         headers: { 'Content-Type': 'text/event-stream' },
       });
     }
-    throw e;
+    console.error('batch stream: deduction failed', e);
+    return new Response(sse({ type: 'error', error: 'deduction_failed' }), {
+      status: 500,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
   }
 
   if (!deduction.ok) {
@@ -245,7 +260,10 @@ export async function POST(req: Request) {
       await Promise.all(workers);
 
       if (failed > 0 && deduction.deducted === true) {
-        try { await refundCredits(user.id, job.id, failed * costPerImage); }
+        try {
+          const refund = await refundCredits(user.id, job.id, failed * costPerImage);
+          deduction.balance = refund.balance;
+        }
         catch (e) { console.error('stream refund failed', e); }
       }
 

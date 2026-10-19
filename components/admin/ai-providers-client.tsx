@@ -616,7 +616,7 @@ export function AiProvidersClient({ configs: initialConfigs }: { configs: any[] 
                   {/* Show masked dots when a key exists and user hasn't started editing */}
                   {hasKey && !keyEditing[p] ? (
                     <div className="mt-1 flex items-center gap-2">
-                      <div className="flex-1 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2 font-mono text-sm tracking-widest text-green-700 dark:text-green-400">
+                      <div className="flex-1 rounded-md border border-green-500/30 bg-green-500/5 px-3 py-2 font-mono text-sm tracking-widest text-green-700">
                         ••••••••••••••••
                       </div>
                       <Button

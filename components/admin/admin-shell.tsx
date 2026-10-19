@@ -18,6 +18,7 @@ import {
   Settings,
   SlidersHorizontal,
   LogOut,
+  ArrowLeft,
   Shield,
   Package,
   ClipboardList,
@@ -150,7 +151,7 @@ export function AdminShell({
             asChild
           >
             <Link href="/dashboard">
-              <LogOut className="h-4 w-4" /> Back to dashboard
+              <ArrowLeft className="h-4 w-4" /> Back to dashboard
             </Link>
           </Button>
         </div>

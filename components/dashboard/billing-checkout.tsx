@@ -49,6 +49,8 @@ interface BillingCheckoutProps {
   userId: string;
 }
 
+// NOTE: hardcoded marketing copy — the Plan model has no features field.
+// If plans gain a features column, read from there instead.
 const PLAN_FEATURES: Record<string, string[]> = {
   FREE: ['Metadata generator', 'Image → Prompt', 'Basic analytics', 'Community support'],
   PRO: [
@@ -229,7 +231,7 @@ export function BillingCheckout({
                 className="capitalize"
               >
                 {currentMembership
-                  ? currentMembership.status.toLowerCase()
+                  ? (currentMembership.status || 'ACTIVE').toLowerCase()
                   : planFallbackName
                     ? 'Active'
                     : 'Free Tier'}
@@ -239,15 +241,15 @@ export function BillingCheckout({
           <CardContent>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-foreground">
-                {currentMembership?.plan.name || planFallbackName || 'Free Plan'}
+                {currentMembership?.plan?.name || planFallbackName || 'Free Plan'}
               </span>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {currentMembership?.plan.creditsIncluded && currentMembership.plan.creditsIncluded > 0 ? (
+              {currentMembership?.plan?.creditsIncluded && currentMembership.plan.creditsIncluded > 0 ? (
                 <span>
                   Includes {currentMembership.plan.creditsIncluded.toLocaleString()} credits / month.
                 </span>
-              ) : currentMembership?.plan.dailyFreeCredits ? (
+              ) : currentMembership?.plan?.dailyFreeCredits ? (
                 <span>
                   Includes {currentMembership.plan.dailyFreeCredits} free credits daily.
                 </span>

@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
 import { downloadFile } from '@/lib/s3/client';
 
@@ -27,7 +28,7 @@ const CONTENT_TYPES: Record<string, string> = {
  * carry <script> and would execute in our origin) — is forced to download
  * as an opaque blob so browsers never render it as active content.
  */
-const INLINE_SAFE = new Set(['png', 'jpg', 'jpeg']);
+const INLINE_SAFE = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif']);
 
 function contentTypeFor(key: string): string {
   const ext = key.split('.').pop()?.toLowerCase() || '';
@@ -60,7 +61,7 @@ export async function GET(req: Request, { params }: { params: { key: string[] } 
     // single segment. Decode each piece and rejoin.
     const raw = (params?.key || []).map(decodeURIComponent).join('/');
     if (!raw) {
-      return new Response('missing key', { status: 400 });
+      return NextResponse.json({ error: 'missing_key' }, { status: 400 });
     }
 
     // Normalize BEFORE the ownership check. A key like
@@ -69,7 +70,7 @@ export async function GET(req: Request, { params }: { params: { key: string[] } 
     // resolving outside the caller's namespace.
     const key = normalizeKey(raw);
     if (!key) {
-      return new Response('forbidden', { status: 403 });
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
     // Objects are namespaced per user: `uploads/<userId>/…` and
     // `previews/<userId>/…` (storePreview writes previews; 4 tool routes
@@ -80,7 +81,7 @@ export async function GET(req: Request, { params }: { params: { key: string[] } 
       (segments[0] !== 'uploads' && segments[0] !== 'previews') ||
       segments[1] !== user.id
     ) {
-      return new Response('forbidden', { status: 403 });
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
     const body = await downloadFile(key);
@@ -101,9 +102,9 @@ export async function GET(req: Request, { params }: { params: { key: string[] } 
     });
   } catch (e: any) {
     if (e?.message === 'UNAUTHORIZED') {
-      return new Response('unauthorized', { status: 401 });
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
     console.error('s3 get failed', e);
-    return new Response('not found', { status: 404 });
+    return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
 }

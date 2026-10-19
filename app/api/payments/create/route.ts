@@ -161,9 +161,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'unsupported_provider_or_currency' }, { status: 400 });
   } catch (e: any) {
     console.error('Payment creation failed:', e);
-    const message = e.message === 'UNAUTHORIZED' ? 'Please sign in to continue' : e.message;
-    const status = e.message === 'UNAUTHORIZED' ? 401 : 500;
-    return NextResponse.json({ error: message }, { status });
+    // M-B1: never leak raw internals (Prisma/Stripe messages) to the client.
+    if (e.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Please sign in to continue' }, { status: 401 });
+    }
+    return NextResponse.json({ error: 'payment_creation_failed' }, { status: 500 });
   }
 }
 

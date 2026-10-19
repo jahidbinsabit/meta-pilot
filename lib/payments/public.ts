@@ -168,11 +168,3 @@ export function paymentMethodFromGateway(gatewayKey: string) {
   return 'OTHER_GATEWAY' as const;
 }
 
-export function providerFromGateway(gatewayKey: string) {
-  const key = gatewayKey.toLowerCase();
-  if (key.includes('bkash')) return 'bkash';
-  if (key.includes('nagad')) return 'nagad';
-  if (key.includes('stripe')) return 'stripe';
-  return key.split('_')[0];
-}
-

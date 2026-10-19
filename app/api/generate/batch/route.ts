@@ -11,6 +11,10 @@ import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { getToolCost } from '@/lib/credits/cost';
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 
+// Batch of up to 100 images — allow the full 5-minute function timeout
+// so refunds can complete instead of the function being killed mid-refund.
+export const maxDuration = 300;
+
 interface BatchImage {
   id: string;
   fileName: string;

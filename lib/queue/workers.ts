@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
-import { deductCredits, addCredits } from '@/lib/credits/engine';
+import { deductCredits, addCredits, refundCredits } from '@/lib/credits/engine';
 
 // ---------------------------------------------------------------------------
 // Metadata worker
@@ -22,6 +22,28 @@ async function handleMetadata(job: any) {
     throw new Error(`insufficient_credits: balance=${deduction.balance}`);
   }
 
+  // M-B5: refund path — if the AI call or DB write fails after deduction,
+  // give the credits back (skipped in unlimited mode: nothing was deducted).
+  const deducted = deduction.deducted === true;
+  try {
+    return await runMetadataJob({ userId, prompt, titleLength, keywordCount, prefix, suffix, negativeWords, altText, cost, deduction });
+  } catch (e) {
+    if (deducted) {
+      try {
+        await refundCredits(userId, '', cost, { toolSlug: 'metadata-generator', reason: 'queue worker failure' });
+      } catch (refundErr) {
+        console.error('metadata worker refund failed', refundErr);
+      }
+    }
+    throw e;
+  }
+}
+
+async function runMetadataJob({ userId, prompt, titleLength, keywordCount, prefix, suffix, negativeWords, altText, cost, deduction }: {
+  userId: string; prompt: string; titleLength: number; keywordCount: number;
+  prefix?: string; suffix?: string; negativeWords?: string; altText?: boolean;
+  cost: number; deduction: { balance: number };
+}) {
   const systemPrompt = `You are an SEO metadata expert for stock photo agencies (Adobe Stock, Shutterstock, Vecteezy). Write metadata that maximizes discoverability.`;
   const userPrompt = `Image description: ${prompt}\n\nProduce JSON with keys: title (string, ${titleLength} chars max), description (string, 150-250 chars), keywords (array of ${keywordCount} strings), altText (string, optional). ${prefix ? "Include a prefix like 'Professional ' or 'High quality ' on the title." : ''} ${suffix ? 'Include a descriptive suffix on the title.' : ''} ${negativeWords ? "Exclude generic or banned words like 'blurry', 'low quality', 'bad'." : ''} ${altText ? 'Also write an altText field.' : 'Skip altText.'}`;
 
@@ -82,6 +104,27 @@ async function handleImagePrompt(job: any) {
     throw new Error(`insufficient_credits: balance=${deduction.balance}`);
   }
 
+  // M-B5: refund path — if the AI call or DB write fails after deduction,
+  // give the credits back (skipped in unlimited mode: nothing was deducted).
+  const deducted = deduction.deducted === true;
+  try {
+    return await runImagePromptJob({ userId, image, mimeType, style, cost, deduction });
+  } catch (e) {
+    if (deducted) {
+      try {
+        await refundCredits(userId, '', cost, { toolSlug: 'image-to-prompt', reason: 'queue worker failure' });
+      } catch (refundErr) {
+        console.error('image-prompt worker refund failed', refundErr);
+      }
+    }
+    throw e;
+  }
+}
+
+async function runImagePromptJob({ userId, image, mimeType, style, cost, deduction }: {
+  userId: string; image: string; mimeType: string; style: string;
+  cost: number; deduction: { balance: number };
+}) {
   const systemPrompt = 'You analyze images and produce detailed AI image-generation prompts.';
   const userPrompt = `Analyze this image and produce a detailed prompt for generating a similar image in the ${style} style. Return JSON with keys: prompt (string), tags (array of strings), composition (string), lighting (string), mood (string).`;
 

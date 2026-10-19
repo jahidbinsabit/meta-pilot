@@ -43,13 +43,14 @@ async function activatePlan(userId: string, planId: string, paymentId: string) {
   });
 
   if (plan.creditsIncluded > 0) {
-    const result = await addCredits(userId, plan.creditsIncluded, 'PURCHASE', {
+    // M-B4: fold the reason into the addCredits metadata so no second
+    // write is needed. A cosmetic `creditTransaction.update` here could
+    // throw after credits were granted → payment reverted to PENDING →
+    // Stripe webhook retry → double-grant.
+    await addCredits(userId, plan.creditsIncluded, 'PURCHASE', {
       paymentId,
       planId,
-    });
-    await prisma.creditTransaction.update({
-      where: { id: result.transactionId },
-      data: { reason: `${plan.name} plan credits` },
+      reason: `${plan.name} plan credits`,
     });
   }
 }
@@ -62,13 +63,11 @@ async function grantPackageCredits(userId: string, payment: Payment, payload: Pa
   }
   if (credits <= 0) return;
 
-  const result = await addCredits(userId, credits, 'PURCHASE', {
+  // M-B4: reason folded into metadata — no cosmetic second write (see above).
+  await addCredits(userId, credits, 'PURCHASE', {
     paymentId: payment.id,
     packageId: payload.packageId,
-  });
-  await prisma.creditTransaction.update({
-    where: { id: result.transactionId },
-    data: { reason: 'Credit package purchase' },
+    reason: 'Credit package purchase',
   });
 }
 

@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
+import { ownsStorageKey } from '@/lib/api/ownership';
 import sharp from 'sharp';
 import { requireApiUser } from '@/lib/api/auth';
 import { getToolCost } from '@/lib/credits/cost';
-import { deductCredits, refundCredits } from '@/lib/credits/engine';
-import { isInsufficientCreditsError } from '@/lib/credits/errors';
+import { refundCredits } from '@/lib/credits/engine';
+import { chargeCredits } from '@/lib/credits/charge';
 import { prisma } from '@/lib/db';
+import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 import { downloadFile } from '@/lib/s3/client';
 import { storePreview } from '@/lib/generator/images';
 import { removeBackground } from '@/lib/tools/bg-remover';
@@ -22,6 +24,12 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
+    // M-B7: BYOK gate BEFORE deduction — so the frontend API-key dialog
+    // fires instead of a generic 500 after deduct+refund.
+    const keyError = await requireUserApiKeyIfNeeded(user.id);
+    if (keyError) {
+      return NextResponse.json(keyError, { status: 400 });
+    }
     const body = await req.json();
     const { key, fileName } = body;
     if (!key) {
@@ -33,62 +41,53 @@ export async function POST(req: Request) {
 
     // M1: ownership check — the key comes straight from the client, so
     // prove it belongs to this user before downloading (and spending
-    // credits on) another user's file. Same prefix pattern as
-    // app/uploads/[...file]/route.ts; the trailing dash prevents prefix
-    // collisions between user ids.
-    const owned =
-      key.startsWith(`uploads-${user.id}-`) ||
-      key.startsWith(`previews-${user.id}-`);
-    if (!owned) {
+    // Ownership check — same helper as app/uploads/[...file]/route.ts.
+    if (!ownsStorageKey(user.id, key)) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
     const cost = await getToolCost('bg-remover');
-    let deduction;
-    try {
-      deduction = await deductCredits(user.id, cost, 'SPEND', { 
-        key,
-        toolSlug: 'bg-remover',
-      });
-    } catch (e) {
-      if (isInsufficientCreditsError(e)) {
-        return new Response(
-          JSON.stringify({ error: 'insufficient_credits', balance: e.balance, needed: e.needed }),
-          { status: 402, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      throw e;
+    if (!Number.isFinite(cost) || cost < 0) {
+      return NextResponse.json({ error: 'invalid_tool_cost' }, { status: 500 });
     }
-    if (!deduction.ok) {
-      return new Response(
-        JSON.stringify({ error: 'insufficient_credits', balance: deduction.balance }),
-        { status: 402, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
+    const charged = await chargeCredits(user.id, cost, 'SPEND', {
+      key,
+      toolSlug: 'bg-remover',
+    });
+    if (charged instanceof NextResponse) return charged;
+    const deduction = charged;
 
     let out: Buffer;
+    let outKey: string;
+    let url: string;
     try {
       const original = await downloadFile(key);
       out = await removeBackground(original);
+      // H-A2: storePreview + toolUsage.create are inside the refund guard —
+      // a failure here must refund, not 500 with lost credits.
+      const stored = await storePreview(
+        user.id,
+        fileName || 'bg-removed.png',
+        out,
+        'image/png',
+      );
+      outKey = stored.key;
+      url = stored.url;
+      await prisma.toolUsage.create({
+        data: { userId: user.id, tool: 'bg-remover', metadata: { key, outKey } },
+      });
     } catch (e: any) {
       // Only refund when credits were actually deducted (not unlimited mode).
       // Refund failure must not mask the original error.
       if (deduction.deducted === true) {
         try {
-          await refundCredits(user.id, 'bg-remover', cost);
+          await refundCredits(user.id, '', cost, { toolSlug: 'bg-remover' });
         } catch (refundErr) {
           console.error('bg-remover refund failed', refundErr);
         }
       }
       throw e;
     }
-
-    const { key: outKey, url } = await storePreview(
-      user.id,
-      fileName || 'bg-removed.png',
-      out,
-      'image/png',
-    );
 
     // Real output dimensions via sharp metadata (never hardcode 0).
     let width = 0;
@@ -100,10 +99,6 @@ export async function POST(req: Request) {
     } catch {
       /* metadata failure is non-fatal */
     }
-
-    await prisma.toolUsage.create({
-      data: { userId: user.id, tool: 'bg-remover', metadata: { key, outKey } },
-    });
 
     return NextResponse.json({ pngUrl: url, width, height, balance: deduction.balance });
   } catch (e: any) {

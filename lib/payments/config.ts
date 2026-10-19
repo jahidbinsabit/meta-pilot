@@ -19,6 +19,23 @@ export interface DecryptedGatewayConfig {
   updatedAt: Date;
 }
 
+/**
+ * Mask credential values for admin list display — show only the last 4
+ * chars so secrets never leave the server in full. Empty values stay empty
+ * (so the UI can distinguish "not set" from "set").
+ */
+export function maskCredentials(creds: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(creds)) {
+    if (typeof v === 'string' && v.length > 0) {
+      out[k] = v.length <= 4 ? '••••' : `••••${v.slice(-4)}`;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 export function parseGatewayCredentials(raw: unknown): Record<string, any> {
   if (!raw) return {};
   try {

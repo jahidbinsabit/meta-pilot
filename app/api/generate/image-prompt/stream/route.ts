@@ -69,10 +69,21 @@ export async function POST(req: Request) {
   try {
     user = await requireApiUserOrKey(req, 'tools:run');
   } catch {
-    return new Response('Unauthorized', { status: 401 });
+    return new Response(sse({ type: 'error', error: 'unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
   }
 
-  const body = await req.json();
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(sse({ type: 'error', error: 'invalid_json' }), {
+      status: 400,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  }
   const { images, style } = body as { images?: PromptImage[]; style?: string };
 
   if (!Array.isArray(images) || images.length === 0) {
@@ -128,7 +139,11 @@ export async function POST(req: Request) {
         headers: { 'Content-Type': 'text/event-stream' },
       });
     }
-    throw e;
+    console.error('image-prompt stream: deduction failed', e);
+    return new Response(sse({ type: 'error', error: 'deduction_failed' }), {
+      status: 500,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
   }
   if (!deduction.ok) {
     return new Response(sse({ type: 'error', error: 'insufficient_credits' }), {
@@ -252,7 +267,9 @@ export async function POST(req: Request) {
             entry.mood = result.mood;
           } catch (e: any) {
             failed += 1;
-            entry.error = e?.message || 'generation_failed';
+            // M-B2: static error code — never leak raw internals to the client
+            // (matches batch/stream's hardcoded 'generation_failed').
+            entry.error = 'generation_failed';
           }
 
           results.push(entry);
@@ -296,7 +313,9 @@ export async function POST(req: Request) {
         succeeded: promptImages.length - failed,
         failed,
         balance,
-        refunded: failed * costPerImage,
+        // M-B3: only report refunded credits when something was actually
+        // deducted — in unlimited mode the API must not claim refunds.
+        refunded: deduction.deducted === true ? failed * costPerImage : 0,
         jobId: job.id,
       });
     } catch (streamErr) {

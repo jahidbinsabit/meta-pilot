@@ -61,6 +61,20 @@ export async function ensureDatabaseSchema(): Promise<void> {
           CREATE INDEX IF NOT EXISTS "Coupon_isActive_idx" ON "Coupon"("isActive");
         EXCEPTION WHEN OTHERS THEN NULL;
         END;
+
+        -- CouponRedemption table (one row per user per coupon; unique
+        -- constraint makes double-redeem impossible under concurrency)
+        BEGIN
+          CREATE TABLE IF NOT EXISTS "CouponRedemption" (
+            "id" TEXT NOT NULL PRIMARY KEY,
+            "couponId" TEXT NOT NULL REFERENCES "Coupon"("id") ON DELETE CASCADE,
+            "userId" TEXT NOT NULL,
+            "redeemedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT "CouponRedemption_couponId_userId_key" UNIQUE ("couponId", "userId")
+          );
+          CREATE INDEX IF NOT EXISTS "CouponRedemption_userId_idx" ON "CouponRedemption"("userId");
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
       END $$;
     `);
     isSynced = true;

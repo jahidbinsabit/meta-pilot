@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
+import { ownsStorageKey } from '@/lib/api/ownership';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -42,16 +43,11 @@ export async function GET(
     }
 
     // Ownership check: local files are flattened from user-scoped keys —
-    // `uploads/<userId>/…` → `uploads-<userId>-…` and `previews/<userId>/…`
-    // → `previews-<userId>-…` (see lib/s3/local-fallback.ts and
-    // storePreview in lib/generator/images.ts). Mirrors the s3 route's
-    // `segments[1] === user.id` check. The trailing dash prevents prefix
-    // collisions between user ids (e.g. `abc` vs `abc1`).
-    const owned =
-      cleanName.startsWith(`uploads-${user.id}-`) ||
-      cleanName.startsWith(`previews-${user.id}-`);
-    if (!owned) {
-      return new Response('Forbidden', { status: 403 });
+    // Ownership check via the shared helper (same as the s3 route and
+    // the tool routes). The trailing dash prevents prefix collisions
+    // between user ids (e.g. `abc` vs `abc1`).
+    if (!ownsStorageKey(user.id, cleanName)) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
     const filePath = path.join(process.cwd(), 'public', 'uploads', cleanName);
