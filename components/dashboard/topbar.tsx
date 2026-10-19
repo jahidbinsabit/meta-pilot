@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserApiKeysModal } from '@/components/dashboard/user-api-keys-dialog';
+import { resolveAvatarUrl } from '@/lib/avatar';
 
 export function TopBar({
   user,
@@ -60,8 +61,8 @@ export function TopBar({
           aria-label="Open profile"
         >
           <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-accent/15 text-xs font-semibold text-accent">
-            {user.image ? (
-              <img src={user.image} alt="" className="h-full w-full object-cover" />
+            {resolveAvatarUrl(user.image) ? (
+              <img src={resolveAvatarUrl(user.image)!} alt="" className="h-full w-full object-cover" />
             ) : (
               user.name?.[0]?.toUpperCase() || user.email[0]?.toUpperCase()
             )}

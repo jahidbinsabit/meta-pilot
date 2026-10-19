@@ -46,9 +46,11 @@ export default async function BillingPage() {
     orderBy: { startedAt: 'desc' },
   });
 
-  // If user has a membership enum (e.g. PRO) but no Membership row, try finding the corresponding Plan safely
-  if (!membership && user.membership && user.membership !== 'FREE') {
-    const validTiers = ['PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'];
+  // If user has a membership enum (e.g. PRO) but no Membership row, try finding the corresponding Plan safely.
+  // NOTE: 'ENTERPRISE' is a virtual tier with no Plan row and not in the PlanTier
+  // enum — querying Prisma with it throws. Handle it via planFallbackName only.
+  if (!membership && user.membership && user.membership !== 'FREE' && user.membership !== 'ENTERPRISE') {
+    const validTiers = ['PRO', 'PLUS', 'AGENCY'];
     if (validTiers.includes(user.membership)) {
       const plan = await prisma.plan.findFirst({
         where: { tier: user.membership as any, isActive: true },
