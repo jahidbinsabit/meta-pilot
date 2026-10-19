@@ -25,6 +25,7 @@ import {
 import { prisma } from '@/lib/db';
 import { getSiteSettings } from '@/lib/site-settings';
 import { Hero3DVisual } from '@/components/marketing/hero-3d-visual';
+import { FaqAccordion } from '@/components/marketing/faq-accordion';
 import { HOMEPAGE_DEFAULTS } from '@/lib/homepage-defaults';
 
 
@@ -97,17 +98,17 @@ export async function generateMetadata(): Promise<Metadata> {
 
   // Fallback to hardcoded defaults
   return {
-    title: 'StockForge AI — AI Metadata for Stock Content Creators',
+    title: 'MetaCSV — AI Metadata for Stock Content Creators',
     description:
       'AI-powered metadata generation, image-to-prompt, and Adobe Stock analytics for stock content creators. Generate SEO-optimized titles, descriptions, and keywords.',
     openGraph: {
-      title: 'StockForge AI — AI Metadata for Stock Content Creators',
+      title: 'MetaCSV — AI Metadata for Stock Content Creators',
       description: 'AI-powered metadata generation for stock content creators.',
       type: 'website',
     },
     twitter: {
       card: 'summary_large_image',
-      title: 'StockForge AI — AI Metadata for Stock Content Creators',
+      title: 'MetaCSV — AI Metadata for Stock Content Creators',
       description: 'AI-powered metadata generation for stock content creators.',
     },
   };
@@ -137,14 +138,14 @@ export default async function HomePage() {
           __html: JSON.stringify({
             '@context': 'https://schema.org',
             '@type': 'SoftwareApplication',
-            name: 'StockForge AI',
+            name: 'MetaCSV',
             applicationCategory: 'BusinessApplication',
             operatingSystem: 'Web',
             description:
               'AI-powered metadata generation, image-to-prompt, and Adobe Stock analytics for stock content creators.',
             offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
             url: baseUrl,
-            provider: { '@type': 'Organization', name: 'StockForge AI' },
+            provider: { '@type': 'Organization', name: 'MetaCSV' },
           }),
         }}
       />
@@ -325,7 +326,7 @@ export default async function HomePage() {
           <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
             <div className="text-center mb-16">
               <p className="text-xs font-medium uppercase tracking-widest text-accent">
-                Why StockForge?
+                Why MetaCSV?
               </p>
               <h2 className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">
                 See What Changes
@@ -453,24 +454,7 @@ export default async function HomePage() {
                 Common questions
               </h2>
             </div>
-            <div className="space-y-4">
-              {faq.items.map((item: any, idx: number) => (
-                <details
-                  key={idx}
-                  className="group rounded-xl border border-border bg-card/50 p-6 hover:border-accent/30 transition-colors"
-                >
-                  <summary className="flex cursor-pointer items-center justify-between font-semibold text-lg list-none">
-                    {item.question}
-                    <span className="transition-transform group-open:rotate-180">
-                      <ArrowRight className="h-5 w-5 text-accent rotate-90" />
-                    </span>
-                  </summary>
-                  <p className="mt-4 text-sm text-muted-foreground leading-relaxed">
-                    {item.answer}
-                  </p>
-                </details>
-              ))}
-            </div>
+            <FaqAccordion items={faq.items} />
           </div>
         </section>
       )}

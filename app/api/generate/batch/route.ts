@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireApiUser } from '@/lib/api/auth';
+import { requireApiUserOrKey } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { getGeneratorSettings } from '@/lib/generator/settings';
 import { buildMetadataPrompt, buildRetrySystemPrompt } from '@/lib/generator/prompt';
@@ -8,7 +8,7 @@ import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
 import { getToolCost } from '@/lib/credits/cost';
-import { isUserApiKeyRequired, getUserAiKeysStatus } from '@/lib/ai/user-keys';
+import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 
 interface BatchImage {
   id: string;
@@ -19,8 +19,14 @@ interface BatchImage {
 }
 
 export async function POST(req: Request) {
+  // Hoisted so the outer catch can refund on total failure.
+  let userId = '';
+  let total = 0;
+  let deducted = false;
+  let refundedForFailures = 0;
   try {
-    const user = await requireApiUser();
+    const user = await requireApiUserOrKey(req, 'tools:run');
+    userId = user.id;
     const body = await req.json();
     const {
       images,
@@ -36,18 +42,9 @@ export async function POST(req: Request) {
     }
 
     // Check if user API key is enforced
-    const keyRequired = await isUserApiKeyRequired();
-    if (keyRequired) {
-      const keysStatus = await getUserAiKeysStatus(user.id);
-      if (!keysStatus.hasAnyKey) {
-        return NextResponse.json(
-          {
-            error: 'user_api_key_required',
-            message: 'API Key is required. Please configure your API key in Settings to continue.',
-          },
-          { status: 400 },
-        );
-      }
+    const keyError = await requireUserApiKeyIfNeeded(user.id);
+    if (keyError) {
+      return NextResponse.json(keyError, { status: 400 });
     }
 
     // Validate maximum batch size to prevent resource exhaustion
@@ -65,7 +62,7 @@ export async function POST(req: Request) {
     const merged = { ...settings, ...(overrides || {}) };
 
     const costPerImage = await getToolCost('metadata-generator');
-    const total = images.length * costPerImage;
+    total = images.length * costPerImage;
     const deduction = await deductCredits(user.id, total, 'SPEND', {
       imageCount: images.length,
       costPerImage,
@@ -78,6 +75,8 @@ export async function POST(req: Request) {
         { status: 402 },
       );
     }
+    // Only refunds when credits were actually taken (not unlimited mode).
+    deducted = deduction.deducted === true;
 
     // Create a ToolJob snapshot so the batch is trackable and refundable.
     const job = await prisma.toolJob.create({
@@ -86,7 +85,7 @@ export async function POST(req: Request) {
         toolSlug: 'metadata-generator',
         status: 'PROCESSING',
         inputFileUrls: images.map((i) => i.previewUrl),
-        creditsCharged: total,
+        creditsCharged: deducted ? total : 0,
         outputData: {
           platform: targetPlatform,
           settings: merged,
@@ -178,7 +177,7 @@ export async function POST(req: Request) {
         entry.tokensUsed = ai.usage.totalTokens;
       } catch (e: any) {
         failed += 1;
-        entry.error = e?.message || 'generation_failed';
+        entry.error = 'generation_failed';
       }
 
       return entry;
@@ -197,10 +196,13 @@ export async function POST(req: Request) {
     const succeeded = results.filter((r) => r.status === 'complete').length;
 
     // Refund the credit share for every failed image in this batch.
-    if (failed > 0) {
+    // Skip entirely in unlimited mode — refunding when nothing was deducted
+    // would mint phantom credits.
+    if (failed > 0 && deducted) {
       const refundAmount = failed * costPerImage;
       try {
         await refundCredits(user.id, job.id, refundAmount);
+        refundedForFailures = refundAmount;
       } catch (e) {
         console.error('refund failed', e);
       }
@@ -223,10 +225,22 @@ export async function POST(req: Request) {
       succeeded,
       failed,
       balance: deduction.balance,
-      refunded: failed * costPerImage,
+      refunded: deducted ? refundedForFailures : 0,
     });
   } catch (e: any) {
     console.error('batch generation failed', e);
-    return NextResponse.json({ error: e?.message || 'batch_failed' }, { status: 500 });
+    // Total failure after deduction (e.g. toolJob.create threw): refund
+    // whatever wasn't already refunded per-image. Never charge for failure.
+    if (userId && deducted) {
+      const remaining = total - refundedForFailures;
+      if (remaining > 0) {
+        try {
+          await refundCredits(userId, '', remaining, { toolSlug: 'metadata-generator' });
+        } catch (refundErr) {
+          console.error('batch total-failure refund failed', refundErr);
+        }
+      }
+    }
+    return NextResponse.json({ error: 'batch_failed' }, { status: 500 });
   }
 }

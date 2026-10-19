@@ -70,7 +70,7 @@ export async function POST(req: Request) {
     });
   } catch (e: any) {
     console.error('upload preview failed', e);
-    return NextResponse.json({ error: e?.message || 'preview_failed' }, { status: 500 });
+    return NextResponse.json({ error: 'preview_failed' }, { status: 500 });
   }
 }
 

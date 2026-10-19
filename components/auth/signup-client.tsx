@@ -361,7 +361,7 @@ export function SignupClient({
           </div>
 
           <div className="pt-4 text-2xs text-muted-foreground/60 flex items-center justify-between border-t border-border/40">
-            <span>© {new Date().getFullYear()} {siteName || 'StockForge AI'}.</span>
+            <span>© {new Date().getFullYear()} {siteName || 'MetaCSV'}.</span>
             <div className="flex items-center gap-4">
               <Link href="/privacy" className="hover:text-muted-foreground hover:underline">Privacy</Link>
               <Link href="/terms" className="hover:text-muted-foreground hover:underline">Terms</Link>

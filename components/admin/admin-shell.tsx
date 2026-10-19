@@ -58,7 +58,7 @@ interface AdminShellProps {
 export function AdminShell({
   children,
   user,
-  siteName = 'StockForge AI',
+  siteName = 'MetaCSV',
   logoUrl,
 }: AdminShellProps) {
   const pathname = usePathname();

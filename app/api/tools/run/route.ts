@@ -16,8 +16,13 @@ import { AdobeKeywordsSchema } from '@/lib/ai/schemas';
  * route handles everything else.
  */
 export async function POST(req: Request) {
+  // Hoisted so the catch block can refund on failure.
+  let userId = '';
+  let cost = 0;
+  let deducted = false;
   try {
     const user = await requireApiUser(req);
+    userId = user.id;
     const body = await req.json();
     const { slug, input, metadata } = body;
     if (!slug) {
@@ -27,7 +32,8 @@ export async function POST(req: Request) {
       });
     }
 
-    const cost = await getToolCost(slug);
+    cost = await getToolCost(slug);
+    let balance = 0;
     if (cost > 0) {
       const deduction = await deductCredits(user.id, cost, `tool_${slug}`, { slug });
       if (!deduction.ok) {
@@ -36,6 +42,9 @@ export async function POST(req: Request) {
           { status: 402, headers: { 'Content-Type': 'application/json' } },
         );
       }
+      balance = deduction.balance;
+      // Only refund when credits were actually taken (not unlimited mode).
+      deducted = deduction.deducted === true;
     }
 
     let result: any;
@@ -82,10 +91,19 @@ export async function POST(req: Request) {
       data: { userId: user.id, tool: slug, metadata: { result, ...metadata } },
     });
 
-    return NextResponse.json({ result, balance: 0 });
+    return NextResponse.json({ result, balance });
   } catch (e: any) {
     console.error('tool run failed', e);
-    return new Response(JSON.stringify({ error: e?.message || 'tool_failed' }), {
+    // Refund on failure (AI error, toolUsage.create error, etc.) — never
+    // charge for a failed run. Skip in unlimited mode (nothing was deducted).
+    if (userId && deducted && cost > 0) {
+      try {
+        await refundCredits(userId, '', cost, { toolSlug: 'tools/run' });
+      } catch (refundErr) {
+        console.error('tool run refund failed', refundErr);
+      }
+    }
+    return new Response(JSON.stringify({ error: 'tool_failed' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

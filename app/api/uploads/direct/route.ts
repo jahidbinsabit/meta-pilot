@@ -87,7 +87,7 @@ export async function POST(req: Request) {
     }
   } catch (e: any) {
     console.error('direct upload failed', e);
-    return NextResponse.json({ error: e?.message || 'upload_failed' }, { status: 500 });
+    return NextResponse.json({ error: 'upload_failed' }, { status: 500 });
   }
 }
 

@@ -78,6 +78,6 @@ export async function POST(req: Request) {
     });
   } catch (e: any) {
     console.error('export failed', e);
-    return NextResponse.json({ error: e?.message || 'export_failed' }, { status: 500 });
+    return NextResponse.json({ error: 'export_failed' }, { status: 500 });
   }
 }

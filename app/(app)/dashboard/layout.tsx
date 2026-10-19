@@ -116,7 +116,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .filter((n) => n.audience === 'ALL' || n.audience === (audienceFilter as any))
     .map(({ audience, ...rest }) => rest);
 
-  const siteName = siteSettings?.siteName || 'StockForge AI';
+  const siteName = siteSettings?.siteName || 'MetaCSV';
   const logoUrl = siteSettings?.logoUrl;
   const unlimitedMode = siteSettings?.unlimitedMode === true;
 

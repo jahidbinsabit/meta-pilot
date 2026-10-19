@@ -10,7 +10,7 @@
  */
 export const HOMEPAGE_DEFAULTS: Record<string, any> = {
   hero: {
-    headline: 'StockForge AI',
+    headline: 'MetaCSV',
     subheadline:
       'Generate AI metadata for your stock images, craft prompts from them, and understand the market — all in one dashboard built for stock-content creators.',
     ctaPrimary: { label: 'Start free', href: '/login' },
@@ -106,7 +106,7 @@ export const HOMEPAGE_DEFAULTS: Record<string, any> = {
       'No way to batch process — one file at a time',
       "Guess what keywords will rank — no data",
     ],
-    withTitle: 'With StockForge AI',
+    withTitle: 'With MetaCSV',
     withPoints: [
       'AI generates title, description and 50 keywords instantly',
       'Keywords ranked by SEO weight — best ones first',
@@ -121,7 +121,7 @@ export const HOMEPAGE_DEFAULTS: Record<string, any> = {
       {
         name: 'Sarah Chen',
         role: 'Adobe Stock Creator',
-        quote: "StockForge cut my metadata time by 70%. I'm shipping 3x more images now.",
+        quote: "MetaCSV cut my metadata time by 70%. I'm shipping 3x more images now.",
         avatar: 'SC',
         rating: 5,
       },

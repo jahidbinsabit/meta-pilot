@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireApiUser } from '@/lib/api/auth';
+import { requireApiUserOrKey } from '@/lib/api/auth';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { prisma } from '@/lib/db';
 import { buildMetadataPrompt } from '@/lib/generator/prompt';
 import type { TargetPlatform } from '@/lib/generator/types';
-import { isUserApiKeyRequired, getUserAiKeysStatus } from '@/lib/ai/user-keys';
+import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 
 const MetadataRequestSchema = z.object({
   prompt: z.string().trim().min(1, 'prompt_required').max(5000, 'prompt_too_long'),
@@ -27,7 +27,8 @@ export async function POST(req: Request) {
   let deducted = false;
   const cost = 1;
   try {
-    const user = await requireApiUser();
+    // Accept session auth OR Bearer sk_... API key (scope: metadata:generate).
+    const user = await requireApiUserOrKey(req, 'metadata:generate');
     userId = user.id;
     const body = await req.json();
     const validated = MetadataRequestSchema.safeParse(body);
@@ -50,18 +51,9 @@ export async function POST(req: Request) {
     const shouldIncludeDescription = includeDescription !== false && description !== false;
 
     // Check if user API key is enforced
-    const keyRequired = await isUserApiKeyRequired();
-    if (keyRequired) {
-      const keysStatus = await getUserAiKeysStatus(user.id);
-      if (!keysStatus.hasAnyKey) {
-        return NextResponse.json(
-          {
-            error: 'user_api_key_required',
-            message: 'API Key is required. Please configure your API key in Settings to continue.',
-          },
-          { status: 400 },
-        );
-      }
+    const keyError = await requireUserApiKeyIfNeeded(user.id);
+    if (keyError) {
+      return NextResponse.json(keyError, { status: 400 });
     }
 
     const targetPlatform: TargetPlatform = platform || 'adobe';
@@ -153,6 +145,12 @@ export async function POST(req: Request) {
       balance: deduction.balance,
     });
   } catch (e: any) {
+    if (e?.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    if (e?.message === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'insufficient_scope' }, { status: 403 });
+    }
     console.error('metadata generation failed', e);
     // Refund the deducted credits — never charge for a failed generation.
     if (userId && deducted) {

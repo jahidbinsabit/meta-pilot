@@ -195,7 +195,7 @@ async function searchOfficialAdobeApi(
       method: 'GET',
       headers: {
         'x-api-key': apiKey,
-        'X-Product': process.env.ADOBE_STOCK_PRODUCT || 'StockForgeAI/1.0',
+        'X-Product': process.env.ADOBE_STOCK_PRODUCT || 'MetaCSVAI/1.0',
         Accept: 'application/json',
       },
       signal: controller.signal,

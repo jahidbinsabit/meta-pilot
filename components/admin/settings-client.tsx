@@ -40,7 +40,7 @@ export function SettingsClient({
   initialSettings?: SiteSettings | null;
 }) {
   const [settings, setSettings] = React.useState<SiteSettings>({
-    siteName: initialSettings?.siteName ?? 'StockForge AI',
+    siteName: initialSettings?.siteName ?? 'MetaCSV',
     logoUrl: initialSettings?.logoUrl ?? '',
     siteIconUrl: initialSettings?.siteIconUrl ?? '',
     tagline: initialSettings?.tagline ?? '',

@@ -39,7 +39,7 @@ export async function sendMail(opts: {
 
 export function welcomeEmail(name: string) {
   return {
-    subject: 'Welcome to StockForge AI',
+    subject: 'Welcome to MetaCSV',
     html: `<h1>Welcome, ${name || 'creator'}!</h1><p>Your trial credits are ready. Start generating stock metadata in seconds.</p>`,
   };
 }

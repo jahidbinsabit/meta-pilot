@@ -34,7 +34,7 @@ export async function stripeCreateCheckout(order: {
         quantity: 1,
         price_data: {
           currency: order.currency.toLowerCase(),
-          product_data: { name: `StockForge AI Credits — ${order.amountCents / 100} credits` },
+          product_data: { name: `MetaCSV Credits — ${order.amountCents / 100} credits` },
           unit_amount: order.amountCents,
         },
       },

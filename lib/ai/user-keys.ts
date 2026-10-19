@@ -27,6 +27,32 @@ export async function isUserApiKeyRequired(): Promise<boolean> {
   }
 }
 
+export interface UserApiKeyCheckResult {
+  error: 'user_api_key_required';
+  message: string;
+}
+
+/**
+ * BYOK gate shared by all generation routes.
+ *
+ * Returns null when the request may proceed, or an error descriptor when the
+ * admin requires user API keys (BYOK mode) and this user has none configured.
+ * Callers format the response themselves (JSON vs SSE) to preserve each
+ * route's existing response shape.
+ */
+export async function requireUserApiKeyIfNeeded(
+  userId: string,
+): Promise<UserApiKeyCheckResult | null> {
+  const keyRequired = await isUserApiKeyRequired();
+  if (!keyRequired) return null;
+  const keysStatus = await getUserAiKeysStatus(userId);
+  if (keysStatus.hasAnyKey) return null;
+  return {
+    error: 'user_api_key_required',
+    message: 'API Key is required. Please configure your API key in Settings to continue.',
+  };
+}
+
 /** Get public status of user AI keys (for UI consumption, no secret keys exposed). */
 export async function getUserAiKeysStatus(userId: string): Promise<UserAiKeysPublicStatus> {
   const user = await prisma.user.findUnique({

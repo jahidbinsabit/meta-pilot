@@ -70,7 +70,7 @@ export async function POST(req: Request) {
   } catch (e: any) {
     console.error(`rasterize failed at step [${step}]:`, e?.message, e?.stack);
     return NextResponse.json(
-      { error: e?.message || 'rasterize_failed', step },
+      { error: 'rasterize_failed', step },
       { status: 500 },
     );
   }

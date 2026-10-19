@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ jpgUrl: url, width: 0, height: 0 });
   } catch (e: any) {
     console.error('ai-eps-to-jpg failed', e);
-    return new Response(JSON.stringify({ error: e?.message || 'convert_failed' }), {
+    return new Response(JSON.stringify({ error: 'convert_failed' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

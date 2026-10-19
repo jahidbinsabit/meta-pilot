@@ -37,13 +37,13 @@ export async function generateMetadata(): Promise<Metadata> {
     const settings = await getSiteSettings();
     if (settings) {
       return {
-        title: settings.metaTitle || 'StockForge AI — AI Metadata for Stock Content Creators',
+        title: settings.metaTitle || 'MetaCSV — AI Metadata for Stock Content Creators',
         description:
           settings.metaDescription ||
           'Generate AI metadata (title, description, keywords) for Adobe Stock, Shutterstock, Vecteezy and more. Get Adobe Stock market analytics and a suite of creative micro-tools.',
         metadataBase: safeMetadataBase(),
         openGraph: {
-          title: settings.metaTitle || 'StockForge AI',
+          title: settings.metaTitle || 'MetaCSV',
           description:
             settings.metaDescription || 'AI metadata generator for stock-content creators.',
           type: 'website',
@@ -60,12 +60,12 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 
   return {
-    title: 'StockForge AI — AI Metadata for Stock Content Creators',
+    title: 'MetaCSV — AI Metadata for Stock Content Creators',
     description:
       'Generate AI metadata (title, description, keywords) for Adobe Stock, Shutterstock, Vecteezy and more. Get Adobe Stock market analytics and a suite of creative micro-tools.',
     metadataBase: safeMetadataBase(),
     openGraph: {
-      title: 'StockForge AI',
+      title: 'MetaCSV',
       description: 'AI metadata generator for stock-content creators.',
       type: 'website',
     },

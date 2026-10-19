@@ -9,7 +9,7 @@ export async function GET(req: Request) {
     await requireApiAdmin(req);
     return NextResponse.json(await listAllPresets());
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'forbidden' }, { status: 403 });
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 }
 
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     );
     return NextResponse.json(preset);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'save_failed' }, { status: 400 });
+    return NextResponse.json({ error: 'save_failed' }, { status: 400 });
   }
 }
 
@@ -47,6 +47,6 @@ export async function DELETE(req: Request) {
     await deletePreset(id, admin.id);
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'delete_failed' }, { status: 400 });
+    return NextResponse.json({ error: 'delete_failed' }, { status: 400 });
   }
 }

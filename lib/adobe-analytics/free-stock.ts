@@ -8,7 +8,7 @@
 
 import type { AdobeFile, AdobeSearchParams, AdobeSearchResponse } from './adobe-stock';
 
-const USER_AGENT = 'MetaPilot-StockForge/2.0 (Open Stock Analytics; contact@metapilot.internal)';
+const USER_AGENT = 'MetaPilot-MetaCSV/2.0 (Open Stock Analytics; contact@metapilot.internal)';
 const OPENVERSE_BASE = 'https://api.openverse.org/v1/images';
 const WIKIMEDIA_BASE = 'https://commons.wikimedia.org/w/api.php';
 const DEFAULT_TIMEOUT_MS = 10_000;

@@ -24,3 +24,38 @@ export function jsonError(res: Response, status: number, message: string) {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+/**
+ * Validate an `Authorization: Bearer sk_...` API key.
+ * Returns the owning user if the key is valid, active, and has the required scope.
+ * Throws 'UNAUTHORIZED' otherwise.
+ */
+export async function requireApiKey(req: Request, scope?: string): Promise<User> {
+  const header = req.headers.get('authorization') || '';
+  const match = header.match(/^Bearer\s+(sk_[A-Za-z0-9_-]+)\s*$/);
+  if (!match) throw new Error('UNAUTHORIZED');
+  const key = match[1];
+
+  const record = await prisma.apiKey.findUnique({
+    where: { key },
+    include: { user: true },
+  });
+  if (!record || record.revoked) throw new Error('UNAUTHORIZED');
+  if (scope && !record.scopes.includes(scope)) throw new Error('FORBIDDEN');
+
+  return record.user;
+}
+
+/**
+ * Accept EITHER a session (requireApiUser) OR a Bearer API key.
+ * Returns the user on success; throws 'UNAUTHORIZED' if neither works.
+ */
+export async function requireApiUserOrKey(req: Request, scope?: string): Promise<User> {
+  // Try API key first (stateless, for external integrations).
+  const header = req.headers.get('authorization') || '';
+  if (/^Bearer\s+sk_/.test(header)) {
+    return requireApiKey(req, scope);
+  }
+  // Fall back to session auth.
+  return requireApiUser(req);
+}

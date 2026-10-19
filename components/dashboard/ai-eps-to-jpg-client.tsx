@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
-import { useCredits } from '@/components/dashboard/credits-provider';
+import { useToolGating } from '@/components/dashboard/use-tool-gating';
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -18,11 +18,9 @@ export function AiEpsToJpgClient({ tool }: { tool: ToolEntry }) {
   const [resultUrl, setResultUrl] = React.useState<string | null>(null);
   const [width, setWidth] = React.useState(2000);
   const toast = useToast();
-  const { credits } = useCredits();
+  // Free tool (cost 0) — gating still computed via the shared hook for consistency.
+  const { readyFiles, canProcess } = useToolGating(files, tool);
   const queryClient = useQueryClient();
-
-  const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
-  const canProcess = readyFiles.length > 0 && !files.some((f) => f.status === 'analyzing');
 
   const mutation = useMutation({
     mutationFn: async () => {

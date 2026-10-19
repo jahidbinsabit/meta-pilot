@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
-import { useCredits } from '@/components/dashboard/credits-provider';
+import { useToolGating } from '@/components/dashboard/use-tool-gating';
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -19,15 +19,8 @@ export function BgRemoverClient({ tool }: { tool: ToolEntry }) {
     { id: string; label: string; url: string; dataUrl: string }[]
   >([]);
   const toast = useToast();
-  const { credits, unlimited } = useCredits();
+  const { readyFiles, totalCost, canProcess, credits, unlimited } = useToolGating(files, tool);
   const queryClient = useQueryClient();
-
-  const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
-  const totalCost = readyFiles.length * tool.creditCost;
-  const canProcess =
-    readyFiles.length > 0 &&
-    !files.some((f) => f.status === 'analyzing') &&
-    (tool.isFree || unlimited || credits >= totalCost);
 
   const mutation = useMutation({
     mutationFn: async () => {

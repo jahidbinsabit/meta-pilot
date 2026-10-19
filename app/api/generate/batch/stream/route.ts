@@ -1,4 +1,4 @@
-import { requireApiUser } from '@/lib/api/auth';
+import { requireApiUserOrKey } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { getGeneratorSettings } from '@/lib/generator/settings';
 import { buildMetadataPrompt, buildRetrySystemPrompt } from '@/lib/generator/prompt';
@@ -8,7 +8,7 @@ import { MetadataSchema } from '@/lib/ai/schemas';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
 import { getToolCost } from '@/lib/credits/cost';
 
-import { isUserApiKeyRequired, getUserAiKeysStatus } from '@/lib/ai/user-keys';
+import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -27,9 +27,9 @@ function sse(data: unknown): string {
 }
 
 export async function POST(req: Request) {
-  let user: Awaited<ReturnType<typeof requireApiUser>>;
+  let user: Awaited<ReturnType<typeof requireApiUserOrKey>>;
   try {
-    user = await requireApiUser();
+    user = await requireApiUserOrKey(req, 'tools:run');
   } catch {
     return new Response('Unauthorized', { status: 401 });
   }
@@ -49,22 +49,12 @@ export async function POST(req: Request) {
   }
 
   // Check if user API key is enforced
-  const keyRequired = await isUserApiKeyRequired();
-  if (keyRequired) {
-    const keysStatus = await getUserAiKeysStatus(user.id);
-    if (!keysStatus.hasAnyKey) {
-      return new Response(
-        sse({
-          type: 'error',
-          error: 'user_api_key_required',
-          message: 'API Key is required. Please configure your API key in Settings to continue.',
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'text/event-stream' },
-        },
-      );
-    }
+  const keyError = await requireUserApiKeyIfNeeded(user.id);
+  if (keyError) {
+    return new Response(sse({ type: 'error', ...keyError }), {
+      status: 400,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
   }
 
   const targetPlatform: TargetPlatform = platform || 'adobe';
@@ -87,20 +77,38 @@ export async function POST(req: Request) {
     });
   }
 
-  const job = await prisma.toolJob.create({
-    data: {
-      userId: user.id,
-      toolSlug: 'metadata-generator',
-      status: 'PROCESSING',
-      inputFileUrls: images.map((i) => i.previewUrl),
-      creditsCharged: total,
-      outputData: {
-        platform: targetPlatform,
-        settings: merged,
-        images: images.map((i) => ({ id: i.id, fileName: i.fileName })),
-      } as any,
-    },
-  });
+  let job: Awaited<ReturnType<typeof prisma.toolJob.create>>;
+  try {
+    job = await prisma.toolJob.create({
+      data: {
+        userId: user.id,
+        toolSlug: 'metadata-generator',
+        status: 'PROCESSING',
+        inputFileUrls: images.map((i) => i.previewUrl),
+        creditsCharged: deduction.deducted === true ? total : 0,
+        outputData: {
+          platform: targetPlatform,
+          settings: merged,
+          images: images.map((i) => ({ id: i.id, fileName: i.fileName })),
+        } as any,
+      },
+    });
+  } catch (jobErr) {
+    // Total failure after deduction: refund so the user is never charged
+    // for a batch that never ran. Skip in unlimited mode (nothing deducted).
+    console.error('batch stream: toolJob.create failed', jobErr);
+    if (deduction.deducted === true) {
+      try {
+        await refundCredits(user.id, '', total, { toolSlug: 'metadata-generator' });
+      } catch (refundErr) {
+        console.error('batch stream total-failure refund failed', refundErr);
+      }
+    }
+    return new Response(sse({ type: 'error', error: 'batch_failed' }), {
+      status: 500,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  }
 
   const encoder = new TextEncoder();
   const results: any[] = [];
@@ -199,7 +207,7 @@ export async function POST(req: Request) {
             entry.tokensUsed = ai.usage.totalTokens;
           } catch (e: any) {
             failed += 1;
-            entry.error = e?.message || 'generation_failed';
+            entry.error = 'generation_failed';
           }
 
           results.push(entry);
@@ -214,7 +222,7 @@ export async function POST(req: Request) {
 
       await Promise.all(workers);
 
-      if (failed > 0) {
+      if (failed > 0 && deduction.deducted === true) {
         try { await refundCredits(user.id, job.id, failed * costPerImage); }
         catch (e) { console.error('stream refund failed', e); }
       }
@@ -234,7 +242,7 @@ export async function POST(req: Request) {
         succeeded: results.filter((r) => r.status === 'complete').length,
         failed,
         balance: deduction.balance,
-        refunded: failed * costPerImage,
+        refunded: deduction.deducted === true ? failed * costPerImage : 0,
         jobId: job.id,
       });
     } catch (streamErr) {

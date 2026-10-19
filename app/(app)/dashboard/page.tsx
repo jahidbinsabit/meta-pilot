@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import getServerSession from '@/lib/server-session';
 import { prisma } from '@/lib/db';
+import { OnboardingChecklist } from '@/components/dashboard/onboarding-checklist';
 
 const QUICK_ACTIONS = [
   {
@@ -301,6 +302,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <OnboardingChecklist />
       {/* ── Hero Banner (renders immediately) ── */}
       <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-6 sm:p-8">
         <div className="relative z-10 flex items-start justify-between gap-4">

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireApiUser } from '@/lib/api/auth';
+import { requireApiUserOrKey } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
 import { getToolCost } from '@/lib/credits/cost';
@@ -14,7 +14,7 @@ import {
   buildImagePromptUserPrompt,
 } from '@/lib/prompt-styles/prompt';
 
-import { isUserApiKeyRequired, getUserAiKeysStatus } from '@/lib/ai/user-keys';
+import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -67,7 +67,7 @@ async function toBase64(img: PromptImage): Promise<{ data: string; mime: string 
 
 export async function POST(req: Request) {
   try {
-    const user = await requireApiUser(req);
+    const user = await requireApiUserOrKey(req, 'tools:run');
     const body = await req.json();
     const { images, style } = body as { images?: PromptImage[]; style?: string };
 
@@ -82,18 +82,9 @@ export async function POST(req: Request) {
     }
 
     // Check if user API key is enforced
-    const keyRequired = await isUserApiKeyRequired();
-    if (keyRequired) {
-      const keysStatus = await getUserAiKeysStatus(user.id);
-      if (!keysStatus.hasAnyKey) {
-        return NextResponse.json(
-          {
-            error: 'user_api_key_required',
-            message: 'API Key is required. Please configure your API key in Settings to continue.',
-          },
-          { status: 400 },
-        );
-      }
+    const keyError = await requireUserApiKeyIfNeeded(user.id);
+    if (keyError) {
+      return NextResponse.json(keyError, { status: 400 });
     }
 
     // Resolve the admin-configured preset. An unknown or disabled slug is
@@ -238,6 +229,6 @@ export async function POST(req: Request) {
     });
   } catch (e: any) {
     console.error('image prompt generation failed', e);
-    return NextResponse.json({ error: e?.message || 'generation_failed' }, { status: 500 });
+    return NextResponse.json({ error: 'generation_failed' }, { status: 500 });
   }
 }

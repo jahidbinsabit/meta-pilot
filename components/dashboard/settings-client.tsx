@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { UserApiKeysForm } from '@/components/dashboard/user-api-keys-dialog';
 import { Key, Copy, Check, Trash2, Plus, Sparkles } from 'lucide-react';
 
-export function SettingsClient({ siteName = 'StockForge AI' }: { siteName?: string }) {
+export function SettingsClient({ siteName = 'MetaCSV' }: { siteName?: string }) {
   const [keys, setKeys] = React.useState<any[]>([]);
   const [name, setName] = React.useState('');
   const [createdKey, setCreatedKey] = React.useState<string | null>(null);

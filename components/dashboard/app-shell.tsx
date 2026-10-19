@@ -30,7 +30,7 @@ interface AppShellProps {
 
 export function AppShell({
   children,
-  siteName = 'StockForge AI',
+  siteName = 'MetaCSV',
   logoUrl,
   user,
   unlimitedMode = false,

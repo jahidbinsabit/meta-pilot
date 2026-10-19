@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: dark;
   --background: 240 10% 4%;
   --foreground: 0 0% 98%;
   --card: 240 10% 6%;
@@ -38,6 +39,7 @@
    Contrast-checked: body text ~15:1, muted text ~5.5:1, accent ~4.8:1
    on white. Borders visible but subtle. */
 .light {
+  color-scheme: light;
   --background: 0 0% 100%;
   --foreground: 240 10% 9%;
   --card: 0 0% 100%;
@@ -65,6 +67,17 @@
   --accent-foreground: 0 0% 100%;
   --sidebar-accent: 160 65% 38%;
   --ring: 160 65% 38%;
+}
+
+/* ===== Autofill fix: prevent black rectangle on password/inputs ===== */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: hsl(var(--foreground)) !important;
+  -webkit-box-shadow: 0 0 0 1000px hsl(var(--card)) inset !important;
+  box-shadow: 0 0 0 1000px hsl(var(--card)) inset !important;
+  transition: background-color 9999s ease-in-out 0s;
 }
 
 /* ===== Custom Thin Scrollbar (Premium Look) ===== */

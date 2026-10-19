@@ -31,26 +31,26 @@ export async function POST(req: Request) {
     let amountUSD = 0;
     let amountBDT = 0;
     let payload: Record<string, unknown> = { type };
-    let productName = 'StockForge purchase';
+    let productName = 'MetaCSV purchase';
 
     if (type === 'plan') {
       const plan = await prisma.plan.findUnique({ where: { id: planId } });
       if (!plan) return NextResponse.json({ error: 'plan_not_found' }, { status: 400 });
       amountUSD = plan.monthlyPriceUSD;
       amountBDT = plan.monthlyPriceBDT;
-      productName = `StockForge ${plan.name} plan`;
+      productName = `MetaCSV ${plan.name} plan`;
       payload = { type: 'plan', planId, planName: plan.name, credits: plan.creditsIncluded };
     } else if (packageId) {
       const pkg = await prisma.creditPackage.findUnique({ where: { id: packageId } });
       if (!pkg) return NextResponse.json({ error: 'package_not_found' }, { status: 400 });
       amountUSD = pkg.priceUSD;
       amountBDT = pkg.priceBDT;
-      productName = `${pkg.credits} StockForge credits`;
+      productName = `${pkg.credits} MetaCSV credits`;
       payload = { type: 'credits', packageId, packageName: pkg.name, credits: pkg.credits };
     } else if (amountCents && credits) {
       amountUSD = amountCents / 100;
       amountBDT = Math.round(amountUSD * 120);
-      productName = `${credits} StockForge credits`;
+      productName = `${credits} MetaCSV credits`;
       payload = { type: 'credits', credits };
     } else {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 });

@@ -25,7 +25,7 @@ export async function createEmailVerification(userId: string, email: string) {
     <a href="${verifyUrl}">Verify email</a>
     <p>This OTP expires in ${OTP_TTL_MINUTES} minutes.</p>
   `;
-  await sendMail({ to: email, subject: 'Verify your email — StockForge AI', html });
+  await sendMail({ to: email, subject: 'Verify your email — MetaCSV', html });
   return { id: record.id, expiresAt };
 }
 

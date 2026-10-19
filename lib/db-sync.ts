@@ -43,6 +43,24 @@ export async function ensureDatabaseSchema(): Promise<void> {
           CREATE INDEX IF NOT EXISTS "AiCallLog_userId_idx" ON "AiCallLog"("userId");
         EXCEPTION WHEN OTHERS THEN NULL;
         END;
+
+        -- Coupon table (promo codes)
+        BEGIN
+          CREATE TABLE IF NOT EXISTS "Coupon" (
+            "id" TEXT NOT NULL PRIMARY KEY,
+            "code" TEXT NOT NULL UNIQUE,
+            "creditsAmount" INTEGER NOT NULL,
+            "maxUses" INTEGER NOT NULL DEFAULT 1,
+            "usedCount" INTEGER NOT NULL DEFAULT 0,
+            "expiresAt" TIMESTAMP(3),
+            "isActive" BOOLEAN NOT NULL DEFAULT TRUE,
+            "createdById" TEXT,
+            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+          CREATE INDEX IF NOT EXISTS "Coupon_code_idx" ON "Coupon"("code");
+          CREATE INDEX IF NOT EXISTS "Coupon_isActive_idx" ON "Coupon"("isActive");
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
       END $$;
     `);
     isSynced = true;

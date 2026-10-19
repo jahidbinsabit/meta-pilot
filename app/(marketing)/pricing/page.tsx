@@ -9,7 +9,7 @@ export async function generateMetadata(): Promise<Metadata> {
   try {
     const settings = await prisma.siteSettings.findUnique({ where: { id: 'default' } });
     if (settings) {
-      const pricingTitle = 'Pricing — StockForge AI';
+      const pricingTitle = 'Pricing — MetaCSV';
       const pricingDescription =
         'Simple, creator-first pricing for AI metadata generation. Pay in USD with Stripe or in BDT with bKash and Nagad.';
 
@@ -36,17 +36,17 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 
   return {
-    title: 'Pricing — StockForge AI',
+    title: 'Pricing — MetaCSV',
     description:
       'Simple, creator-first pricing for AI metadata generation. Pay in USD with Stripe or in BDT with bKash and Nagad.',
     openGraph: {
-      title: 'Pricing — StockForge AI',
+      title: 'Pricing — MetaCSV',
       description: 'Simple, creator-first pricing for AI metadata generation.',
       type: 'website',
     },
     twitter: {
       card: 'summary_large_image',
-      title: 'Pricing — StockForge AI',
+      title: 'Pricing — MetaCSV',
       description: 'Simple, creator-first pricing for AI metadata generation.',
     },
   };

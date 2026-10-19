@@ -31,7 +31,7 @@ export async function GET() {
   if (!settings) {
     // Create default row
     const created = await prisma.siteSettings.create({
-      data: { id: 'default', siteName: 'StockForge AI' },
+      data: { id: 'default', siteName: 'MetaCSV' },
     });
     return NextResponse.json(created);
   }
@@ -54,7 +54,7 @@ export async function PATCH(req: Request) {
 
   const updated = await prisma.siteSettings.upsert({
     where: { id: 'default' },
-    create: { id: 'default', siteName: 'StockForge AI', ...parsed.data },
+    create: { id: 'default', siteName: 'MetaCSV', ...parsed.data },
     update: { ...parsed.data, updatedAt: new Date() },
   });
 

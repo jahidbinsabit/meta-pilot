@@ -46,7 +46,15 @@ export async function POST(req: Request) {
       const original = await downloadFile(key);
       out = await buildLayeredPsd(original);
     } catch (e: any) {
-      await refundCredits(user.id, 'image-to-psd', cost);
+      // Only refund when credits were actually deducted (not unlimited mode).
+      // Refund failure must not mask the original error.
+      if (deduction.deducted === true) {
+        try {
+          await refundCredits(user.id, 'image-to-psd', cost);
+        } catch (refundErr) {
+          console.error('image-to-psd refund failed', refundErr);
+        }
+      }
       throw e;
     }
 
@@ -72,7 +80,7 @@ export async function POST(req: Request) {
     });
   } catch (e: any) {
     console.error('image-to-psd failed', e);
-    return new Response(JSON.stringify({ error: e?.message || 'psd_failed' }), {
+    return new Response(JSON.stringify({ error: 'psd_failed' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

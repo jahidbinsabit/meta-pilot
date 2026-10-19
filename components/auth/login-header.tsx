@@ -3,9 +3,9 @@ import Link from 'next/link';
 import { Zap } from 'lucide-react';
 
 export function LoginHeader({ siteName }: { siteName?: string }) {
-  const name = siteName || 'StockForge AI';
+  const name = siteName || 'MetaCSV';
   // Keep the accent styling for the default brand; render custom names plainly.
-  const isDefault = name === 'StockForge AI';
+  const isDefault = name === 'MetaCSV';
   return (
     <div className="flex items-center justify-between">
       <Link href="/" className="group flex items-center gap-3 hover:opacity-90">
@@ -15,7 +15,7 @@ export function LoginHeader({ siteName }: { siteName?: string }) {
         <div className="flex flex-col">
           <span className="font-display text-lg font-bold tracking-tight text-foreground">
             {isDefault ? (
-              <>StockForge <span className="text-accent">AI</span></>
+              <>MetaCSV</>
             ) : (
               name
             )}

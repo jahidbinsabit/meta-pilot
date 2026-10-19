@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import getServerSession from '@/lib/server-session';
 import { buildCheckoutGateways } from '@/lib/payments/public';
 import { BillingCheckout } from '@/components/dashboard/billing-checkout';
+import { RedeemCoupon } from '@/components/dashboard/redeem-coupon';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,7 +98,9 @@ export default async function BillingPage() {
         </div>
       }
     >
-      <BillingCheckout
+      <div className="mx-auto max-w-6xl space-y-8 p-4 sm:p-6 lg:p-8">
+        <RedeemCoupon />
+        <BillingCheckout
         plans={plans}
         packages={packages}
         gateways={gateways}
@@ -107,6 +110,7 @@ export default async function BillingPage() {
         transactions={transactions}
         userId={user.id}
       />
+      </div>
     </React.Suspense>
   );
 }

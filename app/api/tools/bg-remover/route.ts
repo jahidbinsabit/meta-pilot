@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import sharp from 'sharp';
 import { requireApiUser } from '@/lib/api/auth';
 import { getToolCost } from '@/lib/credits/cost';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
@@ -46,7 +47,15 @@ export async function POST(req: Request) {
       const original = await downloadFile(key);
       out = await removeBackground(original);
     } catch (e: any) {
-      await refundCredits(user.id, 'bg-remover', cost);
+      // Only refund when credits were actually deducted (not unlimited mode).
+      // Refund failure must not mask the original error.
+      if (deduction.deducted === true) {
+        try {
+          await refundCredits(user.id, 'bg-remover', cost);
+        } catch (refundErr) {
+          console.error('bg-remover refund failed', refundErr);
+        }
+      }
       throw e;
     }
 
@@ -57,14 +66,25 @@ export async function POST(req: Request) {
       'image/png',
     );
 
+    // Real output dimensions via sharp metadata (never hardcode 0).
+    let width = 0;
+    let height = 0;
+    try {
+      const meta = await sharp(out).metadata();
+      width = meta.width || 0;
+      height = meta.height || 0;
+    } catch {
+      /* metadata failure is non-fatal */
+    }
+
     await prisma.toolUsage.create({
       data: { userId: user.id, tool: 'bg-remover', metadata: { key, outKey } },
     });
 
-    return NextResponse.json({ pngUrl: url, width: 0, height: 0, balance: deduction.balance });
+    return NextResponse.json({ pngUrl: url, width, height, balance: deduction.balance });
   } catch (e: any) {
     console.error('bg-remover failed', e);
-    return new Response(JSON.stringify({ error: e?.message || 'bg_removal_failed' }), {
+    return new Response(JSON.stringify({ error: 'bg_removal_failed' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error('admin tools save failed', e);
-    return new Response(JSON.stringify({ error: e?.message || 'save_failed' }), {
+    return new Response(JSON.stringify({ error: 'save_failed' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

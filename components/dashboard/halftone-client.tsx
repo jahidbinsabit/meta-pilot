@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
-import { useCredits } from '@/components/dashboard/credits-provider';
+import { useToolGating } from '@/components/dashboard/use-tool-gating';
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -11,7 +11,7 @@ import { AlertCircle, Loader2, Download } from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import type { ToolEntry } from '@/lib/tools/registry';
 import { ToolShell } from '@/components/dashboard/tool-shell';
-import { loadPixels, pixelsToCanvas, canvasToBlob, downloadBlob } from '@/lib/tools/client-image';
+import { loadFirstImagePixels, pixelsToCanvas, canvasToBlob, downloadBlob } from '@/lib/tools/client-image';
 import { applyHalftone } from '@/lib/tools/halftone';
 
 export function HalftoneClient({ tool }: { tool: ToolEntry }) {
@@ -21,25 +21,12 @@ export function HalftoneClient({ tool }: { tool: ToolEntry }) {
   const [colorMode, setColorMode] = React.useState<'monochrome' | 'color'>('color');
   const [resultUrl, setResultUrl] = React.useState<string | null>(null);
   const toast = useToast();
-  const { credits, unlimited } = useCredits();
+  const { readyFiles, totalCost, canProcess, credits, unlimited } = useToolGating(files, tool);
   const queryClient = useQueryClient();
-
-  const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
-  const totalCost = readyFiles.length * tool.creditCost;
-  const canProcess =
-    readyFiles.length > 0 &&
-    !files.some((f) => f.status === 'analyzing') &&
-    (tool.isFree || unlimited || credits >= totalCost);
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const img = new Image();
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = reject;
-        img.src = readyFiles[0].previewUrl!;
-      });
-      const pixels = await loadPixels(img);
+      const pixels = await loadFirstImagePixels(readyFiles[0]);
       const out = applyHalftone(pixels.data, pixels.width, pixels.height, {
         dotSize,
         angle,

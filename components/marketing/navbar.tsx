@@ -15,7 +15,7 @@ const NAV_LINKS = [
   { label: 'About', href: '/about' },
 ];
 
-export function Navbar({ siteName = 'StockForge AI', logoUrl }: { siteName?: string; logoUrl?: string | null }) {
+export function Navbar({ siteName = 'MetaCSV', logoUrl }: { siteName?: string; logoUrl?: string | null }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const { data: session, status } = useSession();
   const pathname = usePathname();
@@ -31,7 +31,7 @@ export function Navbar({ siteName = 'StockForge AI', logoUrl }: { siteName?: str
           <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
             {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt={siteName} className="absolute inset-0 h-full w-full rounded-lg object-contain" />
+              <img src={logoUrl} alt="" className="absolute inset-0 h-full w-full rounded-lg object-contain" />
             ) : (
               <Zap className="h-5 w-5" />
             )}

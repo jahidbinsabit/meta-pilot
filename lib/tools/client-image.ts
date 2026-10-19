@@ -72,6 +72,26 @@ export function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
   });
 }
 
+/**
+ * Load the first ready upload's pixels — shared by the client-side creative
+ * tools (palette, halftone, dither, ASCII). Prefers `previewUrl`, falls back
+ * to `dataUrl`. Throws if the file has no usable image source.
+ */
+export async function loadFirstImagePixels(file: {
+  previewUrl?: string | null;
+  dataUrl?: string | null;
+}): Promise<PixelData> {
+  const src = file.previewUrl || file.dataUrl;
+  if (!src) throw new Error('no_image_source');
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = reject;
+    img.src = src;
+  });
+  return loadPixels(img);
+}
+
 /** Draw a PixelData back onto a fresh canvas and return the canvas. */
 export function pixelsToCanvas(pixels: PixelData): HTMLCanvasElement {
   const canvas = document.createElement('canvas');

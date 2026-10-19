@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Zap } from 'lucide-react';
 
 export function Footer({
-  siteName = 'StockForge AI',
+  siteName = 'MetaCSV',
   logoUrl,
 }: {
   siteName?: string;

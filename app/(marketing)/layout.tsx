@@ -8,7 +8,7 @@ export default async function MarketingLayout({
   children: React.ReactNode;
 }) {
   const siteSettings = await getSiteSettings();
-  const siteName = siteSettings?.siteName || 'StockForge AI';
+  const siteName = siteSettings?.siteName || 'MetaCSV';
   const logoUrl = siteSettings?.logoUrl;
 
   return (

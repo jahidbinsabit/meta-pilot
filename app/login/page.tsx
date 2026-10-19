@@ -7,7 +7,7 @@ import { getSiteSettings } from "@/lib/site-settings";
 
 export async function generateMetadata() {
   const settings = await getSiteSettings().catch(() => null);
-  const siteName = settings?.siteName || "StockForge AI";
+  const siteName = settings?.siteName || "MetaCSV";
   return {
     title: `Sign In — ${siteName}`,
     description: `Sign in to access your ${siteName} AI stock metadata tools, analytics, and batch workflow.`,
@@ -16,7 +16,7 @@ export async function generateMetadata() {
 
 export default async function LoginPage() {
   const settings = await getSiteSettings().catch(() => null);
-  const siteName = settings?.siteName || "StockForge AI";
+  const siteName = settings?.siteName || "MetaCSV";
   const signupCredits =
     typeof settings?.signupCredits === "number" ? settings.signupCredits : 20;
   return (

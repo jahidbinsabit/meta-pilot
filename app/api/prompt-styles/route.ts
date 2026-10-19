@@ -11,6 +11,6 @@ export async function GET(req: Request) {
     // server-side so a client can't read or override it directly.
     return NextResponse.json(presets.map((p) => ({ id: p.id, slug: p.slug, label: p.label })));
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 }

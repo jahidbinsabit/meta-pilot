@@ -26,7 +26,7 @@ export async function PATCH(req: Request) {
       credits: updated.credits,
     });
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message || 'update_failed' }), {
+    return new Response(JSON.stringify({ error: 'update_failed' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -49,7 +49,7 @@ export async function DELETE(req: Request) {
       purgeAt: purgeAt.toISOString(),
     });
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message || 'delete_failed' }), {
+    return new Response(JSON.stringify({ error: 'delete_failed' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
     });

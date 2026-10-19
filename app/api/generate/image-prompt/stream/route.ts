@@ -1,4 +1,4 @@
-import { requireApiUser } from '@/lib/api/auth';
+import { requireApiUserOrKey } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
 import { getToolCost } from '@/lib/credits/cost';
@@ -13,7 +13,7 @@ import {
   buildImagePromptUserPrompt,
 } from '@/lib/prompt-styles/prompt';
 
-import { isUserApiKeyRequired, getUserAiKeysStatus } from '@/lib/ai/user-keys';
+import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -64,9 +64,9 @@ function sse(data: unknown): string {
 }
 
 export async function POST(req: Request) {
-  let user: Awaited<ReturnType<typeof requireApiUser>>;
+  let user: Awaited<ReturnType<typeof requireApiUserOrKey>>;
   try {
-    user = await requireApiUser(req);
+    user = await requireApiUserOrKey(req, 'tools:run');
   } catch {
     return new Response('Unauthorized', { status: 401 });
   }
@@ -94,22 +94,12 @@ export async function POST(req: Request) {
   }
 
   // Check if user API key is enforced
-  const keyRequired = await isUserApiKeyRequired();
-  if (keyRequired) {
-    const keysStatus = await getUserAiKeysStatus(user.id);
-    if (!keysStatus.hasAnyKey) {
-      return new Response(
-        sse({
-          type: 'error',
-          error: 'user_api_key_required',
-          message: 'API Key is required. Please configure your API key in Settings to continue.',
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'text/event-stream' },
-        },
-      );
-    }
+  const keyError = await requireUserApiKeyIfNeeded(user.id);
+  if (keyError) {
+    return new Response(sse({ type: 'error', ...keyError }), {
+      status: 400,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
   }
 
   const preset = await getPresetBySlug(style);

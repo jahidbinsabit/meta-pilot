@@ -599,3 +599,18 @@ enum UserStatus {
   ACTIVE
   SUSPENDED
 }
+
+model Coupon {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  creditsAmount Int
+  maxUses       Int       @default(1)
+  usedCount     Int       @default(0)
+  expiresAt     DateTime?
+  isActive      Boolean   @default(true)
+  createdById   String?
+  createdAt     DateTime  @default(now())
+
+  @@index([code])
+  @@index([isActive])
+}
