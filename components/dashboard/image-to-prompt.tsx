@@ -240,11 +240,14 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
       // Aborted (unmount / Clear All) — not a real failure, stay silent.
       if (error?.name !== 'AbortError' && !controller.signal.aborted) {
         // API key required → show the add-key popup instead of a generic toast.
-        // The backend may return {"error":"user_api_key_required",...} as a raw JSON string.
+        // The backend may return {"error":"user_api_key_required",...} as a raw
+        // JSON string, or as an SSE event: data: {"type":"error","error":...}.
         let isApiKeyError = error.message === 'user_api_key_required';
         if (!isApiKeyError && typeof error.message === 'string') {
           try {
-            const parsed = JSON.parse(error.message);
+            let text = error.message.trim();
+            if (text.startsWith('data:')) text = text.slice(5).trim();
+            const parsed = JSON.parse(text);
             isApiKeyError = parsed?.error === 'user_api_key_required';
           } catch { /* not JSON — leave as-is */ }
         }
