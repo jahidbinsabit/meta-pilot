@@ -29,7 +29,8 @@ export async function GET(req: Request) {
     });
     return NextResponse.json(profile);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'unauthorized' }, { status: 401 });
+    console.error('profile fetch failed', e);
+    return NextResponse.json({ error: 'internal_error' }, { status: 401 });
   }
 }
 
@@ -106,6 +107,7 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json(updated);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'update_failed' }, { status: 500 });
+    console.error('profile update failed', e);
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

@@ -184,12 +184,13 @@ export function SignupClient({
 
                   <form onSubmit={onSubmit} className="mt-5 space-y-3.5">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-foreground/90">Full Name</label>
+                      <label htmlFor="signup-name" className="text-xs font-semibold text-foreground/90">Full Name</label>
                       <div className="relative">
                         <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-muted-foreground">
                           <User className="h-4 w-4" />
                         </div>
                         <Input
+                          id="signup-name"
                           value={name}
                           onChange={(e) => setName(e.target.value)}
                           placeholder="Your name"
@@ -201,12 +202,13 @@ export function SignupClient({
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-foreground/90">Email address</label>
+                      <label htmlFor="signup-email" className="text-xs font-semibold text-foreground/90">Email address</label>
                       <div className="relative">
                         <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-muted-foreground">
                           <Mail className="h-4 w-4" />
                         </div>
                         <Input
+                          id="signup-email"
                           type="email"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
@@ -219,12 +221,13 @@ export function SignupClient({
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-foreground/90">Password (min 8 chars)</label>
+                      <label htmlFor="signup-password" className="text-xs font-semibold text-foreground/90">Password (min 8 chars)</label>
                       <div className="relative">
                         <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-muted-foreground">
                           <Lock className="h-4 w-4" />
                         </div>
                         <Input
+                          id="signup-password"
                           type={showPassword ? "text" : "password"}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
@@ -284,8 +287,9 @@ export function SignupClient({
 
                   <form onSubmit={onVerify} className="space-y-4">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-foreground/90">Verification Code</label>
+                      <label htmlFor="signup-otp" className="text-xs font-semibold text-foreground/90">Verification Code</label>
                       <Input
+                        id="signup-otp"
                         value={otp}
                         onChange={(e) => setOtp(e.target.value.toUpperCase())}
                         placeholder="123456"
@@ -346,7 +350,7 @@ export function SignupClient({
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Sparkles className="h-3.5 w-3.5 text-accent" />
-                  <span>Free 20 Credits</span>
+                  <span>Free {credits} Credits</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="h-3.5 w-3.5 text-accent" />
@@ -357,7 +361,7 @@ export function SignupClient({
           </div>
 
           <div className="pt-4 text-2xs text-muted-foreground/60 flex items-center justify-between border-t border-border/40">
-            <span>© {new Date().getFullYear()} StockForge AI.</span>
+            <span>© {new Date().getFullYear()} {siteName || 'StockForge AI'}.</span>
             <div className="flex items-center gap-4">
               <Link href="/privacy" className="hover:text-muted-foreground hover:underline">Privacy</Link>
               <Link href="/terms" className="hover:text-muted-foreground hover:underline">Terms</Link>

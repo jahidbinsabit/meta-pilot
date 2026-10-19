@@ -33,6 +33,8 @@ export interface AiRequest {
   temperature?: number;
   /** Number of attempts on a schema mismatch before giving up. Default 2. */
   maxRetries?: number;
+  /** User ID for per-user attribution in AiCallLog. */
+  userId?: string;
 }
 
 /** Token usage reported by the provider. */
@@ -84,6 +86,7 @@ export interface AiCallLogEntry {
   toolSlug: string;
   provider: string;
   model: string;
+  userId?: string;
   latencyMs: number;
   promptTokens?: number;
   completionTokens?: number;

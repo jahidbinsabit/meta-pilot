@@ -187,18 +187,30 @@ export function AssetCard({ asset }: { asset: AssetRow }) {
   const handleCopyId = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    navigator.clipboard.writeText(String(asset.id));
-    setCopiedId(true);
-    setTimeout(() => setCopiedId(false), 2000);
+    navigator.clipboard.writeText(String(asset.id)).then(
+      () => {
+        setCopiedId(true);
+        setTimeout(() => setCopiedId(false), 2000);
+      },
+      () => {
+        /* clipboard denied */
+      },
+    );
   };
 
   const handleCopyKeywords = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (asset.keywords && asset.keywords.length > 0) {
-      navigator.clipboard.writeText(asset.keywords.join(', '));
-      setCopiedKeywords(true);
-      setTimeout(() => setCopiedKeywords(false), 2000);
+      navigator.clipboard.writeText(asset.keywords.join(', ')).then(
+        () => {
+          setCopiedKeywords(true);
+          setTimeout(() => setCopiedKeywords(false), 2000);
+        },
+        () => {
+          /* clipboard denied */
+        },
+      );
     }
   };
 

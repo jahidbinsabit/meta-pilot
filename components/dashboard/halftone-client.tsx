@@ -21,7 +21,7 @@ export function HalftoneClient({ tool }: { tool: ToolEntry }) {
   const [colorMode, setColorMode] = React.useState<'monochrome' | 'color'>('color');
   const [resultUrl, setResultUrl] = React.useState<string | null>(null);
   const toast = useToast();
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   const queryClient = useQueryClient();
 
   const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
@@ -29,7 +29,7 @@ export function HalftoneClient({ tool }: { tool: ToolEntry }) {
   const canProcess =
     readyFiles.length > 0 &&
     !files.some((f) => f.status === 'analyzing') &&
-    (tool.isFree || credits >= totalCost);
+    (tool.isFree || unlimited || credits >= totalCost);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -135,7 +135,7 @@ export function HalftoneClient({ tool }: { tool: ToolEntry }) {
             >
               {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply halftone'}
             </Button>
-            {!tool.isFree && credits < totalCost && readyFiles.length > 0 && (
+            {!tool.isFree && !unlimited && credits < totalCost && readyFiles.length > 0 && (
               <p className="flex items-center gap-1.5 text-xs text-amber-400">
                 <AlertCircle className="h-3.5 w-3.5" />
                 You need {totalCost} credits but have {credits}.

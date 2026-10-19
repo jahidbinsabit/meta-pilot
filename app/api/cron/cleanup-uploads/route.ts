@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { listFiles, deleteFile } from '@/lib/s3/client';
+import { prisma } from '@/lib/db';
 
 /**
  * Cleanup cron — deletes temporary uploads older than 5 minutes.
@@ -12,6 +13,7 @@ import { listFiles, deleteFile } from '@/lib/s3/client';
  */
 
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
+const AI_LOG_RETENTION_DAYS = 90;
 
 export async function GET(req: Request) {
   // Auth: Vercel sends "Authorization: Bearer <CRON_SECRET>" automatically
@@ -20,12 +22,14 @@ export async function GET(req: Request) {
   const cronSecret = req.headers.get('x-cron-secret');
   const expectedSecret = process.env.CRON_SECRET;
 
-  if (expectedSecret) {
-    const validBearer = authHeader === `Bearer ${expectedSecret}`;
-    const validHeader = cronSecret === expectedSecret;
-    if (!validBearer && !validHeader) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
+  // Fail CLOSED: if no CRON_SECRET is configured, deny all requests.
+  if (!expectedSecret) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+  const validBearer = authHeader === `Bearer ${expectedSecret}`;
+  const validHeader = cronSecret === expectedSecret;
+  if (!validBearer && !validHeader) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
   const cutoff = Date.now() - TTL_MS;
@@ -63,9 +67,24 @@ export async function GET(req: Request) {
     }
 
     console.log(`[cleanup-uploads] done — deleted:${deleted} failed:${failed} skipped:${skipped}`);
-    return NextResponse.json({ ok: true, deleted, failed, skipped });
+
+    // Retention: purge AiCallLog rows older than 90 days (write-only table,
+    // one row per AI call — would grow unboundedly otherwise).
+    let aiLogsPurged = 0;
+    try {
+      const cutoff = new Date(Date.now() - AI_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      const res = await prisma.aiCallLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+      aiLogsPurged = res.count;
+      if (aiLogsPurged > 0) {
+        console.log(`[cleanup-uploads] purged ${aiLogsPurged} AiCallLog rows older than ${AI_LOG_RETENTION_DAYS}d`);
+      }
+    } catch (logErr) {
+      console.error('[cleanup-uploads] AiCallLog purge failed:', logErr);
+    }
+
+    return NextResponse.json({ ok: true, deleted, failed, skipped, aiLogsPurged });
   } catch (err: any) {
     console.error('[cleanup-uploads] fatal error:', err);
-    return NextResponse.json({ error: err.message ?? 'cleanup_failed' }, { status: 500 });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

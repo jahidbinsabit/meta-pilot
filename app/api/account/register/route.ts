@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { getSiteSettings } from '@/lib/site-settings';
 import { createEmailVerification } from '@/lib/email/verification';
+import { rateLimitResponse } from '@/lib/rate-limit';
 
 const RegisterSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(80),
@@ -12,6 +13,10 @@ const RegisterSchema = z.object({
 });
 
 export async function POST(req: Request) {
+  // Rate limit: 5 registrations per minute per IP (anti-spam).
+  const limited = rateLimitResponse(req, { max: 5, windowMs: 60_000, scope: 'register' });
+  if (limited) return limited;
+
   try {
     const body = await req.json();
     const parsed = RegisterSchema.safeParse(body);
@@ -25,7 +30,12 @@ export async function POST(req: Request) {
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      return NextResponse.json({ error: 'email_taken' }, { status: 409 });
+      // Do not reveal whether the email is registered (anti-enumeration).
+      // Return a generic success so attackers cannot harvest registered emails.
+      return NextResponse.json({
+        ok: true,
+        message: 'If this email is new, a verification code was sent',
+      });
     }
 
     // Signup bonus credits: admin panel (Site settings) wins, then TRIAL_CREDITS env, then 20.
@@ -72,8 +82,16 @@ export async function POST(req: Request) {
       });
     }
 
-    // Send the OTP verification email.
-    await createEmailVerification(user.id, email);
+    // Send the OTP verification email — best-effort. If SMTP is down the
+    // user is still created with credits; they can request a new OTP later.
+    // (Security fix 19 Oct 2026: previously an SMTP failure returned 500
+    // after the user row was committed, leaving the account in a state where
+    // retry hit `email_taken`.)
+    try {
+      await createEmailVerification(user.id, email);
+    } catch (mailErr) {
+      console.error('register: verification email failed (non-fatal)', mailErr);
+    }
 
     return NextResponse.json({ ok: true, userId: user.id });
   } catch (e: any) {

@@ -68,9 +68,20 @@ export async function getUserAiKeysDecrypted(userId: string) {
 
   if (!user) return { hasAnyKey: false };
 
-  const geminiKey = user.geminiApiKey ? decryptSecret(user.geminiApiKey).trim() : undefined;
-  const grokKey = user.grokApiKey ? decryptSecret(user.grokApiKey).trim() : undefined;
-  const openaiKey = user.openaiApiKey ? decryptSecret(user.openaiApiKey).trim() : undefined;
+  // Decrypt each key independently — a single bad/legacy-plaintext row must
+  // not take down the whole lookup (fail-closed crypto throws on bad rows).
+  // Falls back to the raw stored value, mirroring lib/ai/config.ts.
+  const safeDecrypt = (v: string | null): string | undefined => {
+    if (!v) return undefined;
+    try {
+      return decryptSecret(v).trim() || undefined;
+    } catch {
+      return v.trim() || undefined;
+    }
+  };
+  const geminiKey = safeDecrypt(user.geminiApiKey);
+  const grokKey = safeDecrypt(user.grokApiKey);
+  const openaiKey = safeDecrypt(user.openaiApiKey);
   const preferredProvider = user.preferredAiProvider || 'auto';
   const hasAnyKey = !!(geminiKey || grokKey || openaiKey);
 

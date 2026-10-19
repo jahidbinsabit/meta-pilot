@@ -24,8 +24,14 @@ export function parseGatewayCredentials(raw: unknown): Record<string, any> {
   try {
     let value = raw;
     if (typeof value === 'string') {
-      const decrypted = decryptSecret(value);
-      value = decrypted.startsWith('{') ? JSON.parse(decrypted) : decrypted;
+      try {
+        const decrypted = decryptSecret(value);
+        value = decrypted.startsWith('{') ? JSON.parse(decrypted) : decrypted;
+      } catch {
+        // Not an encrypted blob — try the raw string as plain JSON
+        // (backwards compat with pre-encryption stored credentials).
+        value = raw;
+      }
     }
     if (typeof value === 'string' && value.startsWith('{')) {
       value = JSON.parse(value);

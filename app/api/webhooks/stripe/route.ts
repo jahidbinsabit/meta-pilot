@@ -74,7 +74,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true });
   } catch (e: any) {
     console.error('[stripe-webhook] Webhook processing failed:', e);
-    return new Response(JSON.stringify({ error: e.message }), {
+    return new Response(JSON.stringify({ error: 'internal_error' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     });

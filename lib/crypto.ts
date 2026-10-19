@@ -4,8 +4,11 @@
  *   - AiProviderConfig.apiKeyEncrypted
  *
  * Uses AES-256-GCM with a random 12-byte nonce, base64-encoded as
- * `nonce:tag:ciphertext`. Falls back to plaintext when no key is
- * configured (dev / CI) so the platform is usable out of the box.
+ * `nonce:tag:ciphertext`.
+ *
+ * FAILS CLOSED: if no encryption key is configured (SECRET_KEY / AUTH_SECRET /
+ * NEXTAUTH_SECRET), encrypt/decrypt throw instead of silently storing secrets
+ * in plaintext. (Security fix 19 Oct 2026.)
  */
 
 import crypto from 'crypto';
@@ -23,7 +26,9 @@ function getKey(): Buffer | null {
 export function encryptSecret(plaintext: string): string {
   if (!plaintext) return '';
   const key = getKey();
-  if (!key) return plaintext; // dev fallback: store as-is
+  if (!key) {
+    throw new Error('ENCRYPTION_KEY_MISSING: set SECRET_KEY (or AUTH_SECRET) to store secrets');
+  }
   const iv = crypto.randomBytes(IV_LEN);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
@@ -34,7 +39,9 @@ export function encryptSecret(plaintext: string): string {
 export function decryptSecret(payload: string): string {
   if (!payload) return '';
   const key = getKey();
-  if (!key) return payload; // dev fallback
+  if (!key) {
+    throw new Error('ENCRYPTION_KEY_MISSING: set SECRET_KEY (or AUTH_SECRET) to read secrets');
+  }
   try {
     const buf = Buffer.from(payload, 'base64');
     const iv = buf.subarray(0, IV_LEN);
@@ -44,8 +51,8 @@ export function decryptSecret(payload: string): string {
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
   } catch {
-    // Not an encrypted blob (dev fallback plaintext) — return as-is.
-    return payload;
+    // Not a valid encrypted blob — do not silently return as-is.
+    throw new Error('DECRYPT_FAILED: payload is not a valid encrypted secret');
   }
 }
 

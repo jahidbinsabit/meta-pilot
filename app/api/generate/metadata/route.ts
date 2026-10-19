@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { requireApiUser } from '@/lib/api/auth';
-import { deductCredits } from '@/lib/credits/engine';
+import { deductCredits, refundCredits } from '@/lib/credits/engine';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { prisma } from '@/lib/db';
@@ -8,28 +9,45 @@ import { buildMetadataPrompt } from '@/lib/generator/prompt';
 import type { TargetPlatform } from '@/lib/generator/types';
 import { isUserApiKeyRequired, getUserAiKeysStatus } from '@/lib/ai/user-keys';
 
+const MetadataRequestSchema = z.object({
+  prompt: z.string().trim().min(1, 'prompt_required').max(5000, 'prompt_too_long'),
+  titleLength: z.coerce.number().int().positive().max(200).default(60),
+  keywordCount: z.coerce.number().int().positive().max(100).default(12),
+  includeDescription: z.boolean().default(true),
+  description: z.boolean().default(true),
+  prefix: z.boolean().default(true),
+  suffix: z.boolean().default(true),
+  negativeWords: z.boolean().default(true),
+  altText: z.boolean().default(true),
+  platform: z.enum(['adobe', 'shutterstock', 'freepik', 'vecteezy', 'istock', 'generic']).default('adobe'),
+});
+
 export async function POST(req: Request) {
+  let userId: string | null = null;
+  let deducted = false;
+  const cost = 1;
   try {
     const user = await requireApiUser();
+    userId = user.id;
     const body = await req.json();
+    const validated = MetadataRequestSchema.safeParse(body);
+    if (!validated.success) {
+      return NextResponse.json(
+        { error: 'invalid_input', issues: validated.error.issues },
+        { status: 400 },
+      );
+    }
     const {
       prompt,
-      titleLength = 60,
-      keywordCount = 12,
-      includeDescription = true,
-      description = true,
-      prefix = true,
-      suffix = true,
-      negativeWords = true,
-      altText = true,
-      platform = 'adobe',
-    } = body;
+      titleLength,
+      keywordCount,
+      includeDescription,
+      description,
+      prefix,
+      suffix,
+      platform,
+    } = validated.data;
     const shouldIncludeDescription = includeDescription !== false && description !== false;
-    if (!prompt)
-      return new Response(JSON.stringify({ error: 'prompt_required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
 
     // Check if user API key is enforced
     const keyRequired = await isUserApiKeyRequired();
@@ -47,7 +65,6 @@ export async function POST(req: Request) {
     }
 
     const targetPlatform: TargetPlatform = platform || 'adobe';
-    const cost = 1;
     const deduction = await deductCredits(user.id, cost, 'SPEND', {
       prompt: prompt.slice(0, 120),
       toolSlug: 'metadata-generator',
@@ -59,15 +76,17 @@ export async function POST(req: Request) {
         { status: 402, headers: { 'Content-Type': 'application/json' } },
       );
     }
+    // Only mark as deducted if credits were actually taken (not unlimited mode).
+    deducted = deduction.deducted === true;
 
     const { systemPrompt, userPrompt } = buildMetadataPrompt({
       settings: {
-        titleLength: Number(titleLength) || 60,
+        titleLength,
         titleMin: 10,
         titleMax: 150,
         descriptionLength: 200,
         includeDescription: shouldIncludeDescription,
-        keywordsCount: Number(keywordCount) || 12,
+        keywordsCount: keywordCount,
         keywordsMin: 5,
         keywordsMax: 50,
         prefix: prefix ? '' : '',
@@ -135,7 +154,15 @@ export async function POST(req: Request) {
     });
   } catch (e: any) {
     console.error('metadata generation failed', e);
-    return new Response(JSON.stringify({ error: e.message || 'generation_failed' }), {
+    // Refund the deducted credits — never charge for a failed generation.
+    if (userId && deducted) {
+      try {
+        await refundCredits(userId, '', cost, { toolSlug: 'metadata-generator' });
+      } catch (refundErr) {
+        console.error('metadata refund failed', refundErr);
+      }
+    }
+    return new Response(JSON.stringify({ error: 'internal_error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

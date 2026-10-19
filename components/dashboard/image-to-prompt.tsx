@@ -104,6 +104,14 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [generatingIds, setGeneratingIds] = React.useState<Set<string>>(new Set());
   const [regeneratingIds, setRegeneratingIds] = React.useState<Set<string>>(new Set());
+  const abortRef = React.useRef<AbortController | null>(null);
+
+  // Abort any in-flight generation if the component unmounts mid-stream.
+  React.useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   async function startStreamingGeneration() {
     // Only send images that don't already have results — prevents double-charging
@@ -136,10 +144,14 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     setIsGenerating(true);
     setGeneratingIds(new Set(ready.map((f) => f.id)));
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const res = await fetch('/api/generate/image-prompt/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           style,
           images: ready.map((f) => ({
@@ -173,14 +185,22 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
+            // Parse separately so a backend 'error' event thrown below
+            // propagates to the outer catch (toast) instead of being
+            // swallowed here as a parse warning.
+            let data: any;
             try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.type === 'start') {
-                toast({ title: `Synthesizing prompts for ${data.total} images`, variant: 'info' });
-              } else if (data.type === 'processing') {
-                // Image is being processed
-              } else if (data.type === 'result') {
+              data = JSON.parse(line.slice(6));
+            } catch {
+              console.warn('Failed to parse SSE data:', line);
+              continue;
+            }
+
+            if (data.type === 'start') {
+              toast({ title: `Synthesizing prompts for ${data.total} images`, variant: 'info' });
+            } else if (data.type === 'processing') {
+              // Image is being processed
+            } else if (data.type === 'result') {
                 const result = data.result;
                 setResults((prev) => {
                   const existing = prev.find((r) => r.id === result.id);
@@ -211,30 +231,31 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
               } else if (data.type === 'error') {
                 throw new Error(data.error || 'Generation failed');
               }
-            } catch (parseError) {
-              console.warn('Failed to parse SSE data:', line);
-            }
           }
         }
       }
     } catch (error: any) {
-      toast({ 
-        title: 'Generation failed', 
-        description: error.message || 'Unknown error', 
-        variant: 'error' 
-      });
+      // Aborted (unmount / Clear All) — not a real failure, stay silent.
+      if (error?.name !== 'AbortError' && !controller.signal.aborted) {
+        toast({
+          title: 'Generation failed',
+          description: error.message || 'Unknown error',
+          variant: 'error'
+        });
+      }
     } finally {
       // Always reset loading state — the stream may end without a 'done'
       // event (e.g. server timeout), which would otherwise hang the UI forever.
       setIsGenerating(false);
       setGeneratingIds(new Set());
+      if (abortRef.current === controller) abortRef.current = null;
       queryClient.invalidateQueries({ queryKey: ['credits'] });
     }
   }
 
   async function regenerateSingle(id: string) {
     const file = files.find(f => f.id === id);
-    if (!file || !file.previewUrl) {
+    if (!file || (!file.previewUrl && !file.dataUrl)) {
       toast({ title: 'File not found', description: 'Cannot regenerate this prompt', variant: 'error' });
       return;
     }
@@ -283,10 +304,18 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
+            // Parse separately so a backend 'error' event thrown below
+            // propagates to the outer catch (toast) instead of being
+            // swallowed here as a parse warning.
+            let data: any;
             try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.type === 'result') {
+              data = JSON.parse(line.slice(6));
+            } catch {
+              console.warn('Failed to parse SSE data:', line);
+              continue;
+            }
+
+            if (data.type === 'result') {
                 const result = data.result;
                 setResults((prev) => prev.map(r => r.id === result.id ? result : r));
                 setRegeneratingIds(prev => {
@@ -305,9 +334,6 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
               } else if (data.type === 'error') {
                 throw new Error(data.error || 'Regeneration failed');
               }
-            } catch (parseError) {
-              console.warn('Failed to parse SSE data:', line);
-            }
           }
         }
       }
@@ -339,9 +365,13 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     readyFiles.length > 0 && !isGenerating && (unlimited || credits >= totalCost) && !!style;
 
   async function copyOne(id: string, text: string) {
-    await navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 1500);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    } catch {
+      toast({ title: 'Copy failed', description: 'Clipboard access was denied.', variant: 'error' });
+    }
   }
 
   async function copyAll() {
@@ -350,9 +380,13 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
       .map((r) => r.prompt)
       .join('\n\n');
     if (!text) return;
-    await navigator.clipboard.writeText(text);
-    setCopiedAll(true);
-    setTimeout(() => setCopiedAll(false), 1500);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1500);
+    } catch {
+      toast({ title: 'Copy failed', description: 'Clipboard access was denied.', variant: 'error' });
+    }
   }
 
   function doExport() {
@@ -371,7 +405,10 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     const a = document.createElement('a');
     a.href = url;
     a.download = promptExportFilename(exportFormat);
+    // Firefox ignores clicks on detached anchors — must be in the DOM.
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
@@ -478,6 +515,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
                     size="sm"
                     className="h-9 rounded-lg text-xs border-destructive/40 bg-destructive/5 text-destructive hover:bg-destructive/15 hover:text-destructive"
                     onClick={() => {
+                      abortRef.current?.abort();
                       setFiles([]);
                       setResults([]);
                       setDropzoneExpanded(true);

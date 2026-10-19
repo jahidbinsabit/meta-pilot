@@ -20,7 +20,7 @@ export function AdobeKeywordsClient({ tool }: { tool: ToolEntry }) {
     categories: string[];
   }>(null);
   const [copied, setCopied] = React.useState(false);
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   const toast = useToast();
 
   const mutation = useMutation({
@@ -46,15 +46,19 @@ export function AdobeKeywordsClient({ tool }: { tool: ToolEntry }) {
   });
 
   const canGenerate =
-    subject.trim().length > 0 && !mutation.isPending && (tool.isFree || credits >= tool.creditCost);
+    subject.trim().length > 0 && !mutation.isPending && (tool.isFree || unlimited || credits >= tool.creditCost);
 
   const copyAll = async () => {
     if (!result) return;
     const text = [...result.keywords, ...result.longTail].join(', ');
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-    toast({ title: 'Copied', variant: 'success' });
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      toast({ title: 'Copied', variant: 'success' });
+    } catch {
+      toast({ title: 'Copy failed', description: 'Clipboard access was denied.', variant: 'error' });
+    }
   };
 
   const exportCsv = () => {
@@ -105,7 +109,7 @@ export function AdobeKeywordsClient({ tool }: { tool: ToolEntry }) {
                 'Generate keywords'
               )}
             </Button>
-            {!tool.isFree && credits < tool.creditCost && (
+            {!tool.isFree && !unlimited && credits < tool.creditCost && (
               <p className="flex items-center gap-1.5 text-xs text-amber-400">
                 You need {tool.creditCost} credits but have {credits}.
               </p>

@@ -13,7 +13,8 @@ export async function GET() {
       unlimited,
     });
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message }), {
+    console.error('credits fetch failed', e);
+    return new Response(JSON.stringify({ error: 'internal_error' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
     });

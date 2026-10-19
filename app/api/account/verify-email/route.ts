@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { verifyEmail, verifyEmailOtp, resendEmailOtp } from '@/lib/email/verification';
+import { rateLimitResponse } from '@/lib/rate-limit';
 
 const VerifySchema = z.object({
   token: z.string(),
@@ -34,6 +35,10 @@ export async function GET(req: Request) {
 
 /** OTP verification (alternative to the magic link). */
 export async function POST(req: Request) {
+  // Rate limit: 10 OTP attempts per minute per IP.
+  const limited = rateLimitResponse(req, { max: 10, windowMs: 60_000, scope: 'verify-otp' });
+  if (limited) return limited;
+
   try {
     const body = await req.json();
     const parsed = OtpSchema.safeParse(body);
@@ -42,7 +47,8 @@ export async function POST(req: Request) {
     }
     const { email, otp } = parsed.data;
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return NextResponse.json({ error: 'user_not_found' }, { status: 404 });
+    // Generic error to avoid revealing whether the email is registered.
+    if (!user) return NextResponse.json({ error: 'verification_failed' }, { status: 400 });
     const result = await verifyEmailOtp(user.id, otp);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
@@ -55,6 +61,10 @@ export async function POST(req: Request) {
 
 /** Resend the verification email. */
 export async function PUT(req: Request) {
+  // Rate limit: 5 resends per minute per IP.
+  const limited = rateLimitResponse(req, { max: 5, windowMs: 60_000, scope: 'resend-otp' });
+  if (limited) return limited;
+
   try {
     const body = await req.json();
     const parsed = ResendSchema.safeParse(body);
@@ -63,7 +73,8 @@ export async function PUT(req: Request) {
     }
     const { email } = parsed.data;
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return NextResponse.json({ error: 'user_not_found' }, { status: 404 });
+    // Generic error to avoid revealing whether the email is registered.
+    if (!user) return NextResponse.json({ error: 'resend_failed' }, { status: 400 });
     if (user.emailVerified) {
       return NextResponse.json({ ok: true, alreadyVerified: true });
     }

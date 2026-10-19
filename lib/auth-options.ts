@@ -89,12 +89,10 @@ export const authOptions: any = {
         let ok = false;
         if (hash) {
           ok = await bcrypt.compare(credentials.password, hash);
-        } else if (
-          process.env.SEED_PASSWORD &&
-          credentials.password === process.env.SEED_PASSWORD
-        ) {
-          ok = true;
         }
+        // NOTE: SEED_PASSWORD fallback removed (security fix 19 Oct 2026).
+        // Previously any account without a passwordHash (e.g. Google-OAuth users)
+        // could be logged into with just the email + SEED_PASSWORD.
         if (!ok) return null;
         return {
           id: user.id,

@@ -27,7 +27,7 @@ export function PaletteClient({ tool }: { tool: ToolEntry }) {
   >(null);
   const [copied, setCopied] = React.useState<string | null>(null);
   const toast = useToast();
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   const queryClient = useQueryClient();
 
   const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
@@ -35,7 +35,7 @@ export function PaletteClient({ tool }: { tool: ToolEntry }) {
   const canProcess =
     readyFiles.length > 0 &&
     !files.some((f) => f.status === 'analyzing') &&
-    (tool.isFree || credits >= totalCost);
+    (tool.isFree || unlimited || credits >= totalCost);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -59,9 +59,15 @@ export function PaletteClient({ tool }: { tool: ToolEntry }) {
   });
 
   const copyHex = (hex: string) => {
-    navigator.clipboard.writeText(hex);
-    setCopied(hex);
-    setTimeout(() => setCopied(null), 1500);
+    navigator.clipboard.writeText(hex).then(
+      () => {
+        setCopied(hex);
+        setTimeout(() => setCopied(null), 1500);
+      },
+      () => {
+        /* clipboard denied — leave UI unchanged */
+      },
+    );
   };
 
   const exportCss = () => {
@@ -97,7 +103,7 @@ export function PaletteClient({ tool }: { tool: ToolEntry }) {
                 'Extract palette'
               )}
             </Button>
-            {!tool.isFree && credits < totalCost && readyFiles.length > 0 && (
+            {!tool.isFree && !unlimited && credits < totalCost && readyFiles.length > 0 && (
               <p className="flex items-center gap-1.5 text-xs text-amber-400">
                 <AlertCircle className="h-3.5 w-3.5" />
                 You need {totalCost} credits but have {credits}.

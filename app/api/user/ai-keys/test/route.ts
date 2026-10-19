@@ -78,8 +78,9 @@ export async function POST(req: Request) {
     if (e.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
+    console.error('ai-keys test failed', e);
     return NextResponse.json(
-      { ok: false, error: e.message || 'Connection test failed' },
+      { ok: false, error: 'internal_error' },
       { status: 200 },
     );
   }

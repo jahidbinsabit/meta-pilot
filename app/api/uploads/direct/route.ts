@@ -19,14 +19,13 @@ export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 const MAX_BYTES = 25 * 1024 * 1024;
-const ALLOWED = new Set(['.jpg', '.jpeg', '.png', '.webp', '.svg', '.eps', '.ai']);
+const ALLOWED = new Set(['.jpg', '.jpeg', '.png', '.webp', '.eps', '.ai']);
 
 const MIME_BY_EXT: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
   '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
   '.eps': 'image/x-eps',
   '.ai': 'application/illustrator',
 };
@@ -50,7 +49,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error: 'unsupported_format',
-          message: 'Supported formats: JPG, PNG, WEBP, SVG, EPS, AI.',
+          message: 'Supported formats: JPG, PNG, WEBP, EPS, AI.',
         },
         { status: 400 },
       );

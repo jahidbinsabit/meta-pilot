@@ -24,6 +24,7 @@ export async function logAiCall(entry: AiCallLogEntry): Promise<void> {
         toolSlug: entry.toolSlug,
         provider: entry.provider,
         model: entry.model,
+        userId: entry.userId,
         latencyMs: entry.latencyMs,
         promptTokens: entry.promptTokens,
         completionTokens: entry.completionTokens,

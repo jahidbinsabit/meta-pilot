@@ -52,6 +52,14 @@ export async function verifyEmailOtp(userId: string, otp: string) {
     orderBy: { createdAt: 'desc' },
   });
   if (!record) return { ok: false, error: 'no_pending_otp' };
+  // Max 5 attempts: invalidate the OTP to stop brute-forcing.
+  if (record.attempts >= 5) {
+    await prisma.emailVerification.update({
+      where: { id: record.id },
+      data: { usedAt: new Date() },
+    });
+    return { ok: false, error: 'too_many_attempts' };
+  }
   if (record.otp !== otp.toUpperCase()) {
     await prisma.emailVerification.update({
       where: { id: record.id },

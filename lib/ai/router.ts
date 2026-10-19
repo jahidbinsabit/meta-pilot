@@ -67,6 +67,7 @@ export async function generateWithAI(opts: {
     maxTokens: opts.maxTokens,
     temperature: opts.temperature,
     maxRetries: opts.maxRetries,
+    userId: opts.userId,
   };
 
   // If userId is provided, check for user-configured API keys first or if key is required

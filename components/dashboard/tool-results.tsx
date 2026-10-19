@@ -26,9 +26,13 @@ export function ResultsList({ rows, onExport, exportLabel = 'Export' }: ResultsL
   const [copied, setCopied] = React.useState<string | null>(null);
 
   const copy = async (id: string, text: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 1500);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(id);
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      /* clipboard denied — leave UI unchanged */
+    }
   };
 
   if (rows.length === 0) {
@@ -126,10 +130,16 @@ export function PaletteResults({ colors, onCopy }: PaletteResultsProps) {
   const [copied, setCopied] = React.useState<string | null>(null);
 
   const copy = (hex: string) => {
-    navigator.clipboard.writeText(hex);
-    setCopied(hex);
-    onCopy?.(hex);
-    setTimeout(() => setCopied(null), 1500);
+    navigator.clipboard.writeText(hex).then(
+      () => {
+        setCopied(hex);
+        onCopy?.(hex);
+        setTimeout(() => setCopied(null), 1500);
+      },
+      () => {
+        /* clipboard denied — leave UI unchanged */
+      },
+    );
   };
 
   if (colors.length === 0) {

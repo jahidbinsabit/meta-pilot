@@ -16,6 +16,8 @@ export interface CreditResult {
   balance: number;
   transactionId?: string;
   error?: string;
+  /** True only when credits were actually deducted. False in unlimited mode. */
+  deducted?: boolean;
 }
 
 export interface WalletState {
@@ -96,7 +98,7 @@ export async function deductCredits(
     const settings = await getSiteSettings();
     if (settings?.unlimitedMode === true) {
       const wallet = await prisma.creditWallet.findUnique({ where: { userId } });
-      return { ok: true, balance: wallet?.balance ?? 0 };
+      return { ok: true, balance: wallet?.balance ?? 0, deducted: false };
     }
   } catch {
     // If settings can't be read, fall through to normal deduction.
@@ -124,7 +126,7 @@ export async function deductCredits(
     const t = await tx.creditTransaction.create({
       data: { userId, amount: -amount, type: type as any, metadata: metadata as any },
     });
-    return { ok: true, balance: newBalance, transactionId: t.id };
+    return { ok: true, balance: newBalance, transactionId: t.id, deducted: true };
   });
 }
 
@@ -190,19 +192,30 @@ export async function grantBonus(
   amount: number,
   reason: string = 'daily_free',
   metadata?: Record<string, unknown>,
-): Promise<{ balance: number; transactionId: string }> {
+): Promise<{ balance: number; transactionId: string; granted: boolean }> {
   if (!Number.isInteger(amount) || amount <= 0) {
     throw new Error('amount must be a positive integer');
   }
   let transactionId = '';
+  let granted = true;
+  const now = new Date();
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const balance = await prisma.$transaction(async (tx) => {
-    const wallet = await tx.creditWallet.findUnique({ where: { userId } });
+    let wallet = await tx.creditWallet.findUnique({ where: { userId } });
     if (!wallet) {
-      await tx.creditWallet.create({ data: { userId, balance: 0 } });
-      return 0;
+      // Create the wallet AND grant the amount — never silently drop a grant.
+      wallet = await tx.creditWallet.create({ data: { userId, balance: 0 } });
+    }
+    // Idempotency: for daily grants, skip if already granted today.
+    // This check is inside the transaction so concurrent cron runs can't double-grant.
+    if (reason === 'daily_free' && wallet.lastDailyGrantAt && wallet.lastDailyGrantAt >= startOfDay) {
+      granted = false;
+      return wallet.balance;
     }
     const next = wallet.balance + amount;
-    await tx.creditWallet.update({ where: { userId }, data: { balance: next } });
+    const updateData: any = { balance: next };
+    if (reason === 'daily_free') updateData.lastDailyGrantAt = now;
+    await tx.creditWallet.update({ where: { userId }, data: updateData });
     await syncUserCredits(tx, userId, next);
     const t = await tx.creditTransaction.create({
       data: { userId, amount, type: 'DAILY_GRANT', reason, metadata: metadata as any },
@@ -210,7 +223,7 @@ export async function grantBonus(
     transactionId = t.id;
     return next;
   });
-  return { balance, transactionId };
+  return { balance, transactionId, granted };
 }
 
 /**
@@ -243,10 +256,10 @@ export async function grantDailyCredits(userId: string): Promise<{
   const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
   return prisma.$transaction(async (tx) => {
-    const wallet = await tx.creditWallet.findUnique({ where: { userId } });
+    let wallet = await tx.creditWallet.findUnique({ where: { userId } });
     if (!wallet) {
-      await tx.creditWallet.create({ data: { userId, balance: 0 } });
-      return { granted: false, balance: 0, amount };
+      // Create the wallet AND proceed with the grant — never silently drop it.
+      wallet = await tx.creditWallet.create({ data: { userId, balance: 0 } });
     }
     if (wallet.lastDailyGrantAt && wallet.lastDailyGrantAt >= startOfDay) {
       return { granted: false, balance: wallet.balance, amount };

@@ -23,6 +23,7 @@ model Account {
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@index([userId])
 }
 
 model AdobeAnalyticsQuery {
@@ -44,6 +45,7 @@ model AiCallLog {
   toolSlug         String
   provider         String
   model            String
+  userId           String?
   latencyMs        Int
   promptTokens     Int?
   completionTokens Int?
@@ -58,6 +60,7 @@ model AiCallLog {
   @@index([provider])
   @@index([success])
   @@index([toolSlug])
+  @@index([userId])
 }
 
 model AiProviderConfig {
@@ -381,6 +384,9 @@ model Session {
   sessionToken String   @unique
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expires])
 }
 
 model SiteSettings {

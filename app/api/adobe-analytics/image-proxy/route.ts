@@ -42,10 +42,25 @@ export async function GET(req: Request) {
         Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
       },
       cache: 'force-cache',
+      // Never follow redirects server-side: an allowlisted host could
+      // redirect to an internal/metadata URL (SSRF).
+      redirect: 'manual',
+      signal: AbortSignal.timeout(30000),
     });
+
+    // Reject redirects outright rather than following them.
+    if (res.status >= 300 && res.status < 400) {
+      return new NextResponse('Redirects not allowed', { status: 400 });
+    }
 
     if (!res.ok) {
       return new NextResponse(`Upstream returned ${res.status}`, { status: res.status });
+    }
+
+    // 10MB cap — refuse to buffer huge responses into memory.
+    const len = Number(res.headers.get('content-length') || 0);
+    if (len > 10 * 1024 * 1024) {
+      return new NextResponse('Image too large', { status: 413 });
     }
 
     const contentType = res.headers.get('content-type') || 'image/jpeg';

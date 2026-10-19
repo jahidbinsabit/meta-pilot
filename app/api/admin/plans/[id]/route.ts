@@ -61,6 +61,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ error: 'plan_not_found' }, { status: 404 });
   }
 
+  // Deleting a plan with active memberships would raise a foreign-key
+  // violation (P2003). Block it with a clear 400 instead.
+  const membershipCount = await prisma.membership.count({ where: { planId: id } });
+  if (membershipCount > 0) {
+    return NextResponse.json(
+      { error: 'plan_has_active_memberships', count: membershipCount },
+      { status: 400 },
+    );
+  }
+
   await prisma.plan.delete({ where: { id } });
 
   await prisma.auditLog.create({

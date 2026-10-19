@@ -26,7 +26,8 @@ export async function GET(req: Request) {
     if (e.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
-    return NextResponse.json({ error: e.message || 'failed_to_fetch_keys' }, { status: 500 });
+    console.error('ai-keys fetch failed', e);
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }
 
@@ -107,7 +108,8 @@ export async function POST(req: Request) {
     if (e.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
-    return NextResponse.json({ error: e.message || 'failed_to_save_keys' }, { status: 500 });
+    console.error('ai-keys save failed', e);
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }
 

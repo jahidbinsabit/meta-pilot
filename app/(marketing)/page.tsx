@@ -23,6 +23,7 @@ import {
   Key,
 } from 'lucide-react';
 import { prisma } from '@/lib/db';
+import { getSiteSettings } from '@/lib/site-settings';
 import { Hero3DVisual } from '@/components/marketing/hero-3d-visual';
 import { HOMEPAGE_DEFAULTS } from '@/lib/homepage-defaults';
 
@@ -114,6 +115,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function HomePage() {
   const dbContent = await getHomepageContent();
+  const siteSettings = await getSiteSettings().catch(() => null);
+  const signupCredits =
+    typeof siteSettings?.signupCredits === 'number' ? siteSettings.signupCredits : 20;
   const hero = dbContent.hero || HOMEPAGE_DEFAULTS.hero;
   const features = dbContent.features || HOMEPAGE_DEFAULTS.features;
   const howItWorks = dbContent.howItWorks || HOMEPAGE_DEFAULTS.howItWorks;
@@ -203,7 +207,7 @@ export default async function HomePage() {
               style={{ animationDelay: '0.4s' }}
             >
               <span className="flex items-center gap-1.5">
-                <CheckCircle className="h-4 w-4 text-emerald-500" /> 20 free credits
+                <CheckCircle className="h-4 w-4 text-emerald-500" /> {signupCredits} free credits
               </span>
               <span className="flex items-center gap-1.5">
                 <CheckCircle className="h-4 w-4 text-emerald-500" /> No card required

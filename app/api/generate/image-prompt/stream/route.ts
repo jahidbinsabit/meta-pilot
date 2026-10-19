@@ -40,8 +40,11 @@ async function toBase64(img: PromptImage): Promise<{ data: string; mime: string 
     if (dataUrlMatch) {
       buf = Buffer.from(dataUrlMatch[2], 'base64');
     } else {
-      const res = await fetch(img.previewUrl);
+      const res = await fetch(img.previewUrl, { signal: AbortSignal.timeout(30000) });
       if (!res.ok) throw new Error('preview_fetch_failed');
+      // 10MB cap — refuse to buffer huge responses into memory.
+      const len = Number(res.headers.get('content-length') || 0);
+      if (len > 10 * 1024 * 1024) throw new Error('preview_too_large');
       buf = Buffer.from(await res.arrayBuffer());
     }
   } else {
@@ -138,7 +141,7 @@ export async function POST(req: Request) {
       toolSlug: TOOL_SLUG,
       status: 'PROCESSING',
       inputFileUrls: images.map((i) => i.key || i.fileName || ''),
-      creditsCharged: total,
+      creditsCharged: deduction.deducted === true ? total : 0,
       outputData: {
         style: preset.slug,
         styleLabel: preset.label,
@@ -245,7 +248,9 @@ export async function POST(req: Request) {
       await Promise.all(workers);
 
       let balance = deduction.balance;
-      if (failed > 0) {
+      // Skip refund in unlimited mode — nothing was deducted, refunding
+      // would mint phantom credits.
+      if (failed > 0 && deduction.deducted === true) {
         try {
           const refund = await refundCredits(user.id, job.id, failed * costPerImage, {
             toolSlug: TOOL_SLUG,

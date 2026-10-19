@@ -140,6 +140,7 @@ export abstract class BaseAdapter implements AiAdapter {
       toolSlug: req.toolSlug,
       provider: this.id,
       model: req.model || this.defaultModelName(),
+      userId: req.userId,
       latencyMs,
       promptTokens: usage.promptTokens,
       completionTokens: usage.completionTokens,

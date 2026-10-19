@@ -275,11 +275,18 @@ export function MetadataGenerator({
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
+            // Parse separately so a backend 'error' event thrown below
+            // propagates to the outer catch (toast) instead of being
+            // swallowed here as a parse warning.
+            let data: any;
             try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.type === 'init') {
-                console.log(`Starting generation for ${data.total} images`);
+              data = JSON.parse(line.slice(6));
+            } catch {
+              console.warn('Failed to parse SSE data:', line);
+              continue;
+            }
+
+            if (data.type === 'init') {
               } else if (data.type === 'processing') {
                 // Image is now being processed - no UI change needed since shimmer is already showing
               } else if (data.type === 'result') {
@@ -336,9 +343,6 @@ export function MetadataGenerator({
               } else if (data.type === 'error') {
                 throw new Error(data.error || 'Generation failed');
               }
-            } catch (parseError) {
-              console.warn('Failed to parse SSE data:', line);
-            }
           }
         }
       }
@@ -866,13 +870,17 @@ export function MetadataGenerator({
                       size="sm"
                       className="h-7 text-[11px]"
                       onClick={async () => {
-                        await navigator.clipboard.writeText(
-                          rows
-                            .filter((r) => r.status === 'complete')
-                            .map((r) => `${r.fileName}\t${r.title}`)
-                            .join('\n'),
-                        );
-                        toast({ title: 'Copied titles to clipboard', variant: 'success' });
+                        try {
+                          await navigator.clipboard.writeText(
+                            rows
+                              .filter((r) => r.status === 'complete')
+                              .map((r) => `${r.fileName}\t${r.title}`)
+                              .join('\n'),
+                          );
+                          toast({ title: 'Copied titles to clipboard', variant: 'success' });
+                        } catch {
+                          toast({ title: 'Copy failed', description: 'Clipboard access was denied.', variant: 'error' });
+                        }
                       }}
                     >
                       <Copy className="h-3 w-3" />
@@ -998,14 +1006,22 @@ export function MetadataGenerator({
                         onRemove={removeFile}
                         onRegenerate={regenerateSingle}
                         onCopyTitle={async (title, id) => {
-                          await navigator.clipboard.writeText(title);
-                          setCopiedId(`title-${id}`);
-                          setTimeout(() => setCopiedId(null), 1500);
+                          try {
+                            await navigator.clipboard.writeText(title);
+                            setCopiedId(`title-${id}`);
+                            setTimeout(() => setCopiedId(null), 1500);
+                          } catch {
+                            toast({ title: 'Copy failed', variant: 'error' });
+                          }
                         }}
                         onCopyKeywords={async (keywords, id) => {
-                          await navigator.clipboard.writeText(keywords.join(", "));
-                          setCopiedId(`kw-${id}`);
-                          setTimeout(() => setCopiedId(null), 1500);
+                          try {
+                            await navigator.clipboard.writeText(keywords.join(", "));
+                            setCopiedId(`kw-${id}`);
+                            setTimeout(() => setCopiedId(null), 1500);
+                          } catch {
+                            toast({ title: 'Copy failed', variant: 'error' });
+                          }
                         }}
                         copiedId={copiedId}
                       />

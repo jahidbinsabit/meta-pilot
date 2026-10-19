@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import crypto from 'crypto';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -69,9 +70,11 @@ export function sleep(ms: number) {
 }
 
 export function randomString(len = 32) {
+  // Cryptographically secure: uses crypto.randomInt, not Math.random().
+  // Used for OTPs and tokens, so predictability would be a vulnerability.
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let s = '';
-  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < len; i++) s += chars[crypto.randomInt(chars.length)];
   return s;
 }
 

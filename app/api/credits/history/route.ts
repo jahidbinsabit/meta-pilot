@@ -8,7 +8,8 @@ export async function GET() {
     const history = await getCreditHistory(user.id, 50);
     return NextResponse.json(history);
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message }), {
+    console.error('credit history fetch failed', e);
+    return new Response(JSON.stringify({ error: 'internal_error' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
     });

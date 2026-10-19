@@ -224,10 +224,16 @@ async function toInlineImage(url: string): Promise<{ data: string; mimeType: str
   // 5. External HTTP(S) URL
   if (!buf && /^https?:\/\//i.test(url)) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
       if (res.ok) {
-        mime = res.headers.get('content-type') || 'image/jpeg';
-        buf = Buffer.from(await res.arrayBuffer());
+        // 10MB cap — refuse to buffer huge responses into memory.
+        const len = Number(res.headers.get('content-length') || 0);
+        if (len > 10 * 1024 * 1024) {
+          console.warn(`[toInlineImage] ${url} too large (${len} bytes), skipping`);
+        } else {
+          mime = res.headers.get('content-type') || 'image/jpeg';
+          buf = Buffer.from(await res.arrayBuffer());
+        }
       } else {
         console.warn(`[toInlineImage] fetch ${url} returned ${res.status}`);
       }

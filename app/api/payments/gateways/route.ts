@@ -14,6 +14,6 @@ export async function GET() {
     return NextResponse.json({ gateways: publicGateways });
   } catch (e: any) {
     console.error('Failed to fetch gateways:', e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
   }
 }

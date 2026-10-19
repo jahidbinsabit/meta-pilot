@@ -145,9 +145,12 @@ async function main() {
   const seedPassword = process.env.SEED_PASSWORD || 'admin123';
   const passwordHash = await bcrypt.hash(seedPassword, 12);
 
+  // Re-running the seed must NOT overwrite an admin-changed password or
+  // reset their credit balance. Only ensure the account exists and has the
+  // ADMIN role; password and credits are set on create only.
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
-    update: { role: 'ADMIN', passwordHash, membership: 'ENTERPRISE', credits: 10000 },
+    update: { role: 'ADMIN' },
     create: {
       email: adminEmail,
       name: 'StockForge Admin',
@@ -160,10 +163,11 @@ async function main() {
 
   // Ensure the admin has a credit wallet. `User.credits` and
   // `CreditWallet.balance` are kept in sync by the credit engine, so the
-  // wallet balance is the source of truth — seed it to match.
+  // wallet balance is the source of truth — seed it to match only when the
+  // wallet is first created, never reset an existing balance.
   await prisma.creditWallet.upsert({
     where: { userId: admin.id },
-    update: { balance: 10000 },
+    update: {},
     create: { userId: admin.id, balance: 10000 },
   });
 

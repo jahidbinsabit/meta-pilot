@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { GoogleColorIcon } from "@/components/auth/google-icon";
 
-export function LoginForm() {
+export function LoginForm({ signupCredits = 20 }: { signupCredits?: number }) {
   const toast = useToast();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -137,12 +137,13 @@ export function LoginForm() {
         {/* Form Fields */}
         <form onSubmit={onCredentials} className="mt-5 space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-foreground/90">Email address</label>
+            <label htmlFor="login-email" className="text-xs font-semibold text-foreground/90">Email address</label>
             <div className="relative">
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-muted-foreground">
                 <Mail className="h-4 w-4" />
               </div>
               <Input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); setError(null); }}
@@ -156,7 +157,7 @@ export function LoginForm() {
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-foreground/90">Password</label>
+              <label htmlFor="login-password" className="text-xs font-semibold text-foreground/90">Password</label>
               <Link href="/signup" className="text-2xs font-medium text-accent hover:underline">
                 Need help?
               </Link>
@@ -166,6 +167,7 @@ export function LoginForm() {
                 <Lock className="h-4 w-4" />
               </div>
               <Input
+                id="login-password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError(null); }}
@@ -228,7 +230,7 @@ export function LoginForm() {
             <Link href="/signup" className="font-semibold text-accent hover:underline inline-flex items-center gap-1.5">
               <span>Create account</span>
               <span className="rounded-md bg-accent/15 px-1.5 py-0.5 text-2xs font-bold text-accent">
-                +20 Free Credits
+                +{signupCredits} Free Credits
               </span>
             </Link>
           </p>

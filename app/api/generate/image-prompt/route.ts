@@ -125,7 +125,7 @@ export async function POST(req: Request) {
         toolSlug: TOOL_SLUG,
         status: 'PROCESSING',
         inputFileUrls: images.map((i) => i.key || i.fileName || ''),
-        creditsCharged: total,
+        creditsCharged: deduction.deducted === true ? total : 0,
         outputData: {
           style: preset.slug,
           styleLabel: preset.label,
@@ -204,8 +204,10 @@ export async function POST(req: Request) {
     }
 
     // Auto-refund every failed image — never charge for a failed generation.
+    // Skip entirely in unlimited mode (deduction.deducted === false) —
+    // refunding when nothing was deducted would mint phantom credits.
     let balance = deduction.balance;
-    if (failed > 0) {
+    if (failed > 0 && deduction.deducted === true) {
       try {
         const refund = await refundCredits(user.id, job.id, failed * costPerImage, {
           toolSlug: TOOL_SLUG,

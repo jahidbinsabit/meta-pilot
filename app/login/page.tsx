@@ -17,6 +17,8 @@ export async function generateMetadata() {
 export default async function LoginPage() {
   const settings = await getSiteSettings().catch(() => null);
   const siteName = settings?.siteName || "StockForge AI";
+  const signupCredits =
+    typeof settings?.signupCredits === "number" ? settings.signupCredits : 20;
   return (
     <div className="relative min-h-screen w-full bg-background text-foreground flex flex-col justify-between overflow-x-hidden selection:bg-accent/30">
       {/* Background ambient light effects */}
@@ -32,7 +34,7 @@ export default async function LoginPage() {
         {/* Left Side: Form Container */}
         <div className="flex flex-col justify-between px-6 py-8 sm:px-12 lg:col-span-6 xl:col-span-5 lg:px-14 xl:px-16">
           <LoginHeader siteName={siteName} />
-          <LoginForm />
+          <LoginForm signupCredits={signupCredits} />
           <div className="pt-4 text-2xs text-muted-foreground/60 flex items-center justify-between border-t border-border/40">
             <span>© {new Date().getFullYear()} {siteName}.</span>
             <div className="flex items-center gap-4">

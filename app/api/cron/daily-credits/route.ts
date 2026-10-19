@@ -15,15 +15,20 @@ export async function GET(req: Request) {
   const cronSecret = req.headers.get('x-cron-secret');
   const expectedSecret = process.env.CRON_SECRET;
 
-  if (expectedSecret) {
-    const validBearer = authHeader === `Bearer ${expectedSecret}`;
-    const validHeader = cronSecret === expectedSecret;
-    if (!validBearer && !validHeader) {
-      return new Response(JSON.stringify({ error: 'unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+  // Fail CLOSED: if no CRON_SECRET is configured, deny all requests.
+  if (!expectedSecret) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  const validBearer = authHeader === `Bearer ${expectedSecret}`;
+  const validHeader = cronSecret === expectedSecret;
+  if (!validBearer && !validHeader) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   const today = new Date();
@@ -36,22 +41,46 @@ export async function GET(req: Request) {
   });
   const grantedSet = new Set(alreadyGranted.map((r) => r.userId));
 
-  const users = await prisma.user.findMany({
-    where: { deletedAt: null },
-    select: { id: true, membership: true },
-  });
-
   const plans = await prisma.plan.findMany();
   const dailyByTier = new Map(plans.map((p) => [p.tier, p.dailyFreeCredits]));
 
+  // Process users in batches of 100 — never load the whole table into memory.
+  // Each user's grant is wrapped in try/catch so one failure can't abort the
+  // entire run for the remaining users.
+  const BATCH = 100;
+  let cursor: string | undefined;
   let granted = 0;
-  for (const u of users) {
-    if (grantedSet.has(u.id)) continue;
-    const daily = dailyByTier.get(u.membership as any) ?? 0;
-    if (daily <= 0) continue;
-    await grantBonus(u.id, daily, 'daily_free');
-    granted++;
+  let failed = 0;
+  let total = 0;
+
+  for (;;) {
+    const batch: Array<{ id: string; membership: string }> = await prisma.user.findMany({
+      where: { deletedAt: null },
+      select: { id: true, membership: true },
+      orderBy: { id: 'asc' },
+      take: BATCH,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    if (batch.length === 0) break;
+    total += batch.length;
+
+    for (const u of batch) {
+      if (grantedSet.has(u.id)) continue;
+      const daily = dailyByTier.get(u.membership as any) ?? 0;
+      if (daily <= 0) continue;
+      try {
+        const result = await grantBonus(u.id, daily, 'daily_free');
+        // grantBonus is idempotent via lastDailyGrantAt — only count actual grants.
+        if (result.granted) granted++;
+      } catch (e) {
+        failed++;
+        console.error(`[daily-credits] grant failed for user ${u.id}:`, e);
+      }
+    }
+
+    cursor = batch[batch.length - 1].id;
+    if (batch.length < BATCH) break;
   }
 
-  return NextResponse.json({ ok: true, granted, total: users.length });
+  return NextResponse.json({ ok: true, granted, failed, total });
 }

@@ -48,7 +48,7 @@ export function MobileNav({
   logoUrl,
 }: MobileNavProps) {
   const pathname = usePathname();
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   const isAdmin = user.role === 'ADMIN';
 
   // CSS enter animations replace framer-motion (exit = instant close).
@@ -125,8 +125,10 @@ export function MobileNav({
               <TrendingUp className="h-3 w-3 text-muted-foreground" />
             </div>
             <div className="mt-2 flex items-baseline gap-1">
-              <span className="font-mono text-xl font-semibold text-foreground">{credits}</span>
-              <span className="text-xs text-muted-foreground">available</span>
+              <span className="font-mono text-xl font-semibold text-foreground">
+                {unlimited ? 'Unlimited' : credits}
+              </span>
+              {!unlimited && <span className="text-xs text-muted-foreground">available</span>}
             </div>
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div

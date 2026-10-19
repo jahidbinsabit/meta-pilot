@@ -21,7 +21,7 @@ export function DitherClient({ tool }: { tool: ToolEntry }) {
   const [matrixSize, setMatrixSize] = React.useState<4 | 8>(4);
   const [resultUrl, setResultUrl] = React.useState<string | null>(null);
   const toast = useToast();
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   const queryClient = useQueryClient();
 
   const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
@@ -29,7 +29,7 @@ export function DitherClient({ tool }: { tool: ToolEntry }) {
   const canProcess =
     readyFiles.length > 0 &&
     !files.some((f) => f.status === 'analyzing') &&
-    (tool.isFree || credits >= totalCost);
+    (tool.isFree || unlimited || credits >= totalCost);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -143,7 +143,7 @@ export function DitherClient({ tool }: { tool: ToolEntry }) {
                 'Apply dithering'
               )}
             </Button>
-            {!tool.isFree && credits < totalCost && readyFiles.length > 0 && (
+            {!tool.isFree && !unlimited && credits < totalCost && readyFiles.length > 0 && (
               <p className="flex items-center gap-1.5 text-xs text-amber-400">
                 <AlertCircle className="h-3.5 w-3.5" />
                 You need {totalCost} credits but have {credits}.

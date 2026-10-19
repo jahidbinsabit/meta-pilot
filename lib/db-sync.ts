@@ -33,6 +33,14 @@ export async function ensureDatabaseSchema(): Promise<void> {
           ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "openaiApiKey" TEXT;
           ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "preferredAiProvider" TEXT;
           ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "deletedAt" TIMESTAMP(3);
+          ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "deletedPurgeAt" TIMESTAMP(3);
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
+
+        -- AiCallLog columns
+        BEGIN
+          ALTER TABLE "AiCallLog" ADD COLUMN IF NOT EXISTS "userId" TEXT;
+          CREATE INDEX IF NOT EXISTS "AiCallLog_userId_idx" ON "AiCallLog"("userId");
         EXCEPTION WHEN OTHERS THEN NULL;
         END;
       END $$;
