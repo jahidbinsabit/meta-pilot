@@ -19,6 +19,8 @@ const CONTENT_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
   eps: 'image/eps',
   ai: 'application/illustrator',
 };
@@ -94,7 +96,10 @@ export async function GET(req: Request, { params }: { params: { key: string[] } 
       'X-Content-Type-Options': 'nosniff',
     };
     if (!inlineSafe) {
-      headers['Content-Disposition'] = `attachment; filename="${key.split('/').pop()}"`;
+      // L2: sanitize filename — strip quotes/CR/LF to block header injection.
+      const rawName = key.split('/').pop() || 'file';
+      const safeName = rawName.replace(/["\r\n]/g, '');
+      headers['Content-Disposition'] = `attachment; filename="${safeName}"`;
     }
     return new Response(new Uint8Array(body), {
       status: 200,

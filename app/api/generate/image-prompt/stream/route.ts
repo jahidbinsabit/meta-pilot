@@ -1,11 +1,12 @@
 import { requireApiUserOrKey } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
-import { deductCredits, refundCredits } from '@/lib/credits/engine';
+import { deductCredits, getBalance, refundCredits } from '@/lib/credits/engine';
 import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { getToolCost } from '@/lib/credits/cost';
 import { generateWithAI } from '@/lib/ai';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
 import { downloadFile } from '@/lib/s3/client';
+import { ownsStorageKey } from '@/lib/api/ownership';
 import { resizeImage } from '@/lib/generator/images';
 import { getPresetBySlug } from '@/lib/prompt-styles/presets';
 import type { ImagePromptResult } from '@/lib/prompt-styles/types';
@@ -122,9 +123,26 @@ export async function POST(req: Request) {
     });
   }
 
+  // H1: ownership check — client-supplied S3 keys must belong to this
+  // user, otherwise one user can fetch another user's image bytes (IDOR).
+  // Same helper as the tools routes (lib/api/ownership.ts).
+  for (const img of images) {
+    if (img.key && !ownsStorageKey(user.id, img.key)) {
+      return new Response(sse({ type: 'error', error: 'forbidden' }), {
+        status: 403,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    }
+  }
+
   const costPerImage = await getToolCost(TOOL_SLUG);
   const total = images.length * costPerImage;
   let deduction;
+  // M1: zero total (admin set the tool free) — skip deduction entirely;
+  // deductCredits rejects amount <= 0, which would 402 a free tool.
+  if (total <= 0) {
+    deduction = { ok: true, deducted: false, balance: await getBalance(user.id) };
+  } else
   try {
     deduction = await deductCredits(user.id, total, 'SPEND', {
       imageCount: images.length,

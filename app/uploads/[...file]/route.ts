@@ -34,7 +34,13 @@ export async function GET(
     const user = await requireApiUser(req);
 
     const rawSegments = params.file || [];
-    const filename = rawSegments.map(decodeURIComponent).join('/');
+    // L3: malformed %-escapes throw URIError — return 400, not 500.
+    let filename: string;
+    try {
+      filename = rawSegments.map(decodeURIComponent).join('/');
+    } catch {
+      return new Response('Bad request', { status: 400 });
+    }
     const cleanName = path.basename(filename);
 
     // Safety check: prohibit path traversal
@@ -67,7 +73,9 @@ export async function GET(
       'X-Content-Type-Options': 'nosniff',
     };
     if (!inlineSafe) {
-      headers['Content-Disposition'] = `attachment; filename="${cleanName}"`;
+      // L2: sanitize filename — strip quotes/CR/LF to block header injection.
+      const safeName = cleanName.replace(/["\r\n]/g, '');
+      headers['Content-Disposition'] = `attachment; filename="${safeName}"`;
     }
 
     return new Response(new Uint8Array(buffer), {

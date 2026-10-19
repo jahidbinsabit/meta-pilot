@@ -5,7 +5,7 @@ import { buildMetadataPrompt, buildRetrySystemPrompt } from '@/lib/generator/pro
 import type { TargetPlatform } from '@/lib/generator/types';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
-import { deductCredits, refundCredits } from '@/lib/credits/engine';
+import { deductCredits, getBalance, refundCredits } from '@/lib/credits/engine';
 import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { getToolCost } from '@/lib/credits/cost';
 
@@ -86,6 +86,11 @@ export async function POST(req: Request) {
   const costPerImage = await getToolCost('metadata-generator');
   const total = images.length * costPerImage;
   let deduction;
+  // M1: zero total (admin set the tool free) — skip deduction entirely;
+  // deductCredits rejects amount <= 0, which would 402 a free tool.
+  if (total <= 0) {
+    deduction = { ok: true, deducted: false, balance: await getBalance(user.id) };
+  } else
   try {
     deduction = await deductCredits(user.id, total, 'SPEND', {
       imageCount: images.length,

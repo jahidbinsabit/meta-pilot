@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Camera, User, Mail, Shield, Zap, Save } from 'lucide-react';
+import { resolveAvatarUrl } from '@/lib/avatar';
 
 interface ProfileData {
   id: string;
@@ -87,7 +88,7 @@ export function ProfileClient({ initialProfile }: { initialProfile: ProfileData 
   }
 
   const isDirty = name !== (profile.name || '') || !!avatarFile;
-  const currentAvatar = avatarPreview || profile.image;
+  const currentAvatar = avatarPreview || resolveAvatarUrl(profile.image);
 
   return (
     <div className="space-y-6">

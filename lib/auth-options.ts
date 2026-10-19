@@ -51,6 +51,23 @@ async function grantDailyFreeIfDue(userId: string) {
   await grantDailyFree(userId);
 }
 
+/** Signup credit amount: admin setting first, TRIAL_CREDITS env fallback.
+ *  Mirrors the register route so OAuth signups get the same amount. */
+async function getInitialCredits(): Promise<number> {
+  try {
+    const { getSiteSettings } = await import('@/lib/site-settings');
+    const siteSettings = await getSiteSettings();
+    if (siteSettings && typeof siteSettings.signupCredits === 'number' && siteSettings.signupCredits >= 0) {
+      return siteSettings.signupCredits;
+    }
+  } catch {
+    /* fall through to env default */
+  }
+  const trialRaw = process.env.TRIAL_CREDITS;
+  const trial = trialRaw !== undefined && trialRaw !== '' ? Number(trialRaw) : 20;
+  return isNaN(trial) || trial < 0 ? 20 : trial;
+}
+
 // ---------------------------------------------------------------------------
 // Auth options
 // ---------------------------------------------------------------------------
@@ -178,9 +195,9 @@ export const authOptions: any = {
           },
         });
         if (dbUser) {
-          const trialRaw = process.env.TRIAL_CREDITS;
-          const trial = trialRaw !== undefined && trialRaw !== '' ? Number(trialRaw) : 20;
-          const initialCredits = isNaN(trial) || trial < 0 ? 20 : trial;
+          // OAuth first-signin wallet bootstrap — uses the admin signup-credits
+          // setting (same as the register route), env fallback.
+          const initialCredits = await getInitialCredits();
 
           // Check if wallet exists or if it was initialized with 0 credits and no transactions
           const wallet = await prisma.creditWallet.findUnique({ where: { userId: dbUser.id } });
@@ -256,9 +273,8 @@ export const authOptions: any = {
         // First-login bootstrap: wallet + Free membership.
         // `CreditWallet.balance` is the source of truth; the credit engine
         // mirrors it onto `User.credits` on every movement.
-        const trialRaw = process.env.TRIAL_CREDITS;
-        const trial = trialRaw !== undefined && trialRaw !== '' ? Number(trialRaw) : 20;
-        const initialCredits = isNaN(trial) || trial < 0 ? 20 : trial;
+        // Uses the admin signup-credits setting (same as the register route).
+        const initialCredits = await getInitialCredits();
 
         await prisma.user.update({
           where: { id: user.id },

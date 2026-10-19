@@ -127,6 +127,20 @@ export async function POST(req: Request) {
       const finalAmountBDT = currency === 'BDT' ? Math.round(amountBDT) : 0;
       const finalAmountUSD = currency === 'USD' ? amountUSD : 0;
 
+      // M5: reject duplicate transaction refs — the same bKash/Nagad TrxID
+      // must not be submitted twice (double-approval would double-grant).
+      const existingRef = await prisma.payment.findFirst({
+        where: {
+          method,
+          transactionRef: transactionRef.trim(),
+          status: { not: 'REJECTED' },
+        },
+        select: { id: true },
+      });
+      if (existingRef) {
+        return NextResponse.json({ error: 'duplicate_transaction_ref' }, { status: 400 });
+      }
+
       const payment = await prisma.payment.create({
         data: {
           id: createId(),

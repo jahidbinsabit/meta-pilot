@@ -50,10 +50,14 @@ export default async function BillingPage() {
   // NOTE: 'ENTERPRISE' is a virtual tier with no Plan row and not in the PlanTier
   // enum — querying Prisma with it throws. Handle it via planFallbackName only.
   if (!membership && user.membership && user.membership !== 'FREE' && user.membership !== 'ENTERPRISE') {
-    const validTiers = ['PRO', 'PLUS', 'AGENCY'];
-    if (validTiers.includes(user.membership)) {
+    // L8: type-safe tier narrowing — no `as any` needed.
+    const validTiers = ['PRO', 'PLUS', 'AGENCY'] as const;
+    type ValidTier = (typeof validTiers)[number];
+    const isValidTier = (t: string): t is ValidTier =>
+      (validTiers as readonly string[]).includes(t);
+    if (isValidTier(user.membership)) {
       const plan = await prisma.plan.findFirst({
-        where: { tier: user.membership as any, isActive: true },
+        where: { tier: user.membership, isActive: true },
       });
       if (plan) {
         membership = {

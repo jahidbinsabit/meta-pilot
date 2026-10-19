@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { deductCredits, type CreditResult } from './engine';
+import { deductCredits, getBalance, type CreditResult } from './engine';
 import { isInsufficientCreditsError } from './errors';
 
 /**
@@ -23,6 +23,12 @@ export async function chargeCredits(
   type: string = 'SPEND',
   metadata?: Record<string, unknown>,
 ): Promise<CreditResult | NextResponse> {
+  // M1: zero/negative cost (admin set the tool free via ToolCreditCost) —
+  // deductCredits rejects amount <= 0 with 402, which would make a free
+  // tool unusable. Short-circuit: nothing to deduct.
+  if (amount <= 0) {
+    return { ok: true, deducted: false, balance: await getBalance(userId) };
+  }
   let deduction: CreditResult;
   try {
     deduction = await deductCredits(userId, amount, type, metadata);

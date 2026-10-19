@@ -7,6 +7,7 @@ import { getToolCost } from '@/lib/credits/cost';
 import { generateWithAI } from '@/lib/ai';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
 import { downloadFile } from '@/lib/s3/client';
+import { ownsStorageKey } from '@/lib/api/ownership';
 import { resizeImage } from '@/lib/generator/images';
 import { getPresetBySlug } from '@/lib/prompt-styles/presets';
 import type { ImagePromptResult } from '@/lib/prompt-styles/types';
@@ -49,8 +50,12 @@ async function toBase64(img: PromptImage): Promise<{ data: string; mime: string 
     if (dataUrlMatch) {
       buf = Buffer.from(dataUrlMatch[2], 'base64');
     } else {
-      const res = await fetch(img.previewUrl);
+      // H2: 30s timeout + 10MB cap — same as the stream route. A bare fetch
+      // with unbounded arrayBuffer() is a hang/OOM DoS vector.
+      const res = await fetch(img.previewUrl, { signal: AbortSignal.timeout(30000) });
       if (!res.ok) throw new Error('preview_fetch_failed');
+      const len = Number(res.headers.get('content-length') || 0);
+      if (len > 10 * 1024 * 1024) throw new Error('preview_too_large');
       buf = Buffer.from(await res.arrayBuffer());
     }
   } else {
@@ -99,6 +104,15 @@ export async function POST(req: Request) {
     const preset = await getPresetBySlug(style);
     if (!preset) {
       return NextResponse.json({ error: 'unknown_style' }, { status: 400 });
+    }
+
+    // H1: ownership check — client-supplied S3 keys must belong to this
+    // user, otherwise one user can fetch another user's image bytes (IDOR).
+    // Same helper as the tools routes (lib/api/ownership.ts).
+    for (const img of images) {
+      if (img.key && !ownsStorageKey(user.id, img.key)) {
+        return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+      }
     }
 
     const costPerImage = await getToolCost(TOOL_SLUG);
@@ -182,7 +196,9 @@ export async function POST(req: Request) {
         entry.mood = result.mood;
       } catch (e: any) {
         failed += 1;
-        entry.error = e?.message || 'generation_failed';
+        // M2: static error code — never leak raw internals per item
+        // (matches the stream route's hardcoded 'generation_failed').
+        entry.error = 'generation_failed';
       }
 
       return entry;
