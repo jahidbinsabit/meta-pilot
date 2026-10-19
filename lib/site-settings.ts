@@ -16,6 +16,7 @@ export interface CachedSiteSettings {
   gscVerification: string | null;
   userApiKeyRequired: boolean;
   signupCredits: number;
+  unlimitedMode: boolean;
   apifyApiToken: string | null;
   apifyActorId: string | null;
 }
@@ -48,6 +49,7 @@ async function fetchSiteSettings(): Promise<CachedSiteSettings | null> {
         gscVerification: true,
         userApiKeyRequired: true,
         signupCredits: true,
+        unlimitedMode: true,
         apifyApiToken: true,
         apifyActorId: true,
       },

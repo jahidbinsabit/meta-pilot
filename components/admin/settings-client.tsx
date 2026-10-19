@@ -25,6 +25,7 @@ type SiteSettings = {
   gscVerification?: string | null;
   userApiKeyRequired?: boolean;
   signupCredits?: number | null;
+  unlimitedMode?: boolean;
   apifyApiToken?: string | null;
   apifyActorId?: string | null;
 };
@@ -51,6 +52,7 @@ export function SettingsClient({
     gscVerification: initialSettings?.gscVerification ?? '',
     userApiKeyRequired: initialSettings?.userApiKeyRequired ?? false,
     signupCredits: initialSettings?.signupCredits ?? 20,
+    unlimitedMode: initialSettings?.unlimitedMode ?? false,
     apifyApiToken: initialSettings?.apifyApiToken ?? '',
     apifyActorId: initialSettings?.apifyActorId && initialSettings.apifyActorId !== 'KPyKQZuofuTIxI4yZ' ? initialSettings.apifyActorId : 'Ea82wcTpNYzTRV7A3',
   });
@@ -461,6 +463,15 @@ export function SettingsClient({
             onChange={(checked) => {
               setSettings((s) => ({ ...s, userApiKeyRequired: checked }));
               saveMutation.mutate({ ...settings, userApiKeyRequired: checked });
+            }}
+          />
+          <Toggle
+            label="Unlimited generation mode"
+            description="When enabled, everyone can generate without spending credits — balances show as Unlimited and no deductions happen. Turn off to return to normal credit usage."
+            checked={Boolean(settings.unlimitedMode)}
+            onChange={(checked) => {
+              setSettings((s) => ({ ...s, unlimitedMode: checked }));
+              saveMutation.mutate({ ...settings, unlimitedMode: checked });
             }}
           />
           <Toggle

@@ -9,6 +9,7 @@
 import { prisma } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 import { InsufficientCreditsError } from '@/lib/credits/errors';
+import { getSiteSettings } from '@/lib/site-settings';
 
 export interface CreditResult {
   ok: boolean;
@@ -76,6 +77,9 @@ export async function addCredits(
 /**
  * Deduct credits. Throws `InsufficientCreditsError` when the balance is too
  * low — route handlers catch it and return a 402 / upgrade-CTA response.
+ *
+ * When admin enables "Unlimited mode" in Site settings, deduction is skipped
+ * entirely (no balance change, no transaction row) and the call succeeds.
  */
 export async function deductCredits(
   userId: string,
@@ -85,6 +89,17 @@ export async function deductCredits(
 ): Promise<CreditResult> {
   if (!Number.isInteger(amount) || amount <= 0) {
     return { ok: false, balance: 0, error: 'invalid_amount' };
+  }
+
+  // Unlimited mode: admin toggle — everyone generates free, no deduction.
+  try {
+    const settings = await getSiteSettings();
+    if (settings?.unlimitedMode === true) {
+      const wallet = await prisma.creditWallet.findUnique({ where: { userId } });
+      return { ok: true, balance: wallet?.balance ?? 0 };
+    }
+  } catch {
+    // If settings can't be read, fall through to normal deduction.
   }
 
   return prisma.$transaction(async (tx) => {

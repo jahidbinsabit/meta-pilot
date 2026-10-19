@@ -128,7 +128,7 @@ export function MetadataGenerator({
 
   const toast = useToast();
   const queryClient = useQueryClient();
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
 
   React.useEffect(() => {
     setMounted(true);
@@ -416,7 +416,7 @@ export function MetadataGenerator({
   async function regenerateSingle(rowId: string) {
     const f = files.find((file) => file.id === rowId);
     if (!f || !f.previewUrl) return;
-    if (credits < 1) {
+    if (!unlimited && credits < 1) {
       toast({ title: 'Insufficient credits', description: 'You need at least 1 credit to regenerate.', variant: 'error' });
       return;
     }
@@ -569,7 +569,7 @@ export function MetadataGenerator({
   const hasResults = rows.length > 0;
   const completedRows = rows.filter((r) => r.status === 'complete');
   const failedRows = rows.filter((r) => r.status === 'failed');
-  const canGenerate = readyCount > 0 && !isGenerating && credits >= readyCount;
+  const canGenerate = readyCount > 0 && !isGenerating && (unlimited || credits >= readyCount);
   const batchLabel = batchLimit < 0 ? 'unlimited' : `${readyCount}/${batchLimit}`;
   const currentPlatformConfig = PLATFORMS[selectedPlatform];
 
@@ -824,7 +824,7 @@ export function MetadataGenerator({
                 </div>
 
                 {/* Credit warning */}
-                {!isGenerating && readyCount > 0 && credits < readyCount && (
+                {!isGenerating && readyCount > 0 && !unlimited && credits < readyCount && (
                   <p className="mt-2 text-[11px] text-amber-400">
                     You need {readyCount} credits but have {credits}.
                   </p>

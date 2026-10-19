@@ -58,7 +58,7 @@ export function Sidebar({
   logoUrl?: string | null;
 }) {
   const pathname = usePathname();
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   const isAdmin = user.role === 'ADMIN';
   
   // Prevent hydration mismatch by only showing credits after mount
@@ -130,7 +130,7 @@ export function Sidebar({
           </div>
           <div className="mt-2 flex items-baseline gap-1">
             <span className="font-mono text-xl font-semibold text-foreground">
-              {mounted ? credits : user.credits}
+              {unlimited ? 'Unlimited' : (mounted ? credits : user.credits)}
             </span>
             <span className="text-xs text-muted-foreground">available</span>
           </div>

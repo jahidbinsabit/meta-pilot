@@ -65,7 +65,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   const [dropzoneExpanded, setDropzoneExpanded] = React.useState(true);
 
   const toast = useToast();
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   const queryClient = useQueryClient();
 
   const { data: styles } = useQuery({
@@ -124,7 +124,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     }
 
     const totalCost = ready.length * costPerImage;
-    if (credits < totalCost) {
+    if (!unlimited && credits < totalCost) {
       toast({
         title: 'Insufficient credits',
         description: `You need ${totalCost} credits but have ${credits}.`,
@@ -239,7 +239,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
       return;
     }
     
-    if (credits < costPerImage) {
+    if (!unlimited && credits < costPerImage) {
       toast({ title: 'Insufficient credits', description: `You need ${costPerImage} credit${costPerImage === 1 ? '' : 's'} to regenerate`, variant: 'error' });
       return;
     }
@@ -336,7 +336,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   );
   const totalCost = readyFiles.length * costPerImage;
   const canGenerate =
-    readyFiles.length > 0 && !isGenerating && credits >= totalCost && !!style;
+    readyFiles.length > 0 && !isGenerating && (unlimited || credits >= totalCost) && !!style;
 
   async function copyOne(id: string, text: string) {
     await navigator.clipboard.writeText(text);
@@ -499,7 +499,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
               </div>
             )}
 
-            {files.length > 0 && credits < totalCost && (
+            {files.length > 0 && !unlimited && credits < totalCost && (
               <p className="flex items-center gap-1.5 text-xs text-amber-400">
                 <AlertCircle className="h-3.5 w-3.5" />
                 You need {totalCost} credits but have {credits}. Top up in Billing to continue.

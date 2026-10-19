@@ -24,6 +24,7 @@ interface AppShellProps {
     membership: string;
     role: string;
   };
+  unlimitedMode?: boolean;
   notifications?: DashboardNotification[];
 }
 
@@ -32,13 +33,14 @@ export function AppShell({
   siteName = 'StockForge AI',
   logoUrl,
   user,
+  unlimitedMode = false,
   notifications = [],
 }: AppShellProps) {
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
   return (
-    <CreditsProvider initialCredits={user.credits}>
+    <CreditsProvider initialCredits={user.credits} initialUnlimited={unlimitedMode}>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
         {/* Desktop sidebar — CSS width transition instead of framer-motion
             so the animation library stays out of the critical shell bundle. */}

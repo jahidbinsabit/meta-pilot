@@ -1,11 +1,17 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
 import { getBalance } from '@/lib/credits/engine';
+import { getSiteSettings } from '@/lib/site-settings';
 
 export async function GET() {
   try {
     const user = await requireApiUser();
-    return NextResponse.json({ credits: await getBalance(user.id) });
+    const settings = await getSiteSettings().catch(() => null);
+    const unlimited = settings?.unlimitedMode === true;
+    return NextResponse.json({
+      credits: await getBalance(user.id),
+      unlimited,
+    });
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message }), {
       status: 401,

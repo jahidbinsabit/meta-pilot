@@ -398,6 +398,7 @@ model SiteSettings {
   gscVerificationMethod String?
   userApiKeyRequired    Boolean  @default(false)
   signupCredits         Int      @default(20)
+  unlimitedMode         Boolean  @default(false)
   apifyApiToken         String?
   apifyActorId          String?  @default("Ea82wcTpNYzTRV7A3")
   createdAt             DateTime @default(now())

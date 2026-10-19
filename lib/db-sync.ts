@@ -22,6 +22,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
           ALTER TABLE "SiteSettings" ADD COLUMN IF NOT EXISTS "apifyApiToken" TEXT;
           ALTER TABLE "SiteSettings" ADD COLUMN IF NOT EXISTS "apifyActorId" TEXT;
           ALTER TABLE "SiteSettings" ADD COLUMN IF NOT EXISTS "signupCredits" INTEGER NOT NULL DEFAULT 20;
+          ALTER TABLE "SiteSettings" ADD COLUMN IF NOT EXISTS "unlimitedMode" BOOLEAN NOT NULL DEFAULT FALSE;
         EXCEPTION WHEN OTHERS THEN NULL;
         END;
 

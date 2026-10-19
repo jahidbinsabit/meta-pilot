@@ -22,7 +22,7 @@ export function TopBar({
   };
   onMenu: () => void;
 }) {
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   return (
     <header className="flex h-14 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur">
       <button
@@ -46,8 +46,8 @@ export function TopBar({
             </Button>
           }
         />
-        <Badge variant={credits > 0 ? 'success' : 'warning'} className="hidden sm:inline-flex">
-          {credits} credits
+        <Badge variant={unlimited || credits > 0 ? 'success' : 'warning'} className="hidden sm:inline-flex">
+          {unlimited ? 'Unlimited' : `${credits} credits`}
         </Badge>
         <button className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground">
           <Bell className="h-4 w-4" />

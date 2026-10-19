@@ -40,7 +40,7 @@ export function ToolClient({ slug, tool }: { slug: string; tool: ToolEntry }) {
   const [input, setInput] = React.useState('');
   const [result, setResult] = React.useState<null | any>(null);
   const [copied, setCopied] = React.useState(false);
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   const toast = useToast();
 
   const mutation = useMutation({
@@ -73,7 +73,7 @@ export function ToolClient({ slug, tool }: { slug: string; tool: ToolEntry }) {
   };
 
   const cost = tool.creditCost;
-  const canRun = input.trim().length > 0 && !mutation.isPending && (cost === 0 || credits >= cost);
+  const canRun = input.trim().length > 0 && !mutation.isPending && (cost === 0 || unlimited || credits >= cost);
 
   return (
     <ToolShell tool={tool}>
@@ -96,7 +96,7 @@ export function ToolClient({ slug, tool }: { slug: string; tool: ToolEntry }) {
               {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Run tool
             </Button>
-            {cost > 0 && credits < cost && (
+            {cost > 0 && !unlimited && credits < cost && (
               <p className="text-xs text-amber-400">
                 You need {cost} credits but have {credits}. Top up in Billing.
               </p>
