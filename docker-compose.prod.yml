@@ -1,4 +1,4 @@
-# StockForge AI — PRODUCTION compose for VPS hosting.
+# MetaCSV — PRODUCTION compose for VPS hosting.
 #
 #   1. cp .env.example .env   (then fill in: DOMAIN, DB_PASSWORD, AUTH_SECRET,
 #      GOOGLE_*, STRIPE_*, S3_*, CRON_SECRET, NEXTAUTH_URL=https://<DOMAIN>, ...)

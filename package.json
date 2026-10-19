@@ -2,7 +2,7 @@
   "name": "genmetaai",
   "version": "1.0.0",
   "private": true,
-  "description": "StockForge AI — AI metadata generator for stock-content creators",
+  "description": "MetaCSV — AI metadata generator for stock-content creators",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",

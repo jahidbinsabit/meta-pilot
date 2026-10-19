@@ -23,16 +23,16 @@ while ! docker exec genmetaai-minio curl -sf http://localhost:9000/minio/health/
 done
 
 # Create bucket
-echo "🪣 Creating 'stockforge-ai' bucket..."
+echo "🪣 Creating 'metacsv' bucket..."
 docker run --rm --network host minio/mc sh -c "
   mc alias set local http://localhost:9000 minioadmin minioadmin123 &&
-  mc mb --ignore-existing local/stockforge-ai &&
-  mc anonymous set download local/stockforge-ai
+  mc mb --ignore-existing local/metacsv &&
+  mc anonymous set download local/metacsv
 " || {
   echo "⚠️  Bucket creation failed, but MinIO is running. You can create it manually:"
   echo "   1. Open http://localhost:9001"
   echo "   2. Login: minioadmin / minioadmin123"
-  echo "   3. Create bucket: stockforge-ai"
+  echo "   3. Create bucket: metacsv"
   exit 0
 }
 
@@ -43,6 +43,6 @@ echo "   Username: minioadmin"
 echo "   Password: minioadmin123"
 echo ""
 echo "🔗 S3 Endpoint: http://localhost:9000"
-echo "📦 Bucket: stockforge-ai"
+echo "📦 Bucket: metacsv"
 echo ""
 echo "Your .env is already configured to use MinIO!"

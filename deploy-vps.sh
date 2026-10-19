@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# StockForge AI — one-shot VPS deploy (run as root, e.g. in CyberPanel terminal)
+# MetaCSV — one-shot VPS deploy (run as root, e.g. in CyberPanel terminal)
 #
 #   curl -fsSL https://raw.githubusercontent.com/jahidbinsabit/meta-pilot/main/deploy-vps.sh | bash
 #
