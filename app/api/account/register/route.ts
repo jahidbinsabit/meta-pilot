@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
+import { getSiteSettings } from '@/lib/site-settings';
 import { createEmailVerification } from '@/lib/email/verification';
 
 const RegisterSchema = z.object({
@@ -27,9 +28,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'email_taken' }, { status: 409 });
     }
 
-    const trialRaw = process.env.TRIAL_CREDITS;
-    const trial = trialRaw !== undefined && trialRaw !== '' ? Number(trialRaw) : 20;
-    const initialCredits = isNaN(trial) || trial < 0 ? 20 : trial;
+    // Signup bonus credits: admin panel (Site settings) wins, then TRIAL_CREDITS env, then 20.
+    let initialCredits = 20;
+    try {
+      const siteSettings = await getSiteSettings();
+      if (siteSettings && typeof siteSettings.signupCredits === 'number' && siteSettings.signupCredits >= 0) {
+        initialCredits = siteSettings.signupCredits;
+      } else {
+        const trialRaw = process.env.TRIAL_CREDITS;
+        const trial = trialRaw !== undefined && trialRaw !== '' ? Number(trialRaw) : 20;
+        initialCredits = isNaN(trial) || trial < 0 ? 20 : trial;
+      }
+    } catch {
+      const trialRaw = process.env.TRIAL_CREDITS;
+      const trial = trialRaw !== undefined && trialRaw !== '' ? Number(trialRaw) : 20;
+      initialCredits = isNaN(trial) || trial < 0 ? 20 : trial;
+    }
 
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({

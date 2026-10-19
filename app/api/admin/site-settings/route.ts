@@ -17,6 +17,7 @@ const patchSchema = z.object({
   gaMeasurementId: z.string().optional(),
   gscVerification: z.string().optional(),
   userApiKeyRequired: z.boolean().optional(),
+  signupCredits: z.number().int().min(0).max(100000).optional(),
   apifyApiToken: z.string().nullable().optional(),
   apifyActorId: z.string().nullable().optional(),
 });

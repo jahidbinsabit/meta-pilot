@@ -15,6 +15,7 @@ export interface CachedSiteSettings {
   gaMeasurementId: string | null;
   gscVerification: string | null;
   userApiKeyRequired: boolean;
+  signupCredits: number;
   apifyApiToken: string | null;
   apifyActorId: string | null;
 }
@@ -46,6 +47,7 @@ async function fetchSiteSettings(): Promise<CachedSiteSettings | null> {
         gaMeasurementId: true,
         gscVerification: true,
         userApiKeyRequired: true,
+        signupCredits: true,
         apifyApiToken: true,
         apifyActorId: true,
       },

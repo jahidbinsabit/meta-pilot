@@ -24,6 +24,7 @@ type SiteSettings = {
   gaMeasurementId?: string | null;
   gscVerification?: string | null;
   userApiKeyRequired?: boolean;
+  signupCredits?: number | null;
   apifyApiToken?: string | null;
   apifyActorId?: string | null;
 };
@@ -49,6 +50,7 @@ export function SettingsClient({
     gaMeasurementId: initialSettings?.gaMeasurementId ?? '',
     gscVerification: initialSettings?.gscVerification ?? '',
     userApiKeyRequired: initialSettings?.userApiKeyRequired ?? false,
+    signupCredits: initialSettings?.signupCredits ?? 20,
     apifyApiToken: initialSettings?.apifyApiToken ?? '',
     apifyActorId: initialSettings?.apifyActorId && initialSettings.apifyActorId !== 'KPyKQZuofuTIxI4yZ' ? initialSettings.apifyActorId : 'Ea82wcTpNYzTRV7A3',
   });
@@ -317,6 +319,27 @@ export function SettingsClient({
                 value={settings.tagline || ''}
                 onChange={(e) => setSettings((s) => ({ ...s, tagline: e.target.value }))}
               />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="signupCredits">Signup credits (new account bonus)</Label>
+              <Input
+                id="signupCredits"
+                type="number"
+                min={0}
+                max={100000}
+                value={settings.signupCredits ?? 20}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    signupCredits: Math.max(0, parseInt(e.target.value || '0', 10) || 0),
+                  }))
+                }
+              />
+              <p className="text-2xs text-muted-foreground">
+                Credits given to a new user when they create an account.
+              </p>
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">

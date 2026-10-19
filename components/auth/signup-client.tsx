@@ -26,7 +26,14 @@ import { LoginShowcase } from "@/components/auth/login-showcase";
 
 type Step = "register" | "verify";
 
-export function SignupClient() {
+export function SignupClient({
+  siteName,
+  signupCredits,
+}: {
+  siteName?: string;
+  signupCredits?: number;
+}) {
+  const credits = typeof signupCredits === 'number' ? signupCredits : 20;
   const router = useRouter();
   const toast = useToast();
   const [step, setStep] = React.useState<Step>("register");
@@ -138,7 +145,7 @@ export function SignupClient() {
 
       <div className="relative z-10 grid min-h-screen w-full lg:grid-cols-12">
         <div className="flex flex-col justify-between px-6 py-8 sm:px-12 lg:col-span-6 xl:col-span-5 lg:px-14 xl:px-16">
-          <LoginHeader />
+          <LoginHeader siteName={siteName} />
 
           <div className="my-auto py-8">
             <div className="max-w-md">
@@ -147,7 +154,7 @@ export function SignupClient() {
                   <div className="space-y-2">
                     <div className="inline-flex items-center gap-1.5 rounded-full border border-accent/20 bg-accent/10 px-2.5 py-0.5 text-2xs font-semibold text-accent">
                       <Sparkles className="h-3 w-3" />
-                      <span>Claim 20 Free Credits</span>
+                      <span>Claim {credits} Free Credits</span>
                     </div>
                     <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl">
                       Create an account
@@ -252,7 +259,7 @@ export function SignupClient() {
                           </>
                         ) : (
                           <>
-                            <span>Get Started with 20 Free Credits</span>
+                            <span>Get Started with {credits} Free Credits</span>
                             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                           </>
                         )}

@@ -3,13 +3,20 @@ import Link from "next/link";
 import { LoginHeader } from "@/components/auth/login-header";
 import { LoginForm } from "@/components/auth/login-form";
 import { LoginShowcase } from "@/components/auth/login-showcase";
+import { getSiteSettings } from "@/lib/site-settings";
 
-export const metadata = {
-  title: "Sign In — StockForge AI",
-  description: "Sign in to access your AI stock metadata tools, analytics, and batch workflow.",
-};
+export async function generateMetadata() {
+  const settings = await getSiteSettings().catch(() => null);
+  const siteName = settings?.siteName || "StockForge AI";
+  return {
+    title: `Sign In — ${siteName}`,
+    description: `Sign in to access your ${siteName} AI stock metadata tools, analytics, and batch workflow.`,
+  };
+}
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  const settings = await getSiteSettings().catch(() => null);
+  const siteName = settings?.siteName || "StockForge AI";
   return (
     <div className="relative min-h-screen w-full bg-background text-foreground flex flex-col justify-between overflow-x-hidden selection:bg-accent/30">
       {/* Background ambient light effects */}
@@ -24,10 +31,10 @@ export default function LoginPage() {
       <div className="relative z-10 grid min-h-screen w-full lg:grid-cols-12">
         {/* Left Side: Form Container */}
         <div className="flex flex-col justify-between px-6 py-8 sm:px-12 lg:col-span-6 xl:col-span-5 lg:px-14 xl:px-16">
-          <LoginHeader />
+          <LoginHeader siteName={siteName} />
           <LoginForm />
           <div className="pt-4 text-2xs text-muted-foreground/60 flex items-center justify-between border-t border-border/40">
-            <span>© {new Date().getFullYear()} StockForge AI.</span>
+            <span>© {new Date().getFullYear()} {siteName}.</span>
             <div className="flex items-center gap-4">
               <Link href="/privacy" className="hover:text-muted-foreground hover:underline">Privacy</Link>
               <Link href="/terms" className="hover:text-muted-foreground hover:underline">Terms</Link>
