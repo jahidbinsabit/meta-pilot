@@ -85,6 +85,9 @@ export const authOptions: any = {
           where: { email: String(credentials.email).trim().toLowerCase() },
         });
         if (!user) return null;
+        // Suspended or soft-deleted users cannot log in.
+        if ((user as any).deletedAt) return null;
+        if ((user as any).status === 'SUSPENDED') return null;
         const hash = (user as any).passwordHash as string | null;
         let ok = false;
         if (hash) {

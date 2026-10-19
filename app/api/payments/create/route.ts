@@ -20,8 +20,6 @@ export async function POST(req: Request) {
       provider = 'stripe',
       senderNumber,
       transactionRef,
-      amountCents,
-      credits,
     } = body;
 
     if (type === 'plan' && !planId) {
@@ -47,11 +45,6 @@ export async function POST(req: Request) {
       amountBDT = pkg.priceBDT;
       productName = `${pkg.credits} MetaCSV credits`;
       payload = { type: 'credits', packageId, packageName: pkg.name, credits: pkg.credits };
-    } else if (amountCents && credits) {
-      amountUSD = amountCents / 100;
-      amountBDT = Math.round(amountUSD * 120);
-      productName = `${credits} MetaCSV credits`;
-      payload = { type: 'credits', credits };
     } else {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
     }

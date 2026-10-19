@@ -83,7 +83,7 @@ export function SettingsClient({ siteName = 'MetaCSV' }: { siteName?: string }) 
       <div className="pt-4">
         <h2 className="font-display text-lg font-bold">{siteName} API Keys</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Create keys to access {siteName} from your own tools and scripts.
+          {`Create keys to access ${siteName} from your own tools and scripts.`}
         </p>
       </div>
 
@@ -146,7 +146,7 @@ export function SettingsClient({ siteName = 'MetaCSV' }: { siteName?: string }) 
                     <div>
                       <p className="text-sm font-medium">{k.name}</p>
                       <p className="font-mono text-xs text-muted-foreground">
-                        {k.key.slice(0, 8)}…{k.key.slice(-4)}
+                        {k.keyPreview || `${k.key?.slice(0, 8)}…${k.key?.slice(-4)}`}
                       </p>
                     </div>
                   </div>

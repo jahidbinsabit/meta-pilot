@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { useToolGating } from '@/components/dashboard/use-tool-gating';
+import { ApiKeyRequiredDialog } from '@/components/dashboard/api-key-required-dialog';
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -17,6 +18,7 @@ export function ImageToPsdClient({ tool }: { tool: ToolEntry }) {
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
   const [resultUrl, setResultUrl] = React.useState<string | null>(null);
   const toast = useToast();
+  const [apiKeyDialogOpen, setApiKeyDialogOpen] = React.useState(false);
   const { readyFiles, totalCost, canProcess, credits, unlimited } = useToolGating(files, tool);
   const queryClient = useQueryClient();
 
@@ -42,7 +44,23 @@ export function ImageToPsdClient({ tool }: { tool: ToolEntry }) {
       toast({ title: 'Layered PSD created', variant: 'success' });
     },
     onError: (e: any) => {
-      toast({ title: 'Failed', description: e.message, variant: 'error' });
+      // API key required → show the add-key popup instead of a generic toast.
+      // The backend may return "user_api_key_required" as a plain code, a raw
+      // JSON string, or an SSE event: data: {"type":"error","error":...}.
+      let isApiKeyError = e?.message === 'user_api_key_required';
+      if (!isApiKeyError && typeof e?.message === 'string') {
+        try {
+          let text = e.message.trim();
+          if (text.startsWith('data:')) text = text.slice(5).trim();
+          const parsed = JSON.parse(text);
+          isApiKeyError = parsed?.error === 'user_api_key_required';
+        } catch { /* not JSON — leave as-is */ }
+      }
+      if (isApiKeyError) {
+        setApiKeyDialogOpen(true);
+      } else {
+        toast({ title: 'Failed', description: e.message, variant: 'error' });
+      }
       queryClient.invalidateQueries({ queryKey: ['credits'] });
     },
   });
@@ -129,6 +147,7 @@ export function ImageToPsdClient({ tool }: { tool: ToolEntry }) {
           </CardContent>
         </Card>
       </div>
+      <ApiKeyRequiredDialog open={apiKeyDialogOpen} onOpenChange={setApiKeyDialogOpen} />
     </ToolShell>
   );
 }

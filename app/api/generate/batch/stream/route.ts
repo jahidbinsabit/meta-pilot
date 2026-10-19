@@ -6,6 +6,7 @@ import type { TargetPlatform } from '@/lib/generator/types';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
+import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { getToolCost } from '@/lib/credits/cost';
 
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
@@ -48,6 +49,16 @@ export async function POST(req: Request) {
     });
   }
 
+  // Validate maximum batch size BEFORE deducting credits — unbounded batches
+  // hit the 300s timeout and leave credits unrefunded. Mirrors batch/route.ts.
+  const MAX_BATCH_SIZE = 100;
+  if (images.length > MAX_BATCH_SIZE) {
+    return new Response(
+      sse({ type: 'error', error: 'batch_too_large', max: MAX_BATCH_SIZE, received: images.length }),
+      { status: 400, headers: { 'Content-Type': 'text/event-stream' } },
+    );
+  }
+
   // Check if user API key is enforced
   const keyError = await requireUserApiKeyIfNeeded(user.id);
   if (keyError) {
@@ -63,12 +74,23 @@ export async function POST(req: Request) {
 
   const costPerImage = await getToolCost('metadata-generator');
   const total = images.length * costPerImage;
-  const deduction = await deductCredits(user.id, total, 'SPEND', {
-    imageCount: images.length,
-    costPerImage,
-    toolSlug: 'metadata-generator',
-    platform: targetPlatform,
-  });
+  let deduction;
+  try {
+    deduction = await deductCredits(user.id, total, 'SPEND', {
+      imageCount: images.length,
+      costPerImage,
+      toolSlug: 'metadata-generator',
+      platform: targetPlatform,
+    });
+  } catch (e) {
+    if (isInsufficientCreditsError(e)) {
+      return new Response(sse({ type: 'error', error: 'insufficient_credits', balance: e.balance, needed: e.needed }), {
+        status: 402,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    }
+    throw e;
+  }
 
   if (!deduction.ok) {
     return new Response(sse({ type: 'error', error: 'insufficient_credits' }), {
@@ -247,6 +269,16 @@ export async function POST(req: Request) {
       });
     } catch (streamErr) {
       console.error('Streaming generation error:', streamErr);
+      // M5: notify the frontend of a mid-stream failure instead of just
+      // closing the stream — without this error event the UI keeps
+      // waiting for a 'done' that never arrives.
+      try {
+        await writer.write(
+          encoder.encode(sse({ type: 'error', error: 'generation_failed' })),
+        );
+      } catch {
+        // Client already disconnected — nothing to notify.
+      }
     } finally {
       try {
         await writer.close();

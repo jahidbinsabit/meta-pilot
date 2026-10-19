@@ -93,7 +93,14 @@ export async function POST(req: Request) {
       console.error('register: verification email failed (non-fatal)', mailErr);
     }
 
-    return NextResponse.json({ ok: true, userId: user.id });
+    // M8: anti-enumeration — return the SAME neutral response as the
+    // "already exists" path above, so attackers cannot tell registered
+    // emails apart from new ones by message or shape. The account,
+    // credits, and verification email are still created on the happy path.
+    return NextResponse.json({
+      ok: true,
+      message: 'If this email is new, a verification code was sent',
+    });
   } catch (e: any) {
     console.error('register failed', e);
     return NextResponse.json({ error: 'registration_failed' }, { status: 500 });

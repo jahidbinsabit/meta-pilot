@@ -27,6 +27,17 @@ export async function POST(req: Request) {
       });
     }
 
+    // M1: ownership check — the key comes straight from the client, so
+    // prove it belongs to this user before downloading another user's
+    // file. Same prefix pattern as app/uploads/[...file]/route.ts; the
+    // trailing dash prevents prefix collisions between user ids.
+    const owned =
+      key.startsWith(`uploads-${user.id}-`) ||
+      key.startsWith(`previews-${user.id}-`);
+    if (!owned) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     // Free utility — no credit deduction.
     const original = await downloadFile(key);
     const { buffer, mime } = await convertVectorToJpg(original, width);

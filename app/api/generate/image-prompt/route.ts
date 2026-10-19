@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireApiUserOrKey } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
+import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { getToolCost } from '@/lib/credits/cost';
 import { generateWithAI } from '@/lib/ai';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
@@ -66,8 +67,13 @@ async function toBase64(img: PromptImage): Promise<{ data: string; mime: string 
 }
 
 export async function POST(req: Request) {
+  // Hoisted so the outer catch can refund on total failure.
+  let userId = '';
+  let total = 0;
+  let deducted = false;
   try {
     const user = await requireApiUserOrKey(req, 'tools:run');
+    userId = user.id;
     const body = await req.json();
     const { images, style } = body as { images?: PromptImage[]; style?: string };
 
@@ -96,19 +102,32 @@ export async function POST(req: Request) {
     }
 
     const costPerImage = await getToolCost(TOOL_SLUG);
-    const total = images.length * costPerImage;
-    const deduction = await deductCredits(user.id, total, 'SPEND', {
-      imageCount: images.length,
-      costPerImage,
-      style: preset.slug,
-      toolSlug: TOOL_SLUG,
-    });
+    total = images.length * costPerImage;
+    let deduction;
+    try {
+      deduction = await deductCredits(user.id, total, 'SPEND', {
+        imageCount: images.length,
+        costPerImage,
+        style: preset.slug,
+        toolSlug: TOOL_SLUG,
+      });
+    } catch (e) {
+      if (isInsufficientCreditsError(e)) {
+        return NextResponse.json(
+          { error: 'insufficient_credits', balance: e.balance, needed: e.needed },
+          { status: 402 },
+        );
+      }
+      throw e;
+    }
     if (!deduction.ok) {
       return NextResponse.json(
         { error: 'insufficient_credits', balance: deduction.balance, needed: total },
         { status: 402 },
       );
     }
+    // Only refund when credits were actually taken (not unlimited mode).
+    deducted = deduction.deducted === true;
 
     const job = await prisma.toolJob.create({
       data: {
@@ -225,10 +244,20 @@ export async function POST(req: Request) {
       succeeded: images.length - failed,
       failed,
       balance,
-      refunded: failed * costPerImage,
+      refunded: deducted ? failed * costPerImage : 0,
     });
   } catch (e: any) {
     console.error('image prompt generation failed', e);
+    // Total failure after deduction (e.g. toolJob.create threw): refund the
+    // full amount. Never charge for a failure. Skip in unlimited mode
+    // (nothing was deducted).
+    if (userId && deducted && total > 0) {
+      try {
+        await refundCredits(userId, '', total, { toolSlug: TOOL_SLUG });
+      } catch (refundErr) {
+        console.error('image-prompt total-failure refund failed', refundErr);
+      }
+    }
     return NextResponse.json({ error: 'generation_failed' }, { status: 500 });
   }
 }

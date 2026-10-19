@@ -20,7 +20,8 @@ export default async function AdminOverviewPage() {
   const [users, orders, jobs, providers, todayGens, dailyJobs] = await Promise.all([
     prisma.user.count(),
     prisma.order.count(),
-    prisma.job.count(),
+    // "Jobs queued" — ToolJob is the canonical job entity (legacy `Job` table is write-dead).
+    prisma.toolJob.count({ where: { status: 'QUEUED' } }),
     prisma.aiProviderConfig.findMany(),
     // Today's generation count — indexed on createdAt.
     prisma.toolJob.count({ where: { createdAt: { gte: startOfToday } } }),

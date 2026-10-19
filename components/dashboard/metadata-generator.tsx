@@ -31,7 +31,6 @@ import {
   Info,
   Loader2,
   StopCircle,
-  FileText,
   FileCode,
   Pen,
 } from 'lucide-react';
@@ -333,7 +332,9 @@ export function MetadataGenerator({
                 if (data.failed > 0) {
                   toast({
                     title: `${data.succeeded}/${data.succeeded + data.failed} generated`,
-                    description: `${data.failed} failed — credits refunded automatically.`,
+                    description: unlimited
+                      ? `${data.failed} failed.`
+                      : `${data.failed} failed — credits refunded automatically.`,
                     variant: 'warning',
                   });
                 } else {
@@ -359,13 +360,17 @@ export function MetadataGenerator({
         if (doneCount > 0) {
           toast({
             title: `Stopped: ${doneCount} completed`,
-            description: 'Generation stopped. Credits for unprocessed files will be refunded automatically.',
+            description: unlimited
+              ? 'Generation stopped.'
+              : 'Generation stopped. Credits for unprocessed files will be refunded automatically.',
             variant: 'warning',
           });
         } else {
           toast({
             title: 'Generation stopped',
-            description: 'Credits for unprocessed files will be refunded automatically.',
+            description: unlimited
+              ? 'Generation stopped.'
+              : 'Credits for unprocessed files will be refunded automatically.',
             variant: 'warning',
           });
         }
@@ -819,16 +824,6 @@ export function MetadataGenerator({
                         >
                           <Sparkles className="h-4 w-4" />
                           Generate All ({readyCount})
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-9 rounded-lg text-[13px]"
-                          disabled
-                          title="Coming soon"
-                        >
-                          <FileText className="h-4 w-4" />
-                          Embed Metadata
                         </Button>
                         <Button
                           variant="outline"

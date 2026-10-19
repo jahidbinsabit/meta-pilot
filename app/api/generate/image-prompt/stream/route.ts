@@ -1,6 +1,7 @@
 import { requireApiUserOrKey } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
+import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { getToolCost } from '@/lib/credits/cost';
 import { generateWithAI } from '@/lib/ai';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
@@ -112,12 +113,23 @@ export async function POST(req: Request) {
 
   const costPerImage = await getToolCost(TOOL_SLUG);
   const total = images.length * costPerImage;
-  const deduction = await deductCredits(user.id, total, 'SPEND', {
-    imageCount: images.length,
-    costPerImage,
-    style: preset.slug,
-    toolSlug: TOOL_SLUG,
-  });
+  let deduction;
+  try {
+    deduction = await deductCredits(user.id, total, 'SPEND', {
+      imageCount: images.length,
+      costPerImage,
+      style: preset.slug,
+      toolSlug: TOOL_SLUG,
+    });
+  } catch (e) {
+    if (isInsufficientCreditsError(e)) {
+      return new Response(sse({ type: 'error', error: 'insufficient_credits', balance: e.balance, needed: e.needed }), {
+        status: 402,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    }
+    throw e;
+  }
   if (!deduction.ok) {
     return new Response(sse({ type: 'error', error: 'insufficient_credits' }), {
       status: 402,
@@ -125,20 +137,38 @@ export async function POST(req: Request) {
     });
   }
 
-  const job = await prisma.toolJob.create({
-    data: {
-      userId: user.id,
-      toolSlug: TOOL_SLUG,
-      status: 'PROCESSING',
-      inputFileUrls: images.map((i) => i.key || i.fileName || ''),
-      creditsCharged: deduction.deducted === true ? total : 0,
-      outputData: {
-        style: preset.slug,
-        styleLabel: preset.label,
-        images: images.map((i) => ({ id: i.id, fileName: i.fileName })),
-      } as any,
-    },
-  });
+  let job: Awaited<ReturnType<typeof prisma.toolJob.create>>;
+  try {
+    job = await prisma.toolJob.create({
+      data: {
+        userId: user.id,
+        toolSlug: TOOL_SLUG,
+        status: 'PROCESSING',
+        inputFileUrls: images.map((i) => i.key || i.fileName || ''),
+        creditsCharged: deduction.deducted === true ? total : 0,
+        outputData: {
+          style: preset.slug,
+          styleLabel: preset.label,
+          images: images.map((i) => ({ id: i.id, fileName: i.fileName })),
+        } as any,
+      },
+    });
+  } catch (jobErr) {
+    // Total failure after deduction: refund so the user is never charged
+    // for a run that never started. Skip in unlimited mode (nothing deducted).
+    console.error('image-prompt stream: toolJob.create failed', jobErr);
+    if (deduction.deducted === true) {
+      try {
+        await refundCredits(user.id, '', total, { toolSlug: TOOL_SLUG });
+      } catch (refundErr) {
+        console.error('image-prompt stream total-failure refund failed', refundErr);
+      }
+    }
+    return new Response(sse({ type: 'error', error: 'generation_failed' }), {
+      status: 500,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  }
 
   const activePreset = preset;
   const promptImages = images;

@@ -11,12 +11,15 @@ export default async function AnalyticsPage() {
   since.setDate(since.getDate() - (DAYS - 1));
   since.setHours(0, 0, 0, 0);
 
+  // Stat cards count the SAME canonical entity the charts count: ToolJob.
+  // (The legacy `Job` table is write-dead and `GeneratedMetadata` only covers
+  // completed metadata rows, which is why the cards read 0 while charts show data.)
   const [users, orders, jobs, gens, revenue, dailyJobs, toolBreakdown, userDaily] =
     await Promise.all([
       prisma.user.count(),
       prisma.order.count(),
-      prisma.job.count(),
-      prisma.generatedMetadata.count(),
+      prisma.toolJob.count(),
+      prisma.toolJob.count({ where: { createdAt: { gte: since } } }),
       prisma.order.aggregate({
         _sum: { amountCents: true },
         where: { status: 'PAID' },

@@ -74,29 +74,46 @@ async function grantPackageCredits(userId: string, payment: Payment, payload: Pa
 
 /**
  * Idempotent fulfillment. Safe to call from Stripe webhooks and admin approve.
+ *
+ * Concurrency-safe: the payment is atomically claimed (PENDING → COMPLETED)
+ * before any credits are granted, so concurrent webhooks/approvals cannot
+ * double-grant. If the grant itself fails, the claim is reverted to PENDING
+ * so the payment can be retried.
  */
 export async function fulfillPayment(paymentId: string) {
   const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
   if (!payment) return { ok: false as const, error: 'payment_not_found' };
   if (payment.status === 'COMPLETED') return { ok: true as const, already: true };
 
-  const payload = readPayload(payment);
-  const planId = payload.planId || (payload.type === 'plan' ? payment.planIdOrCreditPackageId : null);
-  const isPlan = payload.type === 'plan' || Boolean(planId && payload.type !== 'credits');
-
-  if (planId && isPlan) {
-    await activatePlan(payment.userId, planId, payment.id);
-  } else {
-    await grantPackageCredits(payment.userId, payment, {
-      ...payload,
-      packageId: payload.packageId || payment.planIdOrCreditPackageId || undefined,
-    });
-  }
-
-  await prisma.payment.update({
-    where: { id: payment.id },
+  // Atomic claim: only one caller can transition this payment out of PENDING.
+  const claimed = await prisma.payment.updateMany({
+    where: { id: paymentId, status: 'PENDING' },
     data: { status: 'COMPLETED', reviewedAt: new Date() },
   });
+  if (claimed.count === 0) return { ok: true as const, already: true };
+
+  try {
+    const payload = readPayload(payment);
+    const planId = payload.planId || (payload.type === 'plan' ? payment.planIdOrCreditPackageId : null);
+    const isPlan = payload.type === 'plan' || Boolean(planId && payload.type !== 'credits');
+
+    if (planId && isPlan) {
+      await activatePlan(payment.userId, planId, payment.id);
+    } else {
+      await grantPackageCredits(payment.userId, payment, {
+        ...payload,
+        packageId: payload.packageId || payment.planIdOrCreditPackageId || undefined,
+      });
+    }
+  } catch (e) {
+    // Grant failed after the claim: revert to PENDING so a retry can pick it
+    // up. The payment is never left COMPLETED without the credits granted.
+    await prisma.payment.updateMany({
+      where: { id: paymentId, status: 'COMPLETED' },
+      data: { status: 'PENDING', reviewedAt: null },
+    });
+    throw e;
+  }
 
   return { ok: true as const, already: false };
 }

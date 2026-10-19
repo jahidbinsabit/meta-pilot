@@ -48,7 +48,7 @@ export default async function BillingPage() {
 
   // If user has a membership enum (e.g. PRO) but no Membership row, try finding the corresponding Plan safely
   if (!membership && user.membership && user.membership !== 'FREE') {
-    const validTiers = ['PRO', 'PLUS', 'AGENCY'];
+    const validTiers = ['PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'];
     if (validTiers.includes(user.membership)) {
       const plan = await prisma.plan.findFirst({
         where: { tier: user.membership as any, isActive: true },
@@ -84,6 +84,14 @@ export default async function BillingPage() {
 
   const walletBalance = user.creditWallet?.balance ?? 0;
 
+  // Plan display name from the SAME source of truth the sidebar uses
+  // (dashboard layout: active Membership → plan, else the User.membership enum).
+  // Used as a fallback so the "Current Membership" card never disagrees with the sidebar.
+  const planFallbackName =
+    user.membership && user.membership !== 'FREE'
+      ? user.membership.charAt(0) + user.membership.slice(1).toLowerCase()
+      : null;
+
   return (
     <React.Suspense
       fallback={
@@ -105,6 +113,7 @@ export default async function BillingPage() {
         packages={packages}
         gateways={gateways}
         currentMembership={membership}
+        planFallbackName={planFallbackName}
         walletBalance={walletBalance}
         payments={payments}
         transactions={transactions}

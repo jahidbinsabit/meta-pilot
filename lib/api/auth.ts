@@ -9,7 +9,17 @@ export async function requireApiUser(req?: Request): Promise<User> {
   if (!session?.user?.email) throw new Error('UNAUTHORIZED');
   const user = await prisma.user.findUnique({ where: { email: session.user.email } });
   if (!user) throw new Error('UNAUTHORIZED');
+  assertUserActive(user);
   return user;
+}
+
+/**
+ * Reject suspended or soft-deleted users. Call after resolving the user in
+ * every auth entry point (session, API key, credentials login).
+ */
+export function assertUserActive(user: Pick<User, 'status' | 'deletedAt'>): void {
+  if (user.deletedAt) throw new Error('FORBIDDEN');
+  if (user.status === 'SUSPENDED') throw new Error('FORBIDDEN');
 }
 
 export async function requireApiAdmin(req?: Request): Promise<User> {
@@ -43,6 +53,7 @@ export async function requireApiKey(req: Request, scope?: string): Promise<User>
   if (!record || record.revoked) throw new Error('UNAUTHORIZED');
   if (scope && !record.scopes.includes(scope)) throw new Error('FORBIDDEN');
 
+  assertUserActive(record.user);
   return record.user;
 }
 

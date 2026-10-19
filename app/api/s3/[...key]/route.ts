@@ -18,10 +18,16 @@ const CONTENT_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
-  svg: 'image/svg+xml',
   eps: 'image/eps',
   ai: 'application/illustrator',
 };
+
+/**
+ * Extensions safe to render inline. Everything else — notably svg (it can
+ * carry <script> and would execute in our origin) — is forced to download
+ * as an opaque blob so browsers never render it as active content.
+ */
+const INLINE_SAFE = new Set(['png', 'jpg', 'jpeg']);
 
 function contentTypeFor(key: string): string {
   const ext = key.split('.').pop()?.toLowerCase() || '';
@@ -65,21 +71,33 @@ export async function GET(req: Request, { params }: { params: { key: string[] } 
     if (!key) {
       return new Response('forbidden', { status: 403 });
     }
-    // Objects are namespaced per user: `uploads/<userId>/…`
-    // segments[0] = 'uploads', segments[1] = userId, segments[2] = filename
+    // Objects are namespaced per user: `uploads/<userId>/…` and
+    // `previews/<userId>/…` (storePreview writes previews; 4 tool routes
+    // serve them back). segments[0] = namespace, segments[1] = userId.
     const segments = key.split('/');
-    if (segments.length < 3 || segments[0] !== 'uploads' || segments[1] !== user.id) {
+    if (
+      segments.length < 3 ||
+      (segments[0] !== 'uploads' && segments[0] !== 'previews') ||
+      segments[1] !== user.id
+    ) {
       return new Response('forbidden', { status: 403 });
     }
 
     const body = await downloadFile(key);
+    const ext = key.split('.').pop()?.toLowerCase() || '';
+    const inlineSafe = INLINE_SAFE.has(ext);
+    const headers: Record<string, string> = {
+      'Content-Type': inlineSafe ? contentTypeFor(key) : 'application/octet-stream',
+      'Content-Length': String(body.length),
+      'Cache-Control': 'private, max-age=3600',
+      'X-Content-Type-Options': 'nosniff',
+    };
+    if (!inlineSafe) {
+      headers['Content-Disposition'] = `attachment; filename="${key.split('/').pop()}"`;
+    }
     return new Response(new Uint8Array(body), {
       status: 200,
-      headers: {
-        'Content-Type': contentTypeFor(key),
-        'Content-Length': String(body.length),
-        'Cache-Control': 'private, max-age=3600',
-      },
+      headers,
     });
   } catch (e: any) {
     if (e?.message === 'UNAUTHORIZED') {

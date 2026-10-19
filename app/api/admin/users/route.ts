@@ -294,12 +294,52 @@ export async function POST(req: Request) {
   });
   if (!user) return NextResponse.json({ error: 'user_not_found' }, { status: 404 });
 
+  // Admin-on-admin guardrails: no admin may change another admin's role,
+  // password, or status, or delete them; no admin may demote, suspend, or
+  // delete themselves (prevents lockout and privilege escalation).
+  const isSelf = user.id === admin.id;
+  const isOtherAdmin = user.role === 'ADMIN' && !isSelf;
+  const guardAdminTarget = (actionName: string): NextResponse | null => {
+    const selfDestructive = ['set_role', 'set_status', 'delete'].includes(actionName);
+    if (isSelf && selfDestructive) {
+      return NextResponse.json(
+        { error: 'cannot_modify_self', message: 'You cannot change your own role, status, or delete your own account.' },
+        { status: 403 },
+      );
+    }
+    const adminTargetBlocked = ['set_role', 'set_status', 'set_password', 'delete'].includes(actionName);
+    if (isOtherAdmin && adminTargetBlocked) {
+      return NextResponse.json(
+        { error: 'cannot_modify_admin', message: 'You cannot change the role, password, status, or delete another admin account.' },
+        { status: 403 },
+      );
+    }
+    return null;
+  };
+
   switch (action) {
     case 'edit_user':
-    case 'update_user':
+    case 'update_user': {
+      // Block role/status/password edits through the bulk edit path too.
+      const b: any = body;
+      if (isOtherAdmin && (b.role !== undefined || b.status !== undefined || (typeof b.password === 'string' && b.password.trim().length > 0))) {
+        return NextResponse.json(
+          { error: 'cannot_modify_admin', message: 'You cannot change the role, status, or password of another admin account.' },
+          { status: 403 },
+        );
+      }
+      if (isSelf && (b.role !== undefined || b.status !== undefined)) {
+        return NextResponse.json(
+          { error: 'cannot_modify_self', message: 'You cannot change your own role or status.' },
+          { status: 403 },
+        );
+      }
       return handleUserEdit(admin, user, body);
+    }
 
     case 'set_password': {
+      const guard = guardAdminTarget('set_password');
+      if (guard) return guard;
       const { password } = body;
       if (!password || typeof password !== 'string' || password.trim().length < 6) {
         return NextResponse.json(
@@ -368,6 +408,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, balance });
     }
     case 'set_role': {
+      const guard = guardAdminTarget('set_role');
+      if (guard) return guard;
       const { role } = body;
       if (role !== 'USER' && role !== 'ADMIN')
         return NextResponse.json({ error: 'invalid_role' }, { status: 400 });
@@ -385,6 +427,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ role: after.role });
     }
     case 'set_status': {
+      const guard = guardAdminTarget('set_status');
+      if (guard) return guard;
       const { status } = body;
       const normalized = String(status).toUpperCase();
       if (normalized !== 'ACTIVE' && normalized !== 'SUSPENDED') {
@@ -450,6 +494,8 @@ export async function POST(req: Request) {
     }
 
     case 'delete': {
+      const guard = guardAdminTarget('delete');
+      if (guard) return guard;
       const before = { email: user.email, name: user.name, status: user.status, deletedAt: user.deletedAt };
       await withAudit(
         { adminId: admin.id, action: 'user.delete', targetType: 'User', targetId: userId, before },

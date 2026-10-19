@@ -8,7 +8,16 @@ export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024; // 5MB
-const ALLOWED_AVATAR_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+// Validate by FILE EXTENSION, not the client-sent multipart `file.type`
+// (attackers control that header). SVG is rejected outright — it can carry
+// <script> and would execute in our origin when served inline.
+const ALLOWED_AVATAR_EXTS = new Map([
+  ['jpg', 'image/jpeg'],
+  ['jpeg', 'image/jpeg'],
+  ['png', 'image/png'],
+  ['webp', 'image/webp'],
+  ['gif', 'image/gif'],
+]);
 
 /** GET /api/user/profile — current user's public profile data */
 export async function GET(req: Request) {
@@ -53,7 +62,10 @@ export async function PATCH(req: Request) {
       }
 
       if (avatarFile instanceof File && avatarFile.size > 0) {
-        if (!ALLOWED_AVATAR_TYPES.has(avatarFile.type)) {
+        // Extension-based check (client-sent MIME is attacker-controlled).
+        const ext = avatarFile.name.split('.').pop()?.toLowerCase() || '';
+        const safeMime = ALLOWED_AVATAR_EXTS.get(ext);
+        if (!safeMime) {
           return NextResponse.json(
             { error: 'invalid_avatar_type', message: 'Avatar must be JPG, PNG, WebP, or GIF.' },
             { status: 400 },
@@ -67,7 +79,8 @@ export async function PATCH(req: Request) {
         }
         const buffer = Buffer.from(await avatarFile.arrayBuffer());
         const key = makeKey(user.id, `avatar-${avatarFile.name}`);
-        await uploadImage(key, buffer, avatarFile.type);
+        // Store with the validated safe MIME, not the client-sent file.type.
+        await uploadImage(key, buffer, safeMime);
         imageUrl = publicUrl(key);
       }
     } else {

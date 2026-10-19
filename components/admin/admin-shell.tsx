@@ -22,9 +22,11 @@ import {
   Package,
   ClipboardList,
   Ticket,
+  Menu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { AdminMobileNav } from '@/components/admin/admin-mobile-nav';
 
 /**
  * Admin console shell (PROMPT 9).
@@ -33,7 +35,15 @@ import { Button } from '@/components/ui/button';
  * design tokens: dark-mode-first, accent-highlighted active nav, collapsible
  * sidebar, user chip + "back to dashboard" pinned at the bottom.
  */
-const NAV = [
+/**
+ * Admin console nav — shared by the desktop sidebar (AdminShell) and the
+ * mobile drawer (AdminMobileNav) so both always show the same sections.
+ */
+export const ADMIN_NAV: Array<{
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
   { label: 'Overview', href: '/admin', icon: LayoutGrid },
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Plans', href: '/admin/plans', icon: Crown },
@@ -65,6 +75,7 @@ export function AdminShell({
 }: AdminShellProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = React.useState(false);
+  const [mobileOpen, setMobileOpen] = React.useState(false);
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
@@ -95,7 +106,7 @@ export function AdminShell({
           )}
         </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5 py-2">
-          {NAV.map((item) => {
+          {ADMIN_NAV.map((item) => {
             const active =
               item.href === '/admin' ? pathname === '/admin' : pathname?.startsWith(item.href);
             const Icon = item.icon;
@@ -146,7 +157,16 @@ export function AdminShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center border-b border-border bg-background/80 px-6 backdrop-blur">
+        <header className="flex h-14 items-center gap-2 border-b border-border bg-background/80 px-4 backdrop-blur sm:px-6">
+          {/* Mobile menu button — the sidebar is hidden below lg, so the drawer
+              is the only way to reach admin sections on smaller screens. */}
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground lg:hidden"
+            aria-label="Open admin menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
           <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Admin Console
           </span>
@@ -155,6 +175,15 @@ export function AdminShell({
           <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</div>
         </main>
       </div>
+
+      {/* Mobile nav drawer (below lg) */}
+      <AdminMobileNav
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        user={user}
+        siteName={siteName}
+        logoUrl={logoUrl}
+      />
     </div>
   );
 }

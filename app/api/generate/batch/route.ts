@@ -7,6 +7,7 @@ import type { TargetPlatform } from '@/lib/generator/types';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
+import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { getToolCost } from '@/lib/credits/cost';
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 
@@ -63,12 +64,23 @@ export async function POST(req: Request) {
 
     const costPerImage = await getToolCost('metadata-generator');
     total = images.length * costPerImage;
-    const deduction = await deductCredits(user.id, total, 'SPEND', {
-      imageCount: images.length,
-      costPerImage,
-      toolSlug: 'metadata-generator',
-      platform: targetPlatform,
-    });
+    let deduction;
+    try {
+      deduction = await deductCredits(user.id, total, 'SPEND', {
+        imageCount: images.length,
+        costPerImage,
+        toolSlug: 'metadata-generator',
+        platform: targetPlatform,
+      });
+    } catch (e) {
+      if (isInsufficientCreditsError(e)) {
+        return NextResponse.json(
+          { error: 'insufficient_credits', balance: e.balance, needed: e.needed },
+          { status: 402 },
+        );
+      }
+      throw e;
+    }
     if (!deduction.ok) {
       return NextResponse.json(
         { error: 'insufficient_credits', balance: deduction.balance, needed: total },

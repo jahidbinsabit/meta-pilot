@@ -201,21 +201,34 @@ export async function grantBonus(
   const now = new Date();
   const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const balance = await prisma.$transaction(async (tx) => {
-    let wallet = await tx.creditWallet.findUnique({ where: { userId } });
-    if (!wallet) {
-      // Create the wallet AND grant the amount — never silently drop a grant.
-      wallet = await tx.creditWallet.create({ data: { userId, balance: 0 } });
+    // Ensure the wallet exists (create AND grant — never silently drop).
+    await tx.creditWallet.upsert({
+      where: { userId },
+      update: {},
+      create: { userId, balance: 0 },
+    });
+    // Idempotency via ATOMIC CLAIM: the conditional update takes the row's
+    // write lock, so at READ COMMITTED the second concurrent transaction
+    // re-evaluates the WHERE against the first's committed row and gets
+    // count === 0. A plain read-then-write inside the transaction does NOT
+    // serialize — that was the double-grant race.
+    const claimWhere: any = { userId };
+    if (reason === 'daily_free') {
+      claimWhere.OR = [{ lastDailyGrantAt: null }, { lastDailyGrantAt: { lt: startOfDay } }];
     }
-    // Idempotency: for daily grants, skip if already granted today.
-    // This check is inside the transaction so concurrent cron runs can't double-grant.
-    if (reason === 'daily_free' && wallet.lastDailyGrantAt && wallet.lastDailyGrantAt >= startOfDay) {
+    const claimed = await tx.creditWallet.updateMany({
+      where: claimWhere,
+      data: reason === 'daily_free'
+        ? { balance: { increment: amount }, lastDailyGrantAt: now }
+        : { balance: { increment: amount } },
+    });
+    if (claimed.count === 0) {
       granted = false;
-      return wallet.balance;
+      const w = await tx.creditWallet.findUnique({ where: { userId } });
+      return w?.balance ?? 0;
     }
-    const next = wallet.balance + amount;
-    const updateData: any = { balance: next };
-    if (reason === 'daily_free') updateData.lastDailyGrantAt = now;
-    await tx.creditWallet.update({ where: { userId }, data: updateData });
+    const wallet = await tx.creditWallet.findUnique({ where: { userId } });
+    const next = wallet?.balance ?? 0;
     await syncUserCredits(tx, userId, next);
     const t = await tx.creditTransaction.create({
       data: { userId, amount, type: 'DAILY_GRANT', reason, metadata: metadata as any },
@@ -228,9 +241,11 @@ export async function grantBonus(
 
 /**
  * Grant the daily free-credit allowance once per rolling UTC day.
- * Idempotent — safe to call concurrently; the `lastDailyGrantAt` check is
- * part of the same transaction that writes the grant, so a race cannot
- * double-credit.
+ * Idempotent — safe to call concurrently. The grant is claimed with an
+ * ATOMIC conditional update (row write-lock), so a second concurrent call
+ * sees the first's committed `lastDailyGrantAt` and skips. A plain
+ * read-then-write inside the transaction does NOT serialize at READ
+ * COMMITTED — that was the double-grant race.
  */
 export async function grantDailyCredits(userId: string): Promise<{
   granted: boolean;
@@ -256,19 +271,26 @@ export async function grantDailyCredits(userId: string): Promise<{
   const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
   return prisma.$transaction(async (tx) => {
-    let wallet = await tx.creditWallet.findUnique({ where: { userId } });
-    if (!wallet) {
-      // Create the wallet AND proceed with the grant — never silently drop it.
-      wallet = await tx.creditWallet.create({ data: { userId, balance: 0 } });
-    }
-    if (wallet.lastDailyGrantAt && wallet.lastDailyGrantAt >= startOfDay) {
-      return { granted: false, balance: wallet.balance, amount };
-    }
-    const next = wallet.balance + amount;
-    await tx.creditWallet.update({
+    // Ensure the wallet exists (create AND grant — never silently drop it).
+    await tx.creditWallet.upsert({
       where: { userId },
-      data: { balance: next, lastDailyGrantAt: now },
+      update: {},
+      create: { userId, balance: 0 },
     });
+    // Atomic claim: only one concurrent transaction wins the grant.
+    const claimed = await tx.creditWallet.updateMany({
+      where: {
+        userId,
+        OR: [{ lastDailyGrantAt: null }, { lastDailyGrantAt: { lt: startOfDay } }],
+      },
+      data: { balance: { increment: amount }, lastDailyGrantAt: now },
+    });
+    if (claimed.count === 0) {
+      const w = await tx.creditWallet.findUnique({ where: { userId } });
+      return { granted: false, balance: w?.balance ?? 0, amount };
+    }
+    const wallet = await tx.creditWallet.findUnique({ where: { userId } });
+    const next = wallet?.balance ?? 0;
     await syncUserCredits(tx, userId, next);
     await tx.creditTransaction.create({
       data: {

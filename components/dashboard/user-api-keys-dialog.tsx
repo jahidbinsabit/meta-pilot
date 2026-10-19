@@ -36,6 +36,17 @@ export interface KeysStatus {
   userApiKeyRequired: boolean;
 }
 
+/** Display name for a provider slug — CSS `capitalize` would render "Openai". */
+const PROVIDER_LABELS: Record<string, string> = {
+  auto: 'Auto',
+  gemini: 'Gemini',
+  grok: 'Grok',
+  openai: 'OpenAI',
+};
+function providerLabel(slug: string): string {
+  return PROVIDER_LABELS[slug] ?? slug.charAt(0).toUpperCase() + slug.slice(1);
+}
+
 interface ProviderRowProps {
   title: string;
   subtitle: string;
@@ -259,7 +270,7 @@ export function UserApiKeysForm({ onSaved }: { onSaved?: () => void }) {
         <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
           <div>
-            <span className="font-semibold">API Key Required: </span>
+            <span className="font-semibold">API Key Required:</span>{' '}
             The admin requires an API key to generate content. Please configure at least one key (Gemini, Grok, or OpenAI).
           </div>
         </div>
@@ -333,13 +344,13 @@ export function UserApiKeysForm({ onSaved }: { onSaved?: () => void }) {
               key={id}
               type="button"
               onClick={() => setPreferred(id)}
-              className={`flex items-center justify-center rounded-lg border py-1.5 text-xs font-medium capitalize transition-colors ${
+              className={`flex items-center justify-center rounded-lg border py-1.5 text-xs font-medium transition-colors ${
                 preferred === id
                   ? 'border-accent bg-accent/15 text-accent font-semibold'
                   : 'border-border bg-background text-muted-foreground hover:text-foreground'
               }`}
             >
-              {id === 'auto' ? 'Auto' : id}
+              {providerLabel(id)}
             </button>
           ))}
         </div>

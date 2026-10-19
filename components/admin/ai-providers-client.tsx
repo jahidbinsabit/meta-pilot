@@ -49,6 +49,16 @@ interface ProviderPreset {
   description: string;
 }
 
+/** Display name for a provider slug — CSS `capitalize` would render "Openai". */
+const PROVIDER_LABELS: Record<string, string> = {
+  gemini: 'Gemini',
+  grok: 'Grok',
+  openai: 'OpenAI',
+};
+function providerLabel(slug: string): string {
+  return PROVIDER_LABELS[slug] ?? slug.charAt(0).toUpperCase() + slug.slice(1);
+}
+
 const PRESETS: ProviderPreset[] = [
   {
     id: 'groq',
@@ -524,7 +534,7 @@ export function AiProvidersClient({ configs: initialConfigs }: { configs: any[] 
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <CardTitle className="capitalize">{p}</CardTitle>
+                    <CardTitle>{providerLabel(p)}</CardTitle>
                     <Badge
                       variant={e.enabled ? 'success' : 'muted'}
                       className="flex items-center gap-1"
@@ -871,8 +881,8 @@ export function AiProvidersClient({ configs: initialConfigs }: { configs: any[] 
                     >
                       <option value="">Default</option>
                       {providerSlugs.map((pp) => (
-                        <option key={pp} value={pp} className="capitalize">
-                          {pp}
+                        <option key={pp} value={pp}>
+                          {providerLabel(pp)}
                         </option>
                       ))}
                     </select>

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { CheckCircle2, Circle, X, Sparkles, Image as ImageIcon, Key, Users } from 'lucide-react';
+import { CheckCircle2, Circle, X, Sparkles, Image as ImageIcon, Key } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
@@ -38,13 +38,6 @@ const STEPS: Step[] = [
     desc: 'Extract prompts from your images',
     href: '/dashboard/generate?tab=prompt',
     icon: ImageIcon,
-  },
-  {
-    id: 'invite',
-    title: 'Invite a friend',
-    desc: 'Share Meta CSV with a fellow creator',
-    href: '/dashboard/settings',
-    icon: Users,
   },
 ];
 

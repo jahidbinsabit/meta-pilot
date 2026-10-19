@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireApiUserOrKey } from '@/lib/api/auth';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
+import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataSchema } from '@/lib/ai/schemas';
 import { prisma } from '@/lib/db';
@@ -57,11 +58,22 @@ export async function POST(req: Request) {
     }
 
     const targetPlatform: TargetPlatform = platform || 'adobe';
-    const deduction = await deductCredits(user.id, cost, 'SPEND', {
-      prompt: prompt.slice(0, 120),
-      toolSlug: 'metadata-generator',
-      platform: targetPlatform,
-    });
+    let deduction;
+    try {
+      deduction = await deductCredits(user.id, cost, 'SPEND', {
+        prompt: prompt.slice(0, 120),
+        toolSlug: 'metadata-generator',
+        platform: targetPlatform,
+      });
+    } catch (e) {
+      if (isInsufficientCreditsError(e)) {
+        return new Response(
+          JSON.stringify({ error: 'insufficient_credits', balance: e.balance, needed: e.needed }),
+          { status: 402, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw e;
+    }
     if (!deduction.ok) {
       return new Response(
         JSON.stringify({ error: 'insufficient_credits', balance: deduction.balance }),

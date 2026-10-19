@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
 import { getToolCost } from '@/lib/credits/cost';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
+import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { prisma } from '@/lib/db';
 import { generateWithAI } from '@/lib/ai';
 import { AdobeKeywordsSchema } from '@/lib/ai/schemas';
@@ -35,7 +36,18 @@ export async function POST(req: Request) {
     cost = await getToolCost(slug);
     let balance = 0;
     if (cost > 0) {
-      const deduction = await deductCredits(user.id, cost, `tool_${slug}`, { slug });
+      let deduction;
+      try {
+        deduction = await deductCredits(user.id, cost, 'SPEND', { slug });
+      } catch (e) {
+        if (isInsufficientCreditsError(e)) {
+          return new Response(
+            JSON.stringify({ error: 'insufficient_credits', balance: e.balance, needed: e.needed }),
+            { status: 402, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        throw e;
+      }
       if (!deduction.ok) {
         return new Response(
           JSON.stringify({ error: 'insufficient_credits', balance: deduction.balance }),

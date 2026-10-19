@@ -69,17 +69,25 @@ export function rateLimit(
 }
 
 /**
- * Extract the client IP from a Request, honoring common proxy headers.
- * The VPS sits behind a reverse proxy, so X-Forwarded-For is expected.
+ * Extract the client IP from a Request, honoring proxy headers.
+ *
+ * M9: the app binds 127.0.0.1:3100 (see deploy-vps.sh) and is only
+ * reachable through the CyberPanel/OpenLiteSpeed reverse proxy, so
+ * clients cannot reach it directly and spoof headers — the proxy
+ * overwrites X-Real-IP with the actual peer IP. X-Real-IP is therefore
+ * trusted FIRST: unlike X-Forwarded-For (a comma list whose leftmost
+ * entries are client-controlled), it is a single value set by the proxy.
+ * If the app were ever exposed publicly without the proxy, both headers
+ * would be spoofable and the rate limit would degrade to a global one.
  */
 export function getClientIp(req: Request): string {
+  const realIp = req.headers.get('x-real-ip');
+  if (realIp) return realIp.trim();
   const forwarded = req.headers.get('x-forwarded-for');
   if (forwarded) {
     const first = forwarded.split(',')[0]?.trim();
     if (first) return first;
   }
-  const realIp = req.headers.get('x-real-ip');
-  if (realIp) return realIp.trim();
   return 'unknown';
 }
 

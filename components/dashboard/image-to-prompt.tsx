@@ -222,9 +222,15 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
                 queryClient.invalidateQueries({ queryKey: ['credits'] });
                 
                 if (data.failed > 0) {
+                  // The backend reports `refunded` even in unlimited mode, where
+                  // nothing was actually deducted — only mention the refund then.
+                  const refundedText =
+                    !unlimited && data.refunded > 0
+                      ? ` — ${data.refunded} credit${data.refunded === 1 ? '' : 's'} refunded automatically`
+                      : '';
                   toast({
                     title: `${data.succeeded}/${data.succeeded + data.failed} prompts generated`,
-                    description: `${data.failed} failed — ${data.refunded} credit${data.refunded === 1 ? '' : 's'} refunded automatically.`,
+                    description: `${data.failed} failed${refundedText}.`,
                     variant: 'warning',
                   });
                 } else {
@@ -713,6 +719,7 @@ function PromptCard({
   isRegenerating: boolean;
   onRemove: (id: string) => void;
 }) {
+  const { unlimited } = useCredits();
   if (row.status === 'failed') {
     return (
       <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-4">
@@ -721,12 +728,16 @@ function PromptCard({
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span className="truncate">{row.fileName}</span>
           </span>
-          <Badge variant="muted" className="shrink-0 text-[10px]">
-            refunded
-          </Badge>
+          {!unlimited && (
+            <Badge variant="muted" className="shrink-0 text-[10px]">
+              refunded
+            </Badge>
+          )}
         </div>
         <p className="mt-1.5 text-xs text-muted-foreground">
-          {row.error || 'Generation failed'} — the credit for this image was refunded automatically.
+          {unlimited
+            ? 'Generation failed for this image.'
+            : 'Generation failed for this image — the credit for this image was refunded automatically.'}
         </p>
       </div>
     );

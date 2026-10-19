@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
 import { getToolCost } from '@/lib/credits/cost';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
+import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { prisma } from '@/lib/db';
 import { downloadFile } from '@/lib/s3/client';
 import { storePreview } from '@/lib/generator/images';
@@ -29,11 +30,34 @@ export async function POST(req: Request) {
       });
     }
 
+    // M1: ownership check — the key comes straight from the client, so
+    // prove it belongs to this user before downloading (and spending
+    // credits on) another user's file. Same prefix pattern as
+    // app/uploads/[...file]/route.ts; the trailing dash prevents prefix
+    // collisions between user ids.
+    const owned =
+      key.startsWith(`uploads-${user.id}-`) ||
+      key.startsWith(`previews-${user.id}-`);
+    if (!owned) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+
     const cost = await getToolCost('image-to-psd');
-    const deduction = await deductCredits(user.id, cost, 'SPEND', { 
-      key,
-      toolSlug: 'image-to-psd',
-    });
+    let deduction;
+    try {
+      deduction = await deductCredits(user.id, cost, 'SPEND', { 
+        key,
+        toolSlug: 'image-to-psd',
+      });
+    } catch (e) {
+      if (isInsufficientCreditsError(e)) {
+        return new Response(
+          JSON.stringify({ error: 'insufficient_credits', balance: e.balance, needed: e.needed }),
+          { status: 402, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw e;
+    }
     if (!deduction.ok) {
       return new Response(
         JSON.stringify({ error: 'insufficient_credits', balance: deduction.balance }),

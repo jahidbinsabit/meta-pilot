@@ -40,6 +40,9 @@ interface BillingCheckoutProps {
   packages: CreditPackage[];
   gateways: PublicGateway[];
   currentMembership: (Membership & { plan: Plan }) | null;
+  /** Plan display name from the User.membership enum — same source of truth the
+   *  sidebar uses. Shown when there is no Membership record. */
+  planFallbackName?: string | null;
   walletBalance: number;
   payments?: Payment[];
   transactions?: CreditTransaction[];
@@ -77,6 +80,7 @@ export function BillingCheckout({
   packages,
   gateways,
   currentMembership,
+  planFallbackName,
   walletBalance,
   payments = [],
   transactions = [],
@@ -144,7 +148,7 @@ export function BillingCheckout({
       {/* Header & Currency Switcher */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Billing & Top Up</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Billing & Top up</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Manage your subscription plan, top up credits with USD or BDT, and view billing history.
           </p>
@@ -221,17 +225,21 @@ export function BillingCheckout({
                 Current Membership
               </CardTitle>
               <Badge
-                variant={currentMembership ? 'default' : 'secondary'}
+                variant={currentMembership || planFallbackName ? 'default' : 'secondary'}
                 className="capitalize"
               >
-                {currentMembership ? currentMembership.status.toLowerCase() : 'Free Tier'}
+                {currentMembership
+                  ? currentMembership.status.toLowerCase()
+                  : planFallbackName
+                    ? 'Active'
+                    : 'Free Tier'}
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-foreground">
-                {currentMembership?.plan.name || 'Free Plan'}
+                {currentMembership?.plan.name || planFallbackName || 'Free Plan'}
               </span>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
@@ -242,6 +250,10 @@ export function BillingCheckout({
               ) : currentMembership?.plan.dailyFreeCredits ? (
                 <span>
                   Includes {currentMembership.plan.dailyFreeCredits} free credits daily.
+                </span>
+              ) : planFallbackName ? (
+                <span>
+                  Current plan: {planFallbackName}. Choose a subscription below to manage billing.
                 </span>
               ) : (
                 <span>Upgrade to Pro or Plus for monthly rollover credits and higher limits.</span>
@@ -256,7 +268,7 @@ export function BillingCheckout({
         <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
           <TabsTrigger value="topup" className="flex items-center gap-1.5">
             <Sparkles className="h-4 w-4" />
-            Top Up Credits
+            Top up credits
           </TabsTrigger>
           <TabsTrigger value="plans" className="flex items-center gap-1.5">
             <Crown className="h-4 w-4" />
@@ -279,7 +291,7 @@ export function BillingCheckout({
               <div>
                 <h2 className="text-xl font-bold">Credit Packages</h2>
                 <p className="text-sm text-muted-foreground">
-                  One-time credit top-ups that never expire. Pay in {currency === 'USD' ? 'USD with Stripe' : 'BDT with bKash / Nagad'}.
+                  {`One-time credit top-ups that never expire. Pay in ${currency === 'USD' ? 'USD with Stripe' : 'BDT with bKash / Nagad'}.`}
                 </p>
               </div>
             </div>

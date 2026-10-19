@@ -26,13 +26,14 @@ export function AdminOverview({
   dailyGens: DailyRow[];
   chartDays: number;
 }) {
+  const fmtUSD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
   const stats = [
     { label: 'Total users', value: users, icon: Users },
     { label: 'Orders', value: orders, icon: CreditCard },
     { label: "Today's generations", value: todayGens, icon: Sparkles },
     { label: 'Active providers', value: providers, icon: Cog },
     { label: 'Jobs queued', value: jobs, icon: Activity },
-    { label: 'Revenue (USD)', value: `$${(revenue / 100).toFixed(2)}`, icon: TrendingUp },
+    { label: 'Revenue (USD)', value: fmtUSD.format(revenue / 100), icon: TrendingUp },
   ];
 
   return (
