@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
+import { HOMEPAGE_DEFAULTS } from '@/lib/homepage-defaults';
 import { Loader2, Save, Plus, Trash2 } from 'lucide-react';
 
 type SectionDef = { key: string; label: string; icon: string };
@@ -17,18 +18,6 @@ type ContentMap = Record<
   { sectionKey: string; contentJson: any; isActive?: boolean; sortOrder?: number }
 >;
 
-const DEFAULT_CONTENT: Record<string, any> = {
-  hero: {
-    headline: 'StockForge AI',
-    subheadline: 'Generate AI metadata...',
-    ctaPrimary: { label: 'Start free', href: '/login' },
-    ctaSecondary: { label: 'View pricing', href: '/pricing' },
-    badge: 'New: Adobe Stock analytics now in beta',
-  },
-  features: { items: [{ icon: 'Sparkles', title: 'Feature', description: 'Description' }] },
-  testimonials: { items: [{ name: 'Name', role: 'Role', quote: 'Quote', avatar: 'XX' }] },
-  faq: { items: [{ question: 'Question', answer: 'Answer' }] },
-};
 
 export function HomepageClient({
   sections,
@@ -41,7 +30,7 @@ export function HomepageClient({
   const [content, setContent] = React.useState<Record<string, any>>(() => {
     const result: Record<string, any> = {};
     sections.forEach((s) => {
-      result[s.key] = initialContent[s.key]?.contentJson || DEFAULT_CONTENT[s.key] || {};
+      result[s.key] = initialContent[s.key]?.contentJson || HOMEPAGE_DEFAULTS[s.key] || {};
     });
     return result;
   });

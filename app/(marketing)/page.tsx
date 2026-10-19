@@ -24,164 +24,8 @@ import {
 } from 'lucide-react';
 import { prisma } from '@/lib/db';
 import { Hero3DVisual } from '@/components/marketing/hero-3d-visual';
+import { HOMEPAGE_DEFAULTS } from '@/lib/homepage-defaults';
 
-const DEFAULTS: Record<string, any> = {
-  hero: {
-    headline: 'StockForge AI',
-    subheadline:
-      'Generate AI metadata for your stock images, craft prompts from them, and understand the market — all in one dashboard built for stock-content creators.',
-    ctaPrimary: { label: 'Start free', href: '/login' },
-    ctaSecondary: { label: 'View pricing', href: '/pricing' },
-    badge: 'New: Adobe Stock analytics now in beta',
-  },
-  features: {
-    items: [
-      {
-        icon: 'Sparkles',
-        title: 'Metadata Generator',
-        description:
-          'AI writes SEO-optimized titles, descriptions, and keyword sets tuned for Adobe Stock, Shutterstock, and Vecteezy.',
-      },
-      {
-        icon: 'Image',
-        title: 'Image → Prompt',
-        description:
-          'Reverse-engineer an image into a detailed generation prompt — perfect for recreating a style.',
-      },
-      {
-        icon: 'BarChart3',
-        title: 'Adobe Analytics',
-        description:
-          'Track downloads, revenue, views, and shares. Spot trends before your competitors.',
-      },
-      {
-        icon: 'Wrench',
-        title: 'Creative Micro-Tools',
-        description:
-          'A growing suite: keyword clustering, title A/B, alt-text, color palette extraction, and more.',
-      },
-      {
-        icon: 'Zap',
-        title: 'Batch Generation',
-        description:
-          'Queue hundreds of images through BullMQ workers. Process entire folders overnight.',
-      },
-      {
-        icon: 'Star',
-        title: 'Multi-Tenant & Secure',
-        description: 'Per-user credits, API keys, and data isolation. Your work stays yours.',
-      },
-    ],
-  },
-  howItWorks: {
-    steps: [
-      {
-        number: '01',
-        title: 'Upload Your Assets',
-        description:
-          'Drag and drop images, videos, vectors, or entire folders. Batch upload 100+ files at once. Supports JPG, PNG, WebP, EPS, AI, SVG, MP4, and more.',
-        icon: 'Upload',
-      },
-      {
-        number: '02',
-        title: 'AI Analyzes and Generates',
-        description:
-          'Our AI analyzes every file and generates SEO-optimized titles, rich descriptions, and up to 50 ranked keywords — tailored to each platform\'s requirements.',
-        icon: 'Wand2',
-      },
-      {
-        number: '03',
-        title: 'Review, Refine and Check Quality',
-        description:
-          'Edit metadata inline, use bulk editor for batch changes, check confidence scores and risk flags per asset. Get platform readiness ratings before upload.',
-        icon: 'Edit3',
-      },
-      {
-        number: '04',
-        title: 'Embed and Export',
-        description:
-          'Ready metadata embeds directly into your files. Export platform-ready CSVs for Adobe Stock, Freepik, Shutterstock, Dreamstime, 123RF, and Vecteezy in seconds.',
-        icon: 'Download',
-      },
-    ],
-  },
-  stats: {
-    items: [
-      { value: '50', suffix: 'keywords', label: 'SEO-ranked per asset' },
-      { value: '500+', suffix: 'files', label: 'batch process in one go' },
-      { value: '<10', suffix: 'seconds', label: 'per asset, end to end' },
-      { value: '6', suffix: 'AI models', label: 'choose what you use' },
-    ],
-  },
-  beforeAfter: {
-    withoutTitle: 'Without Automation',
-    withoutPoints: [
-      'Type titles one by one — 5-10 minutes per file',
-      'Copy-paste keywords manually from notes',
-      'Get rejected because of trademarked keywords',
-      'Re-enter metadata on every stock platform',
-      'No way to batch process — one file at a time',
-      "Guess what keywords will rank — no data",
-    ],
-    withTitle: 'With StockForge AI',
-    withPoints: [
-      'AI generates title, description and 50 keywords instantly',
-      'Keywords ranked by SEO weight — best ones first',
-      'Trademark sniffer auto-removes brand names',
-      'Metadata embeds into files — platforms read it automatically',
-      'Process hundreds of files in one batch',
-      'Confidence scores and risk analysis per asset',
-    ],
-  },
-  testimonials: {
-    items: [
-      {
-        name: 'Sarah Chen',
-        role: 'Adobe Stock Creator',
-        quote: "StockForge cut my metadata time by 70%. I'm shipping 3x more images now.",
-        avatar: 'SC',
-        rating: 5,
-      },
-      {
-        name: 'Marcus Williams',
-        role: 'Shutterstock Pro',
-        quote: 'The Adobe analytics integration is a game-changer. Finally understand what sells.',
-        avatar: 'MW',
-        rating: 5,
-      },
-      {
-        name: 'Priya Kapoor',
-        role: 'Vecteezy Contributor',
-        quote: 'Worth every credit. The batch generation alone saves me hours each week.',
-        avatar: 'PK',
-        rating: 5,
-      },
-    ],
-  },
-  faq: {
-    items: [
-      {
-        question: 'How many free credits do I get?',
-        answer:
-          '20 free credits on sign-up. Each metadata generation costs 1 credit. Free tier renews monthly.',
-      },
-      {
-        question: 'Can I use my own API keys?',
-        answer:
-          'Yes! You can connect your own OpenAI or Gemini keys to use your quota instead of ours.',
-      },
-      {
-        question: 'What about data privacy?',
-        answer:
-          'All images and metadata stay in your account. We never use your data for training or analytics.',
-      },
-      {
-        question: 'Is there an API?',
-        answer: 'Yes. Pro+ plans include API access. Contact sales for enterprise integration.',
-      },
-    ],
-  },
-};
 
 const ICON_MAP: Record<string, any> = {
   Sparkles,
@@ -270,13 +114,13 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function HomePage() {
   const dbContent = await getHomepageContent();
-  const hero = dbContent.hero || DEFAULTS.hero;
-  const features = dbContent.features || DEFAULTS.features;
-  const howItWorks = dbContent.howItWorks || DEFAULTS.howItWorks;
-  const stats = dbContent.stats || DEFAULTS.stats;
-  const beforeAfter = dbContent.beforeAfter || DEFAULTS.beforeAfter;
-  const testimonials = dbContent.testimonials || DEFAULTS.testimonials;
-  const faq = dbContent.faq || DEFAULTS.faq;
+  const hero = dbContent.hero || HOMEPAGE_DEFAULTS.hero;
+  const features = dbContent.features || HOMEPAGE_DEFAULTS.features;
+  const howItWorks = dbContent.howItWorks || HOMEPAGE_DEFAULTS.howItWorks;
+  const stats = dbContent.stats || HOMEPAGE_DEFAULTS.stats;
+  const beforeAfter = dbContent.beforeAfter || HOMEPAGE_DEFAULTS.beforeAfter;
+  const testimonials = dbContent.testimonials || HOMEPAGE_DEFAULTS.testimonials;
+  const faq = dbContent.faq || HOMEPAGE_DEFAULTS.faq;
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://stockforge.ai';
 
