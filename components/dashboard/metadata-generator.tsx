@@ -376,7 +376,15 @@ export function MetadataGenerator({
       abortRef.current = null;
       queryClient.invalidateQueries({ queryKey: ['credits'] });
       // API key required → show the add-key popup instead of a generic toast.
-      if (error.message === 'user_api_key_required') {
+      // The backend returns {"error":"user_api_key_required",...} as a raw JSON string.
+      let isApiKeyError = error.message === 'user_api_key_required';
+      if (!isApiKeyError && typeof error.message === 'string') {
+        try {
+          const parsed = JSON.parse(error.message);
+          isApiKeyError = parsed?.error === 'user_api_key_required';
+        } catch { /* not JSON — leave as-is */ }
+      }
+      if (isApiKeyError) {
         setApiKeyDialogOpen(true);
       } else {
         toast({ 
