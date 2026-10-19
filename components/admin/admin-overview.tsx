@@ -1,6 +1,11 @@
+'use client';
+
 import Link from 'next/link';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Users, CreditCard, Cog, Zap, TrendingUp, Activity, Settings, Bot } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Users, CreditCard, Cog, Zap, TrendingUp, Activity, Settings, Bot, Sparkles } from 'lucide-react';
+
+type DailyRow = { day: string; fullDay: string; generations: number };
 
 export function AdminOverview({
   users,
@@ -8,16 +13,23 @@ export function AdminOverview({
   jobs,
   providers,
   revenue,
+  todayGens,
+  dailyGens,
+  chartDays,
 }: {
   users: number;
   orders: number;
   jobs: number;
   providers: number;
   revenue: number;
+  todayGens: number;
+  dailyGens: DailyRow[];
+  chartDays: number;
 }) {
   const stats = [
     { label: 'Total users', value: users, icon: Users },
     { label: 'Orders', value: orders, icon: CreditCard },
+    { label: "Today's generations", value: todayGens, icon: Sparkles },
     { label: 'Active providers', value: providers, icon: Cog },
     { label: 'Jobs queued', value: jobs, icon: Activity },
     { label: 'Revenue (USD)', value: `$${(revenue / 100).toFixed(2)}`, icon: TrendingUp },
@@ -29,7 +41,7 @@ export function AdminOverview({
         <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Admin</p>
         <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">Overview</h1>
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
         {stats.map((s) => (
           <Card key={s.label}>
             <CardContent className="p-5">
@@ -44,6 +56,36 @@ export function AdminOverview({
           </Card>
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Generations — last {chartDays} days</CardTitle>
+          <CardDescription>
+            Daily ToolJob generations. <Link href="/admin/analytics" className="underline">Full analytics →</Link>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[240px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dailyGens}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={12} />
+                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: 8,
+                  }}
+                  labelFormatter={(_, payload) => payload?.[0]?.payload?.fullDay || ''}
+                />
+                <Bar dataKey="generations" fill="#10B981" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
