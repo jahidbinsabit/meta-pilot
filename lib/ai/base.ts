@@ -13,6 +13,7 @@
 
 import { zodToJsonSchema } from '@/lib/ai/json-schema';
 import { logAiCall } from '@/lib/ai/logging';
+import { cleanImagePromptResult } from '@/lib/ai/text-clean';
 import type { AiAdapter, AiRequest, AiResponse } from '@/lib/ai/types';
 
 /**
@@ -139,6 +140,20 @@ export abstract class BaseAdapter implements AiAdapter {
     } else {
       parsed = text;
       parsedOk = true;
+    }
+
+    // Image → Prompt only: flash-class models sometimes keep generating
+    // after the prompt is complete, degenerating into a repetition loop
+    // ("standard output successfully standard format…") that burns most of
+    // the token budget. Trim the loop here so every image-prompt path
+    // (dashboard stream, polling runner, extension's non-stream route)
+    // returns the clean prompt. No other schema is touched.
+    if (
+      req.responseSchemaName === 'ImagePrompt' &&
+      parsed &&
+      typeof parsed === 'object'
+    ) {
+      parsed = cleanImagePromptResult(parsed);
     }
 
     const success = !lastError && parsedOk;

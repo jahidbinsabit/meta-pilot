@@ -179,7 +179,9 @@ export async function POST(req: Request) {
             imageUrls: [imageUrl],
             responseSchema: ImagePromptSchema,
             responseSchemaName: 'ImagePrompt',
-            maxTokens: 4000,
+            // 1600 tokens is >2× a legitimate full JSON (~700); the old
+            // 4000 let repetition loops burn most of the call's time.
+            maxTokens: 1600,
             temperature: 0.7,
             userId: user.id,
           })

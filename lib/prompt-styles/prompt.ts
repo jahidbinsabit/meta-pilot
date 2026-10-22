@@ -18,7 +18,8 @@ The JSON object must have exactly these keys:
 - "lighting": string — light direction, quality, colour temperature
 - "composition": string — framing, camera angle, depth of field
 - "mood": string — the emotional register
-No extra keys. No trailing text outside the JSON.`;
+No extra keys. No trailing text outside the JSON.
+End the prompt as soon as the description is complete. Never repeat words or phrases, and never add filler to make it longer.`;
 
 export function buildImagePromptSystemInstruction(presetInstruction: string, strict = false) {
   return `${presetInstruction}
