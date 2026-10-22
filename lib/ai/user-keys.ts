@@ -14,17 +14,37 @@ export interface UserAiKeysPublicStatus {
   userApiKeyRequired: boolean;
 }
 
+// Tiny 30s TTL caches for the generate path — a batch of N images would
+// otherwise re-query the DB N times for the same values. A 30s stale window
+// for key changes is acceptable (generator settings cache 60s elsewhere).
+// Disabled under the test runner, where per-test Prisma mocks must stay
+// authoritative across calls.
+const CACHE_TTL_MS = 30_000;
+const CACHE_ENABLED = process.env.NODE_ENV !== 'test';
+let apiKeyRequiredCache: { value: boolean; expiresAt: number } | null = null;
+
 /** Check whether admin requires all users to provide their own API key. */
 export async function isUserApiKeyRequired(): Promise<boolean> {
+  // Cached for 30s — checked per image in a batch; key-requirement changes
+  // from the admin panel take effect within 30s.
+  const now = Date.now();
+  if (CACHE_ENABLED && apiKeyRequiredCache && apiKeyRequiredCache.expiresAt > now) {
+    return apiKeyRequiredCache.value;
+  }
+  let value = false;
   try {
     const settings = await prisma.siteSettings.findUnique({
       where: { id: 'default' },
       select: { userApiKeyRequired: true },
     });
-    return !!settings?.userApiKeyRequired;
+    value = !!settings?.userApiKeyRequired;
   } catch {
-    return false;
+    value = false;
   }
+  if (CACHE_ENABLED) {
+    apiKeyRequiredCache = { value, expiresAt: now + CACHE_TTL_MS };
+  }
+  return value;
 }
 
 export interface UserApiKeyCheckResult {
@@ -80,8 +100,22 @@ export async function getUserAiKeysStatus(userId: string): Promise<UserAiKeysPub
   };
 }
 
-/** Get decrypted keys for backend execution. */
+const userKeysCache = new Map<
+  string,
+  { value: Awaited<ReturnType<typeof loadUserAiKeysDecrypted>>; expiresAt: number }
+>();
+
+/** Get decrypted keys for backend execution (cached per user for 30s). */
 export async function getUserAiKeysDecrypted(userId: string) {
+  if (!CACHE_ENABLED) return loadUserAiKeysDecrypted(userId);
+  const hit = userKeysCache.get(userId);
+  if (hit && hit.expiresAt > Date.now()) return hit.value;
+  const value = await loadUserAiKeysDecrypted(userId);
+  userKeysCache.set(userId, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+  return value;
+}
+
+async function loadUserAiKeysDecrypted(userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {

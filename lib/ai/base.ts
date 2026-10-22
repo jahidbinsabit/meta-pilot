@@ -136,7 +136,9 @@ export abstract class BaseAdapter implements AiAdapter {
     }
 
     const success = !lastError && parsedOk;
-    await logAiCall({
+    // Fire-and-forget: logging must not delay returning the result
+    // (logAiCall swallows its own errors).
+    void logAiCall({
       toolSlug: req.toolSlug,
       provider: this.id,
       model: req.model || this.defaultModelName(),

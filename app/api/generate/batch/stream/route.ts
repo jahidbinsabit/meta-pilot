@@ -173,7 +173,7 @@ export async function POST(req: Request) {
       await writer.write(encoder.encode(`: ${' '.repeat(2048)}\n\n`));
       await send({ type: 'init', total: images.length, jobId: job.id });
 
-      const CONCURRENCY = 4;
+      const CONCURRENCY = 10;
       let currentIndex = 0;
 
       async function processNext() {
@@ -209,7 +209,7 @@ export async function POST(req: Request) {
               imageUrls: [img.previewUrl],
               responseSchema: MetadataSchema,
               responseSchemaName: 'Metadata',
-              maxTokens: 8192,
+              maxTokens: 1024,
               temperature: 0.7,
               userId: user.id,
             });
@@ -224,7 +224,7 @@ export async function POST(req: Request) {
                 imageUrls: [img.previewUrl],
                 responseSchema: MetadataSchema,
                 responseSchemaName: 'Metadata',
-                maxTokens: 8192,
+                maxTokens: 1024,
                 temperature: 0.2,
                 userId: user.id,
               });

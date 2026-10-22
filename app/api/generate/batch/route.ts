@@ -112,7 +112,7 @@ export async function POST(req: Request) {
 
     const results: any[] = [];
     let failed = 0;
-    const CONCURRENCY = 2; // Process 2 images concurrently for 2-3x faster generation
+    const CONCURRENCY = 10; // Process 10 images concurrently for faster generation
 
     const processImage = async (img: BatchImage) => {
       const entry: any = {
@@ -141,7 +141,7 @@ export async function POST(req: Request) {
           imageUrls: [img.previewUrl],
           responseSchema: MetadataSchema,
           responseSchemaName: 'Metadata',
-          maxTokens: 8192,
+          maxTokens: 1024,
           temperature: 0.7,
           userId: user.id,
         });
@@ -160,7 +160,7 @@ export async function POST(req: Request) {
             imageUrls: [img.previewUrl],
             responseSchema: MetadataSchema,
             responseSchemaName: 'Metadata',
-            maxTokens: 8192,
+            maxTokens: 1024,
             temperature: 0.2,
             userId: user.id,
           });
@@ -204,9 +204,6 @@ export async function POST(req: Request) {
       const chunk = images.slice(i, i + CONCURRENCY);
       const chunkResults = await Promise.all(chunk.map((img) => processImage(img)));
       results.push(...chunkResults);
-      if (i + CONCURRENCY < images.length) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
     }
 
     const succeeded = results.filter((r) => r.status === 'complete').length;

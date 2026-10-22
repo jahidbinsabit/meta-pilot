@@ -11,29 +11,49 @@ import type { ProviderConfig } from '@/lib/ai/types';
  *   3. `ACTIVE_AI_PROVIDER` env var.
  *   4. "gemini".
  *
- * The lookup is always live (DB read per call) so an admin panel change
- * takes effect on the very next generation — no deploy required.
+ * The lookup is cached in-memory for 30s so a batch generation doesn't
+ * re-query the DB per image — an admin panel change takes effect within
+ * 30s, no deploy required.
  */
-export async function getToolProviderMap(): Promise<Record<string, string>> {
-  const configs = await prisma.aiProviderConfig.findMany({
-    orderBy: { updatedAt: 'desc' },
-  });
 
-  for (const cfg of configs) {
-    if (cfg?.isActiveForToolSlug) {
-      const raw = cfg.isActiveForToolSlug as unknown;
-      if (raw && typeof raw === 'object') {
-        const out: Record<string, string> = {};
-        for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-          if (typeof v === 'string' && v.trim()) out[k] = v.trim();
-        }
-        if (Object.keys(out).length > 0) {
-          return out;
+// Tiny 30s TTL cache for provider-config lookups (per-process, best-effort).
+// Disabled under the test runner, where per-test Prisma mocks must stay
+// authoritative across calls.
+const CACHE_TTL_MS = 30_000;
+const CACHE_ENABLED = process.env.NODE_ENV !== 'test';
+const configCache = new Map<string, { value: unknown; expiresAt: number }>();
+
+async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+  if (!CACHE_ENABLED) return load();
+  const hit = configCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.value as T;
+  const value = await load();
+  configCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+  return value;
+}
+
+export async function getToolProviderMap(): Promise<Record<string, string>> {
+  return cached('toolProviderMap', async () => {
+    const configs = await prisma.aiProviderConfig.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    for (const cfg of configs) {
+      if (cfg?.isActiveForToolSlug) {
+        const raw = cfg.isActiveForToolSlug as unknown;
+        if (raw && typeof raw === 'object') {
+          const out: Record<string, string> = {};
+          for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+            if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+          }
+          if (Object.keys(out).length > 0) {
+            return out;
+          }
         }
       }
     }
-  }
-  return {};
+    return {};
+  });
 }
 
 export async function getActiveProviderForTool(toolSlug: string): Promise<string> {
@@ -56,6 +76,10 @@ function getEnvironmentApiKey(provider: string): string | undefined {
 
 export async function getProviderConfig(provider: string): Promise<ProviderConfig> {
   const clean = provider.trim().toLowerCase();
+  return cached(`providerConfig:${clean}`, () => loadProviderConfig(clean));
+}
+
+async function loadProviderConfig(clean: string): Promise<ProviderConfig> {
   const cfg = await prisma.aiProviderConfig.findUnique({ where: { provider: clean } });
   if (cfg) {
     let model = cfg.modelDefault || '';
@@ -114,7 +138,7 @@ export async function getProviderConfig(provider: string): Promise<ProviderConfi
       priority: 0,
     };
   }
-  throw new Error(`AI Provider "${provider}" is not configured in database or environment.`);
+  throw new Error(`AI Provider "${clean}" is not configured in database or environment.`);
 }
 
 /**
@@ -177,21 +201,23 @@ export async function listProviderConfigs(): Promise<(ProviderConfig & { hasKey:
  * Get all enabled providers sorted by priority (highest first) with decrypted keys.
  */
 export async function getAllEnabledProviders(): Promise<any[]> {
-  const rows = await prisma.aiProviderConfig.findMany({
-    where: { enabled: true },
-    orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+  return cached('allEnabledProviders', async () => {
+    const rows = await prisma.aiProviderConfig.findMany({
+      where: { enabled: true },
+      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+    });
+    return rows.map((r: any) => ({
+      provider: r.provider,
+      enabled: r.enabled,
+      apiKey: r.apiKey ? decryptSecret(r.apiKey) : undefined,
+      modelDefault: r.modelDefault || '',
+      customApiUrl: r.customApiUrl || undefined,
+      customHeaders: (r.customHeaders as Record<string, string>) || undefined,
+      apiType: r.apiType || 'openai',
+      costPer1kIn: r.costPer1kIn,
+      costPer1kOut: r.costPer1kOut,
+      maxTokens: r.maxTokens,
+      priority: r.priority || 0,
+    }));
   });
-  return rows.map((r: any) => ({
-    provider: r.provider,
-    enabled: r.enabled,
-    apiKey: r.apiKey ? decryptSecret(r.apiKey) : undefined,
-    modelDefault: r.modelDefault || '',
-    customApiUrl: r.customApiUrl || undefined,
-    customHeaders: (r.customHeaders as Record<string, string>) || undefined,
-    apiType: r.apiType || 'openai',
-    costPer1kIn: r.costPer1kIn,
-    costPer1kOut: r.costPer1kOut,
-    maxTokens: r.maxTokens,
-    priority: r.priority || 0,
-  }));
 }

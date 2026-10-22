@@ -98,7 +98,7 @@ export async function POST(req: Request) {
       userPrompt,
       responseSchema: MetadataSchema,
       responseSchemaName: 'Metadata',
-      maxTokens: 8192,
+      maxTokens: 1024,
       temperature: 0.7,
       userId: user.id,
     });
