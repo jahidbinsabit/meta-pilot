@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import { requireApiUserOrKey } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { getGeneratorSettings } from '@/lib/generator/settings';
-import { buildMetadataPrompt, buildRetrySystemPrompt } from '@/lib/generator/prompt';
+import { buildMetadataBatchPrompt, buildRetryBatchSystemPrompt } from '@/lib/generator/prompt';
 import type { TargetPlatform } from '@/lib/generator/types';
 import { generateWithAI } from '@/lib/ai';
-import { MetadataSchema } from '@/lib/ai/schemas';
+import { MetadataBatchSchema } from '@/lib/ai/schemas';
 import { deductCredits, refundCredits } from '@/lib/credits/engine';
 import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { getToolCost } from '@/lib/credits/cost';
@@ -112,10 +112,20 @@ export async function POST(req: Request) {
 
     const results: any[] = [];
     let failed = 0;
-    const CONCURRENCY = 10; // Process 10 images concurrently for faster generation
 
-    const processImage = async (img: BatchImage) => {
-      const entry: any = {
+    // Multi-image batching: up to 5 images go in ONE AI call (free-tier
+    // Gemini quota is 15 requests/min — one call per image burned it and
+    // triggered 429 retry storms). 3 groups run concurrently.
+    const GROUP_SIZE = 5;
+    const GROUP_CONCURRENCY = 3;
+
+    const groups: BatchImage[][] = [];
+    for (let i = 0; i < images.length; i += GROUP_SIZE) {
+      groups.push(images.slice(i, i + GROUP_SIZE));
+    }
+
+    const processGroup = async (group: BatchImage[]) => {
+      const entries: any[] = group.map((img) => ({
         id: img.id,
         fileName: img.fileName,
         status: 'failed',
@@ -125,42 +135,45 @@ export async function POST(req: Request) {
         keywords: [],
         altText: '',
         platform: targetPlatform,
-      };
+      }));
 
       try {
-        const { systemPrompt, userPrompt } = buildMetadataPrompt({
+        const { systemPrompt, userPrompt } = buildMetadataBatchPrompt({
           settings: merged as any,
-          imageDescription: img.description,
-          fileName: img.fileName,
+          images: group.map((img) => ({
+            fileName: img.fileName,
+            description: img.description,
+          })),
           platform: targetPlatform,
         });
         let ai = await generateWithAI({
           toolSlug: 'metadata-generator',
           systemPrompt,
           userPrompt,
-          imageUrls: [img.previewUrl],
-          responseSchema: MetadataSchema,
-          responseSchemaName: 'Metadata',
-          maxTokens: 1024,
+          imageUrls: group.map((img) => img.previewUrl),
+          responseSchema: MetadataBatchSchema,
+          responseSchemaName: 'MetadataBatch',
+          maxTokens: 4096,
           temperature: 0.7,
           userId: user.id,
         });
 
         let parsed: any = ai.parsed as any;
         if (!parsed) {
-          // Retry once with a stricter JSON-only instruction.
-          const retrySys = buildRetrySystemPrompt({
+          // Retry the whole group once with a stricter JSON-only instruction.
+          const retrySys = buildRetryBatchSystemPrompt({
             settings: merged as any,
             platform: targetPlatform,
+            count: group.length,
           });
           ai = await generateWithAI({
             toolSlug: 'metadata-generator',
             systemPrompt: retrySys,
             userPrompt,
-            imageUrls: [img.previewUrl],
-            responseSchema: MetadataSchema,
-            responseSchemaName: 'Metadata',
-            maxTokens: 1024,
+            imageUrls: group.map((img) => img.previewUrl),
+            responseSchema: MetadataBatchSchema,
+            responseSchemaName: 'MetadataBatch',
+            maxTokens: 4096,
             temperature: 0.2,
             userId: user.id,
           });
@@ -173,37 +186,56 @@ export async function POST(req: Request) {
         if (!ai.success && ai.errorMessage) {
           throw new Error(ai.errorMessage);
         }
-        if (!parsed || typeof parsed.title !== 'string') {
+        const batchResults: any[] = Array.isArray(parsed?.results) ? parsed.results : [];
+        if (batchResults.length === 0) {
           throw new Error('The AI returned an invalid metadata response. Please try again.');
         }
 
+        // Map results back to images by 1-based index. Indices the model
+        // skipped stay 'failed' (and are refunded like any failure).
+        const byIndex = new Map<number, any>();
+        for (const r of batchResults) {
+          if (r && typeof r.index === 'number') byIndex.set(r.index, r);
+        }
+
         const includeDescription = (merged as any).includeDescription !== false;
-        entry.status = 'complete';
-        entry.title = String(parsed.title).slice(0, merged.titleLength);
-        entry.description = includeDescription
-          ? String(parsed.description || '').slice(0, merged.descriptionLength)
-          : '';
-        entry.keywords = Array.isArray(parsed.keywords)
-          ? parsed.keywords.map((k: any) => String(k)).slice(0, merged.keywordsCount)
-          : [];
-        entry.altText = String(parsed.altText || '');
-        entry.platform = targetPlatform;
-        entry.provider = ai.provider;
-        entry.model = ai.model;
-        entry.tokensUsed = ai.usage.totalTokens;
+        group.forEach((img, i) => {
+          const r = byIndex.get(i + 1);
+          if (!r || typeof r.title !== 'string') return;
+          const entry = entries[i];
+          entry.status = 'complete';
+          entry.title = String(r.title).slice(0, merged.titleLength);
+          entry.description = includeDescription
+            ? String(r.description || '').slice(0, merged.descriptionLength)
+            : '';
+          entry.keywords = Array.isArray(r.keywords)
+            ? r.keywords.map((k: any) => String(k)).slice(0, merged.keywordsCount)
+            : [];
+          entry.altText = String(r.altText || '');
+          entry.platform = targetPlatform;
+          entry.provider = ai.provider;
+          entry.model = ai.model;
+          entry.tokensUsed = ai.usage.totalTokens;
+        });
       } catch (e: any) {
-        failed += 1;
-        entry.error = 'generation_failed';
+        // Whole group call failed — every entry stays 'failed'.
       }
 
-      return entry;
+      for (const entry of entries) {
+        if (entry.status !== 'complete') {
+          failed += 1;
+          entry.error = 'generation_failed';
+        }
+      }
+
+      return entries;
     };
 
-    // Process images in concurrent batches
-    for (let i = 0; i < images.length; i += CONCURRENCY) {
-      const chunk = images.slice(i, i + CONCURRENCY);
-      const chunkResults = await Promise.all(chunk.map((img) => processImage(img)));
-      results.push(...chunkResults);
+    // Process groups with limited concurrency
+    for (let i = 0; i < groups.length; i += GROUP_CONCURRENCY) {
+      const chunk = groups.slice(i, i + GROUP_CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map((g) => processGroup(g)));
+      for (const entries of chunkResults) results.push(...entries);
     }
 
     const succeeded = results.filter((r) => r.status === 'complete').length;

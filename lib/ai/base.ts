@@ -104,8 +104,14 @@ export abstract class BaseAdapter implements AiAdapter {
         lastError = e?.message || String(e);
       }
       if (attempt >= maxRetries) break;
-      // Back off with exponential delay before retrying a transient provider error (503 / 429 / network)
-      const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+      // Back off before retrying a transient provider error. Rate-limit
+      // errors (429 / quota) get a real 15s wait: the quota window is
+      // per-minute, so the short exponential backoff would just burn the
+      // retry into another 429. Other errors use 1s/2s exponential backoff.
+      const isRateLimited = /429|quota/i.test(lastError || '');
+      const delayMs = isRateLimited
+        ? 15_000
+        : Math.min(1000 * Math.pow(2, attempt - 1), 4000);
       await sleep(delayMs);
     }
 

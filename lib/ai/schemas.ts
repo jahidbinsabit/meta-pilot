@@ -19,6 +19,24 @@ export const MetadataSchema = z.object({
 
 export type MetadataResult = z.infer<typeof MetadataSchema>;
 
+/**
+ * Multi-image batch output: one Metadata-shaped entry per image, keyed by
+ * 1-based "index" (the image's position in the request's image list).
+ */
+export const MetadataBatchSchema = z.object({
+  results: z.array(
+    z.object({
+      index: z.number().int().positive(),
+      title: z.string().trim().min(1),
+      description: z.string().trim(),
+      keywords: z.array(z.string().trim().min(1)).min(1),
+      altText: z.string().trim().optional().default(''),
+    }),
+  ),
+});
+
+export type MetadataBatchResult = z.infer<typeof MetadataBatchSchema>;
+
 /** Image → Prompt output (PROMPT 5). */
 export const ImagePromptSchema = z.object({
   prompt: z.string().trim().min(1),

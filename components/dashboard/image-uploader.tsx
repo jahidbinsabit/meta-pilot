@@ -20,6 +20,26 @@ import { compressImageForUpload } from '@/lib/tools/client-image';
 const ACCEPT = ['.jpg', '.jpeg', '.png', '.svg', '.eps', '.ai'];
 const VECTOR = new Set(['.svg', '.eps', '.ai']);
 
+// Upload pool: at most 3 files process (compress + upload) concurrently, so
+// adding a large batch doesn't fire dozens of simultaneous uploads that
+// saturate the browser connection and the server.
+const MAX_CONCURRENT_UPLOADS = 3;
+let activeUploads = 0;
+const uploadWaiters: Array<() => void> = [];
+
+async function withUploadSlot<T>(task: () => Promise<T>): Promise<T> {
+  while (activeUploads >= MAX_CONCURRENT_UPLOADS) {
+    await new Promise<void>((resolve) => uploadWaiters.push(resolve));
+  }
+  activeUploads += 1;
+  try {
+    return await task();
+  } finally {
+    activeUploads -= 1;
+    uploadWaiters.shift()?.();
+  }
+}
+
 // Enable vector conversion for EPS, SVG, AI files
 const DISABLE_VECTOR_CONVERSION = false;
 
@@ -110,9 +130,10 @@ export function ImageUploader({
       });
 
       // Upload outside the state updater so the closure sees the full set.
+      // Runs through the upload pool — max 3 files process at a time.
       metas.forEach((m) => {
         const file = valid.find((f) => f.name === m.name && f.size === m.size);
-        if (file) void processFile(file, m);
+        if (file) void withUploadSlot(() => processFile(file, m));
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
