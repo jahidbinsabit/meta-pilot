@@ -57,6 +57,57 @@ interface ResultRow {
   error?: string;
 }
 
+/**
+ * Poll a background image-to-prompt job until it finishes.
+ *
+ * SSE events never reached browsers through the production proxy stack
+ * (jobs completed server-side while the UI spun forever), so generation
+ * is started with a plain POST that returns a jobId and progress is read
+ * back with plain GET polls of `/api/generate/jobs/[jobId]`.
+ * `onResults` fires after every poll with the entries finished so far.
+ * Returns the terminal poll payload, or null when `shouldStop()` asked
+ * us to abandon polling (unmount / Clear All). Throws on a dead runner
+ * (FAILED with nothing attempted) or after more than 5 consecutive poll
+ * network errors.
+ */
+async function pollImagePromptJob(
+  jobId: string,
+  onResults: (results: any[]) => void,
+  shouldStop: () => boolean,
+): Promise<any | null> {
+  let consecutivePollErrors = 0;
+  while (true) {
+    if (shouldStop()) return null;
+
+    let data: any;
+    try {
+      const pollRes = await fetch(`/api/generate/jobs/${jobId}`);
+      if (!pollRes.ok) throw new Error('poll_failed');
+      data = await pollRes.json();
+      consecutivePollErrors = 0;
+    } catch {
+      consecutivePollErrors += 1;
+      if (consecutivePollErrors > 5) throw new Error('Generation failed');
+      await new Promise((r) => setTimeout(r, 2500));
+      continue;
+    }
+
+    const results: any[] = Array.isArray(data.results) ? data.results : [];
+    onResults(results);
+
+    if (data.status === 'COMPLETE' || data.status === 'FAILED') {
+      // A FAILED job with zero finished images means the runner died
+      // before any image landed — surface it as an error, not a
+      // "generated 0 prompts" success.
+      if (data.status === 'FAILED' && data.succeeded === 0 && data.failed === 0) {
+        throw new Error(data.errorMessage || 'Generation failed');
+      }
+      return data;
+    }
+
+    await new Promise((r) => setTimeout(r, 2500));
+  }
+}
 export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onTabChange, user }: Props) {
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
   const [style, setStyle] = React.useState('');
@@ -107,12 +158,13 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = React.useState(false);
   const [generatingIds, setGeneratingIds] = React.useState<Set<string>>(new Set());
   const [regeneratingIds, setRegeneratingIds] = React.useState<Set<string>>(new Set());
-  const abortRef = React.useRef<AbortController | null>(null);
+  const stopRequestedRef = React.useRef(false);
 
-  // Abort any in-flight generation if the component unmounts mid-stream.
+  // Stop polling any in-flight generation if the component unmounts.
+  // (The server-side job keeps running and refunds failed images there.)
   React.useEffect(() => {
     return () => {
-      abortRef.current?.abort();
+      stopRequestedRef.current = true;
     };
   }, []);
 
@@ -146,15 +198,12 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
 
     setIsGenerating(true);
     setGeneratingIds(new Set(ready.map((f) => f.id)));
-
-    const controller = new AbortController();
-    abortRef.current = controller;
+    stopRequestedRef.current = false;
 
     try {
-      const res = await fetch('/api/generate/image-prompt/stream', {
+      const res = await fetch('/api/generate/image-prompt/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
         body: JSON.stringify({
           style,
           images: ready.map((f) => ({
@@ -172,83 +221,63 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         throw new Error(errorText || 'Generation failed');
       }
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('Stream not available');
+      const { jobId } = await res.json();
+      if (!jobId) throw new Error('Generation failed');
 
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            // Parse separately so a backend 'error' event thrown below
-            // propagates to the outer catch (toast) instead of being
-            // swallowed here as a parse warning.
-            let data: any;
-            try {
-              data = JSON.parse(line.slice(6));
-            } catch {
-              console.warn('Failed to parse SSE data:', line);
-              continue;
-            }
-
-            if (data.type === 'start') {
-              toast({ title: `Synthesizing prompts for ${data.total} images`, variant: 'info' });
-            } else if (data.type === 'processing') {
-              // Image is being processed
-            } else if (data.type === 'result') {
-                const result = data.result;
-                setResults((prev) => {
-                  const existing = prev.find((r) => r.id === result.id);
-                  if (existing) {
-                    return prev.map((r) => (r.id === result.id ? result : r));
-                  }
-                  return [...prev, result];
-                });
-                setGeneratingIds((prev) => {
-                  const next = new Set(prev);
-                  next.delete(result.id);
-                  return next;
-                });
-              } else if (data.type === 'done') {
-                setIsGenerating(false);
-                setGeneratingIds(new Set());
-                queryClient.invalidateQueries({ queryKey: ['credits'] });
-                
-                if (data.failed > 0) {
-                  // The backend reports `refunded` even in unlimited mode, where
-                  // nothing was actually deducted — only mention the refund then.
-                  const refundedText =
-                    !unlimited && data.refunded > 0
-                      ? ` — ${data.refunded} credit${data.refunded === 1 ? '' : 's'} refunded automatically`
-                      : '';
-                  toast({
-                    title: `${data.succeeded}/${data.succeeded + data.failed} prompts generated`,
-                    description: `${data.failed} failed${refundedText}.`,
-                    variant: 'warning',
-                  });
-                } else {
-                  toast({ title: 'Prompts generated', variant: 'success' });
-                }
-              } else if (data.type === 'error') {
-                throw new Error(data.error || 'Generation failed');
+      const data = await pollImagePromptJob(
+        jobId,
+        (jobResults) => {
+          if (stopRequestedRef.current) return;
+          for (const result of jobResults) {
+            if (result.status !== 'complete' && result.status !== 'failed') continue;
+            setResults((prev) => {
+              const existing = prev.find((r) => r.id === result.id);
+              if (existing) {
+                return prev.map((r) => (r.id === result.id ? result : r));
               }
+              return [...prev, result];
+            });
+            setGeneratingIds((prev) => {
+              const next = new Set(prev);
+              next.delete(result.id);
+              return next;
+            });
           }
-        }
+        },
+        () => stopRequestedRef.current,
+      );
+
+      // Stopped (unmount / Clear All) — not a failure, stay silent. The
+      // finally block resets the loading state, and the server-side job
+      // still finishes and refunds failed images there.
+      if (!data) return;
+
+      // Same finish logic as the old SSE 'done' handler.
+      setIsGenerating(false);
+      setGeneratingIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+
+      if (data.failed > 0) {
+        // The backend reports `refunded` even in unlimited mode, where
+        // nothing was actually deducted — only mention the refund then.
+        const refundedText =
+          !unlimited && data.refunded > 0
+            ? ` — ${data.refunded} credit${data.refunded === 1 ? '' : 's'} refunded automatically`
+            : '';
+        toast({
+          title: `${data.succeeded}/${data.succeeded + data.failed} prompts generated`,
+          description: `${data.failed} failed${refundedText}.`,
+          variant: 'warning',
+        });
+      } else {
+        toast({ title: 'Prompts generated', variant: 'success' });
       }
     } catch (error: any) {
-      // Aborted (unmount / Clear All) — not a real failure, stay silent.
-      if (error?.name !== 'AbortError' && !controller.signal.aborted) {
+      // Stopped mid-poll (Clear All / unmount) — not a real failure, stay silent.
+      if (!stopRequestedRef.current) {
         // API key required → show the add-key popup instead of a generic toast.
-        // The backend may return {"error":"user_api_key_required",...} as a raw
-        // JSON string, or as an SSE event: data: {"type":"error","error":...}.
+        // The start route returns {"error":"user_api_key_required",...} as a
+        // plain JSON body, which lands here as the raw error text.
         const needsApiKey = isApiKeyError(error.message);
         if (needsApiKey) {
           setApiKeyDialogOpen(true);
@@ -261,11 +290,10 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         }
       }
     } finally {
-      // Always reset loading state — the stream may end without a 'done'
-      // event (e.g. server timeout), which would otherwise hang the UI forever.
+      // Always reset loading state — if polling is abandoned, the UI
+      // would otherwise hang in the generating state forever.
       setIsGenerating(false);
       setGeneratingIds(new Set());
-      if (abortRef.current === controller) abortRef.current = null;
       queryClient.invalidateQueries({ queryKey: ['credits'] });
     }
   }
@@ -276,16 +304,17 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
       toast({ title: 'File not found', description: 'Cannot regenerate this prompt', variant: 'error' });
       return;
     }
-    
+
     if (!unlimited && credits < costPerImage) {
       toast({ title: 'Insufficient credits', description: `You need ${costPerImage} credit${costPerImage === 1 ? '' : 's'} to regenerate`, variant: 'error' });
       return;
     }
 
     setRegeneratingIds(prev => new Set(prev).add(id));
-    
+    stopRequestedRef.current = false;
+
     try {
-      const res = await fetch('/api/generate/image-prompt/stream', {
+      const res = await fetch('/api/generate/image-prompt/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -305,63 +334,46 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         throw new Error(errorText || 'Regeneration failed');
       }
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('Stream not available');
+      const { jobId } = await res.json();
+      if (!jobId) throw new Error('Regeneration failed');
 
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            // Parse separately so a backend 'error' event thrown below
-            // propagates to the outer catch (toast) instead of being
-            // swallowed here as a parse warning.
-            let data: any;
-            try {
-              data = JSON.parse(line.slice(6));
-            } catch {
-              console.warn('Failed to parse SSE data:', line);
-              continue;
-            }
-
-            if (data.type === 'result') {
-                const result = data.result;
-                setResults((prev) => prev.map(r => r.id === result.id ? result : r));
-                setRegeneratingIds(prev => {
-                  const next = new Set(prev);
-                  next.delete(result.id);
-                  return next;
-                });
-              } else if (data.type === 'done') {
-                setRegeneratingIds(prev => {
-                  const next = new Set(prev);
-                  next.delete(id);
-                  return next;
-                });
-                queryClient.invalidateQueries({ queryKey: ['credits'] });
-                toast({ title: 'Prompt regenerated', variant: 'success' });
-              } else if (data.type === 'error') {
-                throw new Error(data.error || 'Regeneration failed');
-              }
+      const data = await pollImagePromptJob(
+        jobId,
+        (jobResults) => {
+          if (stopRequestedRef.current) return;
+          for (const result of jobResults) {
+            if (result.status !== 'complete' && result.status !== 'failed') continue;
+            setResults((prev) => prev.map(r => r.id === result.id ? result : r));
+            setRegeneratingIds(prev => {
+              const next = new Set(prev);
+              next.delete(result.id);
+              return next;
+            });
           }
-        }
-      }
+        },
+        () => stopRequestedRef.current,
+      );
+
+      // Stopped (unmount / Clear All) — stay silent; the finally block
+      // clears the regenerating state.
+      if (!data) return;
+
+      // Same finish logic as the old SSE 'done' handler.
+      setRegeneratingIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+      toast({ title: 'Prompt regenerated', variant: 'success' });
     } catch (error: any) {
-      toast({ 
-        title: 'Regeneration failed', 
-        description: error.message || 'Unknown error', 
-        variant: 'error' 
+      toast({
+        title: 'Regeneration failed',
+        description: error.message || 'Unknown error',
+        variant: 'error'
       });
     } finally {
-      // Always clear the regenerating state — stream may end without 'done'.
+      // Always clear the regenerating state — polling may be abandoned.
       setRegeneratingIds(prev => {
         const next = new Set(prev);
         next.delete(id);
@@ -532,7 +544,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
                     size="sm"
                     className="h-9 rounded-lg text-xs border-destructive/40 bg-destructive/5 text-destructive hover:bg-destructive/15 hover:text-destructive"
                     onClick={() => {
-                      abortRef.current?.abort();
+                      stopRequestedRef.current = true;
                       setFiles([]);
                       setResults([]);
                       setDropzoneExpanded(true);
