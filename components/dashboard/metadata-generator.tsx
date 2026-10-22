@@ -119,8 +119,9 @@ export function MetadataGenerator({
   const [batchGeneration, setBatchGeneration] = React.useState(true);
   const [dropzoneExpanded, setDropzoneExpanded] = React.useState(true);
 
-  // Abort controller for streaming generation cancellation
-  const abortRef = React.useRef<AbortController | null>(null);
+  // Set by stopGeneration() to halt job polling (the server-side job
+  // keeps running; polling is only how the UI observes it).
+  const stopRequestedRef = React.useRef(false);
   // ETA tracking: timestamps when each result arrives
   const genStartRef = React.useRef<number>(0);
   const completedCountRef = React.useRef<number>(0);
@@ -206,6 +207,10 @@ export function MetadataGenerator({
 
 
   const [isGenerating, setIsGenerating] = React.useState(false);
+  // Total images in the current run, captured at start. The progress bar
+  // must use this — deriving it from the live file list double-counts
+  // completed images (they stay in the list AND in completedCountRef).
+  const [runTotal, setRunTotal] = React.useState(0);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = React.useState(false);
   const [generatingIds, setGeneratingIds] = React.useState<Set<string>>(new Set());
 
@@ -216,15 +221,15 @@ export function MetadataGenerator({
       return;
     }
 
-    const controller = new AbortController();
-    abortRef.current = controller;
+    stopRequestedRef.current = false;
     genStartRef.current = Date.now();
     completedCountRef.current = 0;
 
     setIsGenerating(true);
+    setRunTotal(ready.length);
     setGeneratingIds(new Set(ready.map((f) => f.id)));
     setRows((prev) => prev.filter((r) => !ready.some((f) => f.id === r.id)));
-    
+
     const payload = {
       images: ready.map((f) => ({
         id: f.id,
@@ -246,12 +251,61 @@ export function MetadataGenerator({
       platform: selectedPlatform,
     };
 
+    // Finish path for a user-stopped run (same state + toast as the old
+    // abort path).
+    const finishStopped = () => {
+      setIsGenerating(false);
+      setGeneratingIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+      const doneCount = completedCountRef.current;
+      if (doneCount > 0) {
+        toast({
+          title: `Stopped: ${doneCount} completed`,
+          description: unlimited
+            ? 'Generation stopped.'
+            : 'Generation stopped. Credits for unprocessed files will be refunded automatically.',
+          variant: 'warning',
+        });
+      } else {
+        toast({
+          title: 'Generation stopped',
+          description: unlimited
+            ? 'Generation stopped.'
+            : 'Credits for unprocessed files will be refunded automatically.',
+          variant: 'warning',
+        });
+      }
+    };
+
+    // Finish path for a completed job — same state + toasts as the old
+    // SSE 'done' handler.
+    const finishDone = (succeeded: number, failed: number) => {
+      setIsGenerating(false);
+      setGeneratingIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['credits'] });
+      setSuccessModalOpen(true);
+
+      if (failed > 0) {
+        toast({
+          title: `${succeeded}/${succeeded + failed} generated`,
+          description: unlimited
+            ? `${failed} failed.`
+            : `${failed} failed — credits refunded automatically.`,
+          variant: 'warning',
+        });
+      } else {
+        toast({
+          title: `Generated ${succeeded} metadata entries`,
+          variant: 'success',
+        });
+      }
+    };
+
     try {
-      const res = await fetch('/api/generate/batch/stream', {
+      const res = await fetch('/api/generate/batch/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -259,146 +313,106 @@ export function MetadataGenerator({
         throw new Error(errorText || 'Generation failed');
       }
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('Stream not available');
+      const { jobId } = await res.json();
+      if (!jobId) throw new Error('Generation failed');
 
-      const decoder = new TextDecoder();
-      let buffer = '';
-
+      // Poll the job row every 2.5s — SSE events never reached browsers
+      // through the production proxy stack (jobs completed server-side
+      // while the UI spun forever); plain GET polling works everywhere.
+      let consecutivePollErrors = 0;
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            // Parse separately so a backend 'error' event thrown below
-            // propagates to the outer catch (toast) instead of being
-            // swallowed here as a parse warning.
-            let data: any;
-            try {
-              data = JSON.parse(line.slice(6));
-            } catch {
-              console.warn('Failed to parse SSE data:', line);
-              continue;
-            }
-
-            if (data.type === 'init') {
-              } else if (data.type === 'processing') {
-                // Image is now being processed - no UI change needed since shimmer is already showing
-              } else if (data.type === 'result') {
-                const result = data.result;
-                const mapped: GeneratedRow = {
-                  id: result.id,
-                  fileName: result.fileName,
-                  title: result.title || '',
-                  description: result.description || '',
-                  keywords: Array.isArray(result.keywords) ? result.keywords : [],
-                  altText: result.altText || '',
-                  provider: result.provider || '',
-                  model: result.model || '',
-                  tokensUsed: result.tokensUsed || 0,
-                  status: result.status || 'complete',
-                  error: result.error,
-                  platform: result.platform || selectedPlatform,
-                };
-
-                completedCountRef.current += 1;
-                setRows(prev => {
-                  const existing = prev.find(r => r.id === result.id);
-                  if (existing) {
-                    return prev.map(r => r.id === result.id ? mapped : r);
-                  }
-                  return [...prev, mapped];
-                });
-                
-                setGeneratingIds(prev => {
-                  const next = new Set(prev);
-                  next.delete(result.id);
-                  return next;
-                });
-
-              } else if (data.type === 'done') {
-                setIsGenerating(false);
-                setGeneratingIds(new Set());
-                abortRef.current = null;
-                queryClient.invalidateQueries({ queryKey: ['credits'] });
-                setSuccessModalOpen(true);
-                
-                if (data.failed > 0) {
-                  toast({
-                    title: `${data.succeeded}/${data.succeeded + data.failed} generated`,
-                    description: unlimited
-                      ? `${data.failed} failed.`
-                      : `${data.failed} failed — credits refunded automatically.`,
-                    variant: 'warning',
-                  });
-                } else {
-                  toast({ 
-                    title: `Generated ${data.succeeded} metadata entries`, 
-                    variant: 'success' 
-                  });
-                }
-              } else if (data.type === 'error') {
-                throw new Error(data.error || 'Generation failed');
-              }
-          }
+        if (stopRequestedRef.current) {
+          finishStopped();
+          return;
         }
+
+        let data: any;
+        try {
+          const pollRes = await fetch(`/api/generate/jobs/${jobId}`);
+          if (!pollRes.ok) throw new Error('poll_failed');
+          data = await pollRes.json();
+          consecutivePollErrors = 0;
+        } catch {
+          consecutivePollErrors += 1;
+          if (consecutivePollErrors > 5) throw new Error('Generation failed');
+          await new Promise((r) => setTimeout(r, 2500));
+          continue;
+        }
+
+        const results: any[] = Array.isArray(data.results) ? data.results : [];
+        let finishedCount = 0;
+        for (const result of results) {
+          if (result.status !== 'complete' && result.status !== 'failed') continue;
+          finishedCount += 1;
+          const mapped: GeneratedRow = {
+            id: result.id,
+            fileName: result.fileName,
+            title: result.title || '',
+            description: result.description || '',
+            keywords: Array.isArray(result.keywords) ? result.keywords : [],
+            altText: result.altText || '',
+            provider: result.provider || '',
+            model: result.model || '',
+            tokensUsed: result.tokensUsed || 0,
+            status: result.status || 'complete',
+            error: result.error,
+            platform: result.platform || selectedPlatform,
+          };
+
+          setRows((prev) => {
+            const existing = prev.find((r) => r.id === result.id);
+            if (existing) {
+              return prev.map((r) => (r.id === result.id ? mapped : r));
+            }
+            return [...prev, mapped];
+          });
+
+          setGeneratingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(result.id);
+            return next;
+          });
+        }
+        completedCountRef.current = finishedCount;
+
+        if (data.status === 'COMPLETE' || data.status === 'FAILED') {
+          // A FAILED job with zero finished images means the runner died
+          // before any group landed — surface it as an error, not a
+          // "Generated 0 entries" success.
+          if (data.status === 'FAILED' && data.succeeded === 0 && data.failed === 0) {
+            throw new Error(data.errorMessage || 'Generation failed');
+          }
+          finishDone(data.succeeded ?? 0, data.failed ?? 0);
+          return;
+        }
+
+        await new Promise((r) => setTimeout(r, 2500));
       }
     } catch (error: any) {
-      // If we aborted, keep completed rows and handle gracefully
-      if (controller.signal.aborted) {
-        setIsGenerating(false);
-        setGeneratingIds(new Set());
-        abortRef.current = null;
-        queryClient.invalidateQueries({ queryKey: ['credits'] });
-        const doneCount = completedCountRef.current;
-        if (doneCount > 0) {
-          toast({
-            title: `Stopped: ${doneCount} completed`,
-            description: unlimited
-              ? 'Generation stopped.'
-              : 'Generation stopped. Credits for unprocessed files will be refunded automatically.',
-            variant: 'warning',
-          });
-        } else {
-          toast({
-            title: 'Generation stopped',
-            description: unlimited
-              ? 'Generation stopped.'
-              : 'Credits for unprocessed files will be refunded automatically.',
-            variant: 'warning',
-          });
-        }
-        return;
-      }
       setIsGenerating(false);
       setGeneratingIds(new Set());
-      abortRef.current = null;
       queryClient.invalidateQueries({ queryKey: ['credits'] });
       // API key required → show the add-key popup instead of a generic toast.
-      // The backend may return {"error":"user_api_key_required",...} as a raw
-      // JSON string, or as an SSE event: data: {"type":"error","error":...}.
+      // The backend returns {"error":"user_api_key_required",...} as a raw
+      // JSON string in the error response body.
       const needsApiKey = isApiKeyError(error.message);
       if (needsApiKey) {
         setApiKeyDialogOpen(true);
       } else {
-        toast({ 
-          title: 'Generation failed', 
-          description: error.message || 'Unknown error', 
-          variant: 'error' 
+        toast({
+          title: 'Generation failed',
+          description: error.message || 'Unknown error',
+          variant: 'error',
         });
       }
     }
   }
 
   function stopGeneration() {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
+    // Stops the UI polling only — the server-side job keeps running to
+    // completion, and failed/unprocessed images are refunded there, so
+    // the refund wording in the stopped toast stays accurate.
+    stopRequestedRef.current = true;
   }
 
   function removeFile(id: string) {
@@ -465,61 +479,71 @@ export function MetadataGenerator({
     };
 
     try {
-      const res = await fetch('/api/generate/batch/stream', {
+      const res = await fetch('/api/generate/batch/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) throw new Error('Regeneration failed');
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('Stream not available');
+      const { jobId } = await res.json();
+      if (!jobId) throw new Error('Regeneration failed');
 
-      const decoder = new TextDecoder();
-      let buffer = '';
-
+      // Poll the job until the single result lands (SSE delivery proved
+      // unreliable through the production proxy stack).
+      let consecutivePollErrors = 0;
       while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === 'result') {
-                const result = data.result;
-                const mapped: GeneratedRow = {
-                  id: result.id,
-                  fileName: result.fileName,
-                  title: result.title || '',
-                  description: result.description || '',
-                  keywords: Array.isArray(result.keywords) ? result.keywords : [],
-                  altText: result.altText || '',
-                  provider: result.provider || '',
-                  model: result.model || '',
-                  tokensUsed: result.tokensUsed || 0,
-                  status: result.status || 'complete',
-                  error: result.error,
-                  platform: result.platform || selectedPlatform,
-                };
-
-                setRows((prev) => prev.map((r) => (r.id === result.id ? mapped : r)));
-                setGeneratingIds((prev) => {
-                  const next = new Set(prev);
-                  next.delete(result.id);
-                  return next;
-                });
-              } else if (data.type === 'done') {
-                queryClient.invalidateQueries({ queryKey: ['credits'] });
-                toast({ title: 'Regenerated successfully', variant: 'success' });
-              }
-            } catch {}
-          }
+        let data: any;
+        try {
+          const pollRes = await fetch(`/api/generate/jobs/${jobId}`);
+          if (!pollRes.ok) throw new Error('poll_failed');
+          data = await pollRes.json();
+          consecutivePollErrors = 0;
+        } catch {
+          consecutivePollErrors += 1;
+          if (consecutivePollErrors > 5) throw new Error('Regeneration failed');
+          await new Promise((r) => setTimeout(r, 2500));
+          continue;
         }
+
+        const result = (Array.isArray(data.results) ? data.results : []).find(
+          (r: any) => r.id === rowId && (r.status === 'complete' || r.status === 'failed'),
+        );
+
+        if (result) {
+          const mapped: GeneratedRow = {
+            id: result.id,
+            fileName: result.fileName,
+            title: result.title || '',
+            description: result.description || '',
+            keywords: Array.isArray(result.keywords) ? result.keywords : [],
+            altText: result.altText || '',
+            provider: result.provider || '',
+            model: result.model || '',
+            tokensUsed: result.tokensUsed || 0,
+            status: result.status || 'complete',
+            error: result.error,
+            platform: result.platform || selectedPlatform,
+          };
+
+          setRows((prev) => prev.map((r) => (r.id === result.id ? mapped : r)));
+          if (result.status === 'complete') {
+            toast({ title: 'Regenerated successfully', variant: 'success' });
+          } else {
+            toast({
+              title: 'Regeneration failed',
+              description: result.error || 'Generation failed',
+              variant: 'error',
+            });
+          }
+          return;
+        }
+
+        if (data.status === 'COMPLETE' || data.status === 'FAILED') {
+          throw new Error(data.errorMessage || 'Regeneration failed');
+        }
+
+        await new Promise((r) => setTimeout(r, 2500));
       }
     } catch (e: any) {
       toast({ title: 'Regeneration failed', description: e.message, variant: 'error' });
@@ -602,8 +626,8 @@ export function MetadataGenerator({
   // Generation progress tracking
   const genTotal = React.useMemo(() => {
     if (!isGenerating) return 0;
-    return files.filter((f) => f.status === 'done' || generatingIds.has(f.id)).length + completedCountRef.current;
-  }, [isGenerating, files, generatingIds]);
+    return runTotal;
+  }, [isGenerating, runTotal]);
   const genDone = rows.length;
   const genSucceeded = completedRows.length;
   const genFailed = failedRows.length;
