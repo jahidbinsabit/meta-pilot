@@ -633,6 +633,15 @@ export function MetadataGenerator({
   const genFailed = failedRows.length;
   const genProgress = genTotal > 0 ? Math.round((genDone / genTotal) * 100) : 0;
 
+  // Upload progress — the same bar also tracks files settling (upload /
+  // analyze) before generation starts, so it animates with a % during
+  // upload instead of sitting dead at 0.
+  const settledCount = files.filter((f) => f.status === 'done' || f.status === 'error').length;
+  const failedFileCount = files.filter((f) => f.status === 'error').length;
+  const isUploading = files.some((f) => f.status === 'queued' || f.status === 'analyzing');
+  const uploadPct = files.length ? Math.round((settledCount / files.length) * 100) : 0;
+  const barPct = isGenerating ? genProgress : isUploading ? uploadPct : 100;
+
   // ETA computation
   const etaLabel = React.useMemo(() => {
     if (!isGenerating || completedCountRef.current < 2 || genStartRef.current === 0) return '';
@@ -699,23 +708,33 @@ export function MetadataGenerator({
                   Processing: {genDone}/{genTotal} | Success: {genSucceeded}, Failed: {genFailed}
                   {etaLabel && <> | ETA: {etaLabel}</>}
                 </>
+              ) : isUploading ? (
+                <>
+                  Uploading: {settledCount}/{files.length} | Ready: {readyCount}
+                  {failedFileCount > 0 && <>, Failed: {failedFileCount}</>}
+                </>
               ) : (
                 <>
                   {readyCount} file{readyCount === 1 ? '' : 's'} ready for metadata | Single: 1 file per request | Total: {totalFileSize}
                 </>
               )}
             </p>
-            <div
-              className="h-1.5 w-full rounded-full bg-border/60 overflow-hidden"
-              role="progressbar"
-              aria-valuenow={isGenerating ? genProgress : (hasResults ? 100 : 0)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
+            <div className="flex items-center gap-2">
               <div
-                className="h-full rounded-full bg-foreground transition-all duration-500 ease-out"
-                style={{ width: `${isGenerating ? genProgress : (hasResults ? 100 : 0)}%` }}
-              />
+                className="h-1.5 flex-1 rounded-full bg-border/60 overflow-hidden"
+                role="progressbar"
+                aria-valuenow={barPct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className="h-full rounded-full bg-foreground transition-all duration-500 ease-out"
+                  style={{ width: `${barPct}%` }}
+                />
+              </div>
+              <span className="w-10 text-right font-mono text-[11px] text-muted-foreground">
+                {barPct}%
+              </span>
             </div>
           </div>
 

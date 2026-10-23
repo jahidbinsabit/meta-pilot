@@ -86,6 +86,8 @@ export async function POST(req: Request) {
       const result = await searchByContributor({
         userId: user.id,
         contributorId,
+        sort: parsed.data.sort,
+        contentType: parsed.data.contentType,
         generativeAi: parsed.data.generativeAi,
       });
 

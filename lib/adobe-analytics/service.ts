@@ -89,6 +89,57 @@ function filterByGenerativeAi(assets: AssetRow[], generativeAi: GenerativeAiValu
 }
 
 /**
+ * Matches a raw row contentType against the filter value, tolerating the
+ * plural/casing variants the two data sources emit ('Photos', 'Vectors', …).
+ */
+function contentTypeMatches(rowType: string, wanted: ContentTypeValue): boolean {
+  if (wanted === 'all') return true;
+  const t = rowType.trim().toLowerCase();
+  if (wanted === 'photo') return t === 'photo' || t === 'photos';
+  if (wanted === 'vector') return t === 'vector' || t === 'vectors';
+  return t === 'illustration' || t === 'illustrations';
+}
+
+/** Client-side sort for already-fetched rows. 'relevance' keeps source order. */
+function sortAssetRows(assets: AssetRow[], sort: SortValue): AssetRow[] {
+  if (sort === 'relevance') return assets;
+  const sorted = [...assets];
+  if (sort === 'newest') {
+    sorted.sort((a, b) => {
+      const ta = a.creationDate ? Date.parse(a.creationDate) : NaN;
+      const tb = b.creationDate ? Date.parse(b.creationDate) : NaN;
+      const va = Number.isNaN(ta) ? null : ta;
+      const vb = Number.isNaN(tb) ? null : tb;
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1; // missing dates last
+      if (vb === null) return -1;
+      return vb - va; // newest first
+    });
+  } else if (sort === 'downloads') {
+    sorted.sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0)); // null counts as 0
+  }
+  return sorted;
+}
+
+/**
+ * Local filter/sort safety net for contributor rows, used by both fetch
+ * paths: content type first, then Generative-AI, then sort. The Apify path
+ * also passes the same options upstream; this keeps results correct even
+ * when a source ignores them.
+ */
+function applyContributorFilters(
+  assets: AssetRow[],
+  opts: { contentType: ContentTypeValue; generativeAi: GenerativeAiValue; sort: SortValue },
+): AssetRow[] {
+  let out = assets;
+  if (opts.contentType !== 'all') {
+    out = out.filter((a) => contentTypeMatches(a.contentType, opts.contentType));
+  }
+  out = filterByGenerativeAi(out, opts.generativeAi);
+  return sortAssetRows(out, opts.sort);
+}
+
+/**
  * Fetches enough pages to satisfy `wanted` rows, capped so a single search
  * can never hammer Adobe's API. `wanted` is already tier-clamped by the
  * caller; we additionally cap the number of upstream calls.
@@ -289,6 +340,8 @@ function emptyKeywordResult(
 export interface ContributorSearchInput {
   userId: string;
   contributorId: number;
+  sort: SortValue;
+  contentType: ContentTypeValue;
   generativeAi: GenerativeAiValue;
 }
 
@@ -303,10 +356,13 @@ export async function searchByContributor(
       const allowed = isUnlimited(gate.limit) ? 100 : Math.min(gate.limit, 100);
       const res = await runApifyAdobeStockScraper({
         creatorId: input.contributorId,
+        contentType: input.contentType,
+        generativeAi: input.generativeAi,
+        sort: input.sort,
         maxItems: allowed,
       });
 
-      const filteredAssets = filterByGenerativeAi(res.assets, input.generativeAi);
+      const filteredAssets = applyContributorFilters(res.assets, input);
       const total = filteredAssets.length;
       const { visible, hidden } = applyRowGate(total, gate.limit);
       const assets = filteredAssets.slice(0, visible);
@@ -377,8 +433,9 @@ export async function searchByContributor(
     }
   }
 
-  const filteredAssets = filterByGenerativeAi(files.map(toAssetRow), input.generativeAi);
-  const total = input.generativeAi === 'all' ? (nbResults ?? null) : filteredAssets.length;
+  const filteredAssets = applyContributorFilters(files.map(toAssetRow), input);
+  const anyFilterActive = input.contentType !== 'all' || input.generativeAi !== 'all';
+  const total = anyFilterActive ? filteredAssets.length : (nbResults ?? null);
   const { visible, hidden } = applyRowGate(total ?? filteredAssets.length, gate.limit);
   const assets = filteredAssets.slice(0, visible);
 

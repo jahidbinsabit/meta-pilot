@@ -426,12 +426,18 @@ function ContributorTab({
   }) => void;
 }) {
   const [value, setValue] = React.useState('');
+  const [sort, setSort] = React.useState<SortValue>('relevance');
+  const [contentType, setContentType] = React.useState<ContentTypeValue>('all');
   const [generativeAi, setGenerativeAi] = React.useState<GenerativeAiValue>('all');
   const [error, setError] = React.useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: (payload: { contributorId: string; generativeAi: GenerativeAiValue }) =>
-      postSearch({ type: 'contributor', ...payload }),
+    mutationFn: (payload: {
+      contributorId: string;
+      sort: SortValue;
+      contentType: ContentTypeValue;
+      generativeAi: GenerativeAiValue;
+    }) => postSearch({ type: 'contributor', ...payload }),
     onSuccess: () => setError(null),
     onError: (e: Error) => {
       setError(e.message);
@@ -452,7 +458,7 @@ function ContributorTab({
       setError('Enter a valid numeric Contributor ID or profile URL');
       return;
     }
-    mutation.mutate({ contributorId: cleaned, generativeAi });
+    mutation.mutate({ contributorId: cleaned, sort, contentType, generativeAi });
   };
 
   return (
@@ -495,6 +501,45 @@ function ContributorTab({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Sort By
+                </Label>
+                <Select value={sort} onValueChange={(v) => setSort(v as SortValue)}>
+                  <SelectTrigger className="mt-1.5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(SORT_LABELS).map(([k, label]) => (
+                      <SelectItem key={k} value={k}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Content Type
+                </Label>
+                <Select
+                  value={contentType}
+                  onValueChange={(v) => setContentType(v as ContentTypeValue)}
+                >
+                  <SelectTrigger className="mt-1.5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(CONTENT_TYPE_LABELS).map(([k, label]) => (
+                      <SelectItem key={k} value={k}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   Generative AI
                 </Label>
                 <Select
@@ -527,7 +572,7 @@ function ContributorTab({
                   onClick={() => {
                     setValue(p.id);
                     setError(null);
-                    mutation.mutate({ contributorId: p.id, generativeAi });
+                    mutation.mutate({ contributorId: p.id, sort, contentType, generativeAi });
                   }}
                   className="h-7 text-xs font-normal"
                 >

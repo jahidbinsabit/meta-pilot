@@ -25,6 +25,8 @@ export const contributorSearchSchema = z.object({
     .trim()
     .regex(/^\d+$/, 'Contributor ID must be numeric')
     .max(20, 'Contributor ID is too long'),
+  sort: z.enum(sortValues).default('relevance'),
+  contentType: z.enum(contentTypeValues).default('all'),
   generativeAi: z.enum(generativeAiValues).default('all'),
 });
 
