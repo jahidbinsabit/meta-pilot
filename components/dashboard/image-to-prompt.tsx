@@ -10,7 +10,7 @@ import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ControlsRail } from '@/components/dashboard/generator/controls-rail';
+import { ControlsRail, type PromptControlsSettings } from '@/components/dashboard/generator/controls-rail';
 import {
   Copy,
   Check,
@@ -49,12 +49,30 @@ interface ResultRow {
   styleLabel: string;
   status: 'complete' | 'failed';
   prompt: string;
+  negativePrompt?: string;
   subject?: string;
   style?: string;
   lighting?: string;
   composition?: string;
   mood?: string;
   error?: string;
+}
+
+const DEFAULT_PROMPT_CONTROLS: PromptControlsSettings = {
+  whiteBackground: false,
+  cameraParameters: false,
+  promptLength: 600,
+  prefixEnabled: false,
+  prefixText: '',
+  suffixEnabled: false,
+  suffixText: '',
+  negativeEnabled: false,
+  negativeWords: '',
+};
+
+/** Prompt text as copied/exported — the negative line rides along when set. */
+function withNegativeLine(r: { prompt: string; negativePrompt?: string }): string {
+  return r.negativePrompt ? `${r.prompt}\nNegative prompt: ${r.negativePrompt}` : r.prompt;
 }
 
 /**
@@ -154,6 +172,33 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     }
   };
 
+  // Prompt Controls (white background, camera parameters, length,
+  // prefix/suffix, negative words) — persisted per user like the style.
+  const [controls, setControls] = React.useState<PromptControlsSettings>(DEFAULT_PROMPT_CONTROLS);
+
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`image-prompt-controls:${userId}`);
+      if (saved) {
+        setControls({ ...DEFAULT_PROMPT_CONTROLS, ...JSON.parse(saved) });
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [userId]);
+
+  const updateControls = (partial: Partial<PromptControlsSettings>) => {
+    setControls((prev) => {
+      const next = { ...prev, ...partial };
+      try {
+        localStorage.setItem(`image-prompt-controls:${userId}`, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = React.useState(false);
   const [generatingIds, setGeneratingIds] = React.useState<Set<string>>(new Set());
@@ -206,6 +251,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           style,
+          controls,
           images: ready.map((f) => ({
             id: f.id,
             fileName: f.name,
@@ -319,6 +365,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           style,
+          controls,
           images: [{
             id: file.id,
             fileName: file.name,
@@ -406,7 +453,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   async function copyAll() {
     const text = results
       .filter((r) => r.status === 'complete' && r.prompt)
-      .map((r) => r.prompt)
+      .map((r) => withNegativeLine(r))
       .join('\n\n');
     if (!text) return;
     try {
@@ -421,7 +468,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   function doExport() {
     const rows = results
       .filter((r) => r.status === 'complete' && r.prompt)
-      .map((r) => ({ fileName: r.fileName, styleLabel: r.styleLabel, prompt: r.prompt }));
+      .map((r) => ({ fileName: r.fileName, styleLabel: r.styleLabel, prompt: withNegativeLine(r) }));
     if (rows.length === 0) {
       toast({ title: 'Nothing to export', variant: 'error' });
       return;
@@ -483,6 +530,8 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         onStyleChange={onStyleChange}
         styles={styles}
         costPerImage={costPerImage}
+        promptControls={controls}
+        onPromptControlsChange={updateControls}
       />
 
       {/* Right: Workspace */}
@@ -815,7 +864,7 @@ function PromptCard({
               <Button
                 variant="outline"
                 size="xs"
-                onClick={() => onCopy(row.id, row.prompt)}
+                onClick={() => onCopy(row.id, withNegativeLine(row))}
                 aria-label={`Copy prompt for ${row.fileName}`}
                 className="h-7 gap-1 text-xs"
               >
@@ -828,6 +877,13 @@ function PromptCard({
           <div className="rounded-xl border border-input bg-card-2/60 p-3.5 text-sm text-foreground leading-relaxed whitespace-pre-wrap select-all">
             {row.prompt}
           </div>
+
+          {row.negativePrompt && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              <span className="font-semibold text-foreground">Negative prompt:</span>{' '}
+              {row.negativePrompt}
+            </p>
+          )}
 
           {(row.subject || row.lighting || row.mood) && (
             <div className="flex flex-wrap gap-1.5 pt-1">

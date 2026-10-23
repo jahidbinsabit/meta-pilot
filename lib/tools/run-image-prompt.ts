@@ -20,6 +20,24 @@ export interface PromptImage {
   mimeType?: string;
 }
 
+/**
+ * Dashboard "Prompt Controls" settings (white background, camera
+ * parameters, target prompt length, prefix/suffix, negative words).
+ * Only the polling start route supplies these — the stream and
+ * non-stream routes never pass controls, so their behavior is unchanged.
+ */
+export interface PromptControls {
+  whiteBackground: boolean;
+  cameraParameters: boolean;
+  promptLength: number;
+  prefixEnabled: boolean;
+  prefixText: string;
+  suffixEnabled: boolean;
+  suffixText: string;
+  negativeEnabled: boolean;
+  negativeWords: string;
+}
+
 async function toBase64(img: PromptImage): Promise<{ data: string; mime: string }> {
   const mime = img.mimeType || 'image/png';
   let buf: Buffer;
@@ -57,6 +75,7 @@ export interface RunImagePromptGenerationArgs {
   preset: PromptStylePreset;
   costPerImage: number;
   deduction: { deducted: boolean; balance: number };
+  controls?: PromptControls;
 }
 
 /**
@@ -77,11 +96,35 @@ export interface RunImagePromptGenerationArgs {
 export async function runImagePromptGeneration(
   args: RunImagePromptGenerationArgs,
 ): Promise<void> {
-  const { userId, jobId, images, preset, costPerImage } = args;
+  const { userId, jobId, images, preset, costPerImage, controls } = args;
   const deducted = args.deduction.deducted === true;
   let balance = args.deduction.balance;
 
-  const systemPrompt = buildImagePromptSystemInstruction(preset.systemInstruction, false);
+  // Prompt Controls → extra system instruction lines. Absent controls
+  // (any non-dashboard caller) leave the instruction exactly as before.
+  const extraLines: string[] = [];
+  if (controls?.whiteBackground) {
+    extraLines.push(
+      'Describe the subject as isolated on a pure, solid white background (#FFFFFF) with a clean studio product-photography look.',
+    );
+  }
+  if (controls?.cameraParameters) {
+    extraLines.push(
+      'Include realistic camera parameters in the prompt: camera body style, lens focal length, aperture, and the lighting setup.',
+    );
+  }
+  if (controls) {
+    extraLines.push(
+      `Aim for the main prompt text to be approximately ${controls.promptLength} characters long.`,
+    );
+  }
+  const extraInstruction = extraLines.length > 0 ? extraLines.join('\n') : undefined;
+
+  const systemPrompt = buildImagePromptSystemInstruction(
+    preset.systemInstruction,
+    false,
+    extraInstruction,
+  );
   const userPrompt = buildImagePromptUserPrompt({ strict: false });
 
   const results: any[] = [];
@@ -161,6 +204,18 @@ export async function runImagePromptGeneration(
           entry.lighting = result.lighting;
           entry.composition = result.composition;
           entry.mood = result.mood;
+
+          // Prompt Controls post-processing — deterministic, applied to
+          // the finished prompt text rather than left to the model.
+          if (controls?.prefixEnabled && controls.prefixText.trim()) {
+            entry.prompt = `${controls.prefixText.trim()} ${entry.prompt}`;
+          }
+          if (controls?.suffixEnabled && controls.suffixText.trim()) {
+            entry.prompt = `${entry.prompt} ${controls.suffixText.trim()}`;
+          }
+          if (controls?.negativeEnabled && controls.negativeWords.trim()) {
+            entry.negativePrompt = controls.negativeWords.trim();
+          }
         } catch (e: any) {
           failed += 1;
           // Static error code — never leak raw internals to the client

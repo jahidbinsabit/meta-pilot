@@ -8,6 +8,7 @@ import { ownsStorageKey } from '@/lib/api/ownership';
 import { getPresetBySlug } from '@/lib/prompt-styles/presets';
 import {
   runImagePromptGeneration,
+  type PromptControls,
   type PromptImage,
 } from '@/lib/tools/run-image-prompt';
 
@@ -18,6 +19,33 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 const TOOL_SLUG = 'image-to-prompt';
+
+/**
+ * Defensively parse the dashboard "Prompt Controls" payload: booleans
+ * must be literally true, strings default to '', and promptLength is
+ * clamped to the slider range (200..2000, default 600).
+ */
+function parsePromptControls(raw: unknown): PromptControls {
+  const c =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const bool = (v: unknown) => v === true;
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  const promptLength =
+    typeof c.promptLength === 'number' && Number.isFinite(c.promptLength)
+      ? Math.min(2000, Math.max(200, Math.round(c.promptLength)))
+      : 600;
+  return {
+    whiteBackground: bool(c.whiteBackground),
+    cameraParameters: bool(c.cameraParameters),
+    promptLength,
+    prefixEnabled: bool(c.prefixEnabled),
+    prefixText: str(c.prefixText),
+    suffixEnabled: bool(c.suffixEnabled),
+    suffixText: str(c.suffixText),
+    negativeEnabled: bool(c.negativeEnabled),
+    negativeWords: str(c.negativeWords),
+  };
+}
 
 /**
  * Start an image-to-prompt job and return immediately with its jobId.
@@ -45,7 +73,11 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
   }
-  const { images, style } = body as { images?: PromptImage[]; style?: string };
+  const { images, style, controls: rawControls } = body as {
+    images?: PromptImage[];
+    style?: string;
+    controls?: unknown;
+  };
 
   if (!Array.isArray(images) || images.length === 0) {
     return NextResponse.json({ error: 'images_required' }, { status: 400 });
@@ -76,6 +108,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
   }
+
+  // Optional dashboard Prompt Controls (white background, camera
+  // parameters, prompt length, prefix/suffix, negative words).
+  const controls = parsePromptControls(rawControls);
 
   const costPerImage = await getToolCost(TOOL_SLUG);
   const total = images.length * costPerImage;
@@ -148,6 +184,7 @@ export async function POST(req: Request) {
       deducted: deduction.deducted === true,
       balance: deduction.balance,
     },
+    controls,
   });
 
   return NextResponse.json({ jobId: job.id, total: images.length });

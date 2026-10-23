@@ -426,10 +426,12 @@ function ContributorTab({
   }) => void;
 }) {
   const [value, setValue] = React.useState('');
+  const [generativeAi, setGenerativeAi] = React.useState<GenerativeAiValue>('all');
   const [error, setError] = React.useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: (id: string) => postSearch({ type: 'contributor', contributorId: id }),
+    mutationFn: (payload: { contributorId: string; generativeAi: GenerativeAiValue }) =>
+      postSearch({ type: 'contributor', ...payload }),
     onSuccess: () => setError(null),
     onError: (e: Error) => {
       setError(e.message);
@@ -450,7 +452,7 @@ function ContributorTab({
       setError('Enter a valid numeric Contributor ID or profile URL');
       return;
     }
-    mutation.mutate(cleaned);
+    mutation.mutate({ contributorId: cleaned, generativeAi });
   };
 
   return (
@@ -490,6 +492,29 @@ function ContributorTab({
               </p>
             </div>
 
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Generative AI
+                </Label>
+                <Select
+                  value={generativeAi}
+                  onValueChange={(v) => setGenerativeAi(v as GenerativeAiValue)}
+                >
+                  <SelectTrigger className="mt-1.5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(GENAI_LABELS).map(([k, label]) => (
+                      <SelectItem key={k} value={k}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
               <span className="text-xs text-muted-foreground">Popular creators:</span>
               {CONTRIBUTOR_PRESETS.map((p) => (
@@ -502,7 +527,7 @@ function ContributorTab({
                   onClick={() => {
                     setValue(p.id);
                     setError(null);
-                    mutation.mutate(p.id);
+                    mutation.mutate({ contributorId: p.id, generativeAi });
                   }}
                   className="h-7 text-xs font-normal"
                 >

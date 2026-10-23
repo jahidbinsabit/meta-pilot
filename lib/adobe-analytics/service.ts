@@ -81,6 +81,13 @@ function gentechFilter(generativeAi: GenerativeAiValue): boolean | undefined {
   return undefined;
 }
 
+/** Client-side Generative-AI filter for already-fetched asset rows. */
+function filterByGenerativeAi(assets: AssetRow[], generativeAi: GenerativeAiValue): AssetRow[] {
+  if (generativeAi === 'include') return assets.filter((a) => a.isGenerativeAi === true);
+  if (generativeAi === 'exclude') return assets.filter((a) => a.isGenerativeAi === false);
+  return assets;
+}
+
 /**
  * Fetches enough pages to satisfy `wanted` rows, capped so a single search
  * can never hammer Adobe's API. `wanted` is already tier-clamped by the
@@ -282,6 +289,7 @@ function emptyKeywordResult(
 export interface ContributorSearchInput {
   userId: string;
   contributorId: number;
+  generativeAi: GenerativeAiValue;
 }
 
 export async function searchByContributor(
@@ -298,9 +306,10 @@ export async function searchByContributor(
         maxItems: allowed,
       });
 
-      const total = res.totalResults;
+      const filteredAssets = filterByGenerativeAi(res.assets, input.generativeAi);
+      const total = filteredAssets.length;
       const { visible, hidden } = applyRowGate(total, gate.limit);
-      const assets = res.assets.slice(0, visible);
+      const assets = filteredAssets.slice(0, visible);
 
       const byType = new Map<string, number>();
       let totalKeywords = 0;
@@ -311,7 +320,10 @@ export async function searchByContributor(
 
       return {
         contributorId: input.contributorId,
-        contributorName: assets.find((a) => a.contributorName)?.contributorName || `Contributor #${input.contributorId}`,
+        contributorName:
+          filteredAssets.find((a) => a.contributorName)?.contributorName ||
+          res.assets.find((a) => a.contributorName)?.contributorName ||
+          `Contributor #${input.contributorId}`,
         totalAssets: total,
         totalIsExact: true,
         assets,
@@ -365,9 +377,10 @@ export async function searchByContributor(
     }
   }
 
-  const total = nbResults ?? null;
-  const { visible, hidden } = applyRowGate(total ?? files.length, gate.limit);
-  const assets = files.slice(0, visible).map(toAssetRow);
+  const filteredAssets = filterByGenerativeAi(files.map(toAssetRow), input.generativeAi);
+  const total = input.generativeAi === 'all' ? (nbResults ?? null) : filteredAssets.length;
+  const { visible, hidden } = applyRowGate(total ?? filteredAssets.length, gate.limit);
+  const assets = filteredAssets.slice(0, visible);
 
   const byType = new Map<string, number>();
   let totalKeywords = 0;

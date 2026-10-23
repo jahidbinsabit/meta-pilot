@@ -49,6 +49,21 @@ interface ControlsRailProps {
   onStyleChange?: (v: string) => void;
   styles?: Array<{ slug: string; label: string }>;
   costPerImage?: number;
+  promptControls?: PromptControlsSettings;
+  onPromptControlsChange?: (partial: Partial<PromptControlsSettings>) => void;
+}
+
+/** Dashboard Image → Prompt "Prompt Controls" settings (see image-to-prompt.tsx). */
+export interface PromptControlsSettings {
+  whiteBackground: boolean;
+  cameraParameters: boolean;
+  promptLength: number;
+  prefixEnabled: boolean;
+  prefixText: string;
+  suffixEnabled: boolean;
+  suffixText: string;
+  negativeEnabled: boolean;
+  negativeWords: string;
 }
 
 function PlatformIcon({ platform }: { platform: TargetPlatform }) {
@@ -102,8 +117,11 @@ export function ControlsRail({
   onStyleChange,
   styles,
   costPerImage,
+  promptControls,
+  onPromptControlsChange,
 }: ControlsRailProps) {
   const [metadataSettingsOpen, setMetadataSettingsOpen] = React.useState(true);
+  const [promptControlsOpen, setPromptControlsOpen] = React.useState(true);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [apiKeysOpen, setApiKeysOpen] = React.useState(false);
 
@@ -186,6 +204,7 @@ export function ControlsRail({
 
       {/* CARD C - Prompt Settings (if prompt tab) */}
       {activeTab === 'prompt' && (
+        <>
         <Card className='rounded-2xl border border-border bg-card p-4 shadow-sm space-y-4'>
           <div className='flex items-center justify-between'>
             <h3 className='text-sm font-semibold text-foreground'>Prompt Settings</h3>
@@ -222,6 +241,151 @@ export function ControlsRail({
             </div>
           </div>
         </Card>
+
+        {/* CARD C2 - Prompt Controls (dashboard image-to-prompt only) */}
+        {promptControls && onPromptControlsChange && (
+          <Card className='rounded-2xl border border-border bg-card p-4 shadow-sm space-y-4'>
+            <div
+              role='button'
+              tabIndex={0}
+              onClick={() => setPromptControlsOpen(!promptControlsOpen)}
+              onKeyDown={(e) => e.key === 'Enter' && setPromptControlsOpen(!promptControlsOpen)}
+              className='flex cursor-pointer items-center justify-between select-none'
+            >
+              <div className='flex items-center gap-2'>
+                <Sliders className='h-4 w-4 text-muted-foreground' />
+                <h3 className='text-sm font-semibold text-foreground'>Prompt Controls</h3>
+              </div>
+              <button type='button' className='text-muted-foreground hover:text-foreground'>
+                {promptControlsOpen ? <ChevronUp className='h-4 w-4' /> : <ChevronDown className='h-4 w-4' />}
+              </button>
+            </div>
+
+            {promptControlsOpen && (
+              <div className='space-y-4 pt-1'>
+                {/* White Background */}
+                <div className='flex items-center justify-between'>
+                  <div>
+                    <span className='text-xs font-medium text-foreground'>White Background</span>
+                    <p className='text-[11px] text-muted-foreground'>Subject isolated on pure white</p>
+                  </div>
+                  <Toggle
+                    checked={promptControls.whiteBackground}
+                    onCheckedChange={(v) => onPromptControlsChange({ whiteBackground: v })}
+                  />
+                </div>
+
+                {/* Camera Parameters */}
+                <div className='flex items-center justify-between'>
+                  <div>
+                    <span className='text-xs font-medium text-foreground'>Camera Parameters</span>
+                    <p className='text-[11px] text-muted-foreground'>Lens, aperture &amp; lighting setup</p>
+                  </div>
+                  <Toggle
+                    checked={promptControls.cameraParameters}
+                    onCheckedChange={(v) => onPromptControlsChange({ cameraParameters: v })}
+                  />
+                </div>
+
+                <div className='h-px bg-border my-1' />
+
+                {/* Prompt Length */}
+                <div className='space-y-1.5'>
+                  <div className='flex items-center justify-between'>
+                    <label className='text-[10px] font-semibold uppercase tracking-wider text-muted-foreground'>
+                      Prompt Length
+                    </label>
+                    <span className='font-mono text-xs font-semibold text-foreground'>
+                      {promptControls.promptLength} chars
+                    </span>
+                  </div>
+                  <input
+                    type='range'
+                    min={200}
+                    max={2000}
+                    step={50}
+                    value={promptControls.promptLength}
+                    onChange={(e) =>
+                      onPromptControlsChange({ promptLength: parseInt(e.target.value, 10) })
+                    }
+                    className='w-full accent-foreground cursor-pointer'
+                  />
+                  <div className='flex justify-between text-[10px] text-muted-foreground'>
+                    <span>Min: 200</span>
+                    <span>Max: 2000</span>
+                  </div>
+                </div>
+
+                <div className='h-px bg-border my-1' />
+
+                {/* Options */}
+                <div className='space-y-3.5'>
+                  <h4 className='text-[10px] font-semibold uppercase tracking-wider text-muted-foreground'>
+                    Options
+                  </h4>
+
+                  {/* Prefix */}
+                  <div className='space-y-2'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-xs font-medium text-foreground'>Prefix</span>
+                      <Toggle
+                        checked={promptControls.prefixEnabled}
+                        onCheckedChange={(v) => onPromptControlsChange({ prefixEnabled: v })}
+                      />
+                    </div>
+                    {promptControls.prefixEnabled && (
+                      <Input
+                        value={promptControls.prefixText}
+                        onChange={(e) => onPromptControlsChange({ prefixText: e.target.value })}
+                        placeholder='Prepended to every prompt'
+                        className='h-8 text-xs'
+                      />
+                    )}
+                  </div>
+
+                  {/* Suffix */}
+                  <div className='space-y-2'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-xs font-medium text-foreground'>Suffix</span>
+                      <Toggle
+                        checked={promptControls.suffixEnabled}
+                        onCheckedChange={(v) => onPromptControlsChange({ suffixEnabled: v })}
+                      />
+                    </div>
+                    {promptControls.suffixEnabled && (
+                      <Input
+                        value={promptControls.suffixText}
+                        onChange={(e) => onPromptControlsChange({ suffixText: e.target.value })}
+                        placeholder='Appended to every prompt'
+                        className='h-8 text-xs'
+                      />
+                    )}
+                  </div>
+
+                  {/* Negative Prompt Words */}
+                  <div className='space-y-2'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-xs font-medium text-foreground'>Negative Prompt Words</span>
+                      <Toggle
+                        checked={promptControls.negativeEnabled}
+                        onCheckedChange={(v) => onPromptControlsChange({ negativeEnabled: v })}
+                      />
+                    </div>
+                    {promptControls.negativeEnabled && (
+                      <Input
+                        value={promptControls.negativeWords}
+                        onChange={(e) => onPromptControlsChange({ negativeWords: e.target.value })}
+                        placeholder='e.g. blurry, watermark, deformed'
+                        className='h-8 text-xs'
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
+        </>
       )}
 
       {/* CARD C - Metadata Settings (if metadata tab) */}

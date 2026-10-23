@@ -25,6 +25,7 @@ export const contributorSearchSchema = z.object({
     .trim()
     .regex(/^\d+$/, 'Contributor ID must be numeric')
     .max(20, 'Contributor ID is too long'),
+  generativeAi: z.enum(generativeAiValues).default('all'),
 });
 
 /** One asset row as returned to the client. */

@@ -684,6 +684,113 @@ export function MetadataGenerator({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  // Action bar — handed to ImageUploader's actionBar slot so the
+  // buttons sit directly under the upload box, above the file list,
+  // instead of in a separate card below the (potentially long) list.
+  const actionBar = files.length > 0 ? (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          {/* Left block: status + progress */}
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <p className="text-[11px] text-muted-foreground leading-snug truncate">
+              {isGenerating ? (
+                <>
+                  Processing: {genDone}/{genTotal} | Success: {genSucceeded}, Failed: {genFailed}
+                  {etaLabel && <> | ETA: {etaLabel}</>}
+                </>
+              ) : (
+                <>
+                  {readyCount} file{readyCount === 1 ? '' : 's'} ready for metadata | Single: 1 file per request | Total: {totalFileSize}
+                </>
+              )}
+            </p>
+            <div
+              className="h-1.5 w-full rounded-full bg-border/60 overflow-hidden"
+              role="progressbar"
+              aria-valuenow={isGenerating ? genProgress : (hasResults ? 100 : 0)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                className="h-full rounded-full bg-foreground transition-all duration-500 ease-out"
+                style={{ width: `${isGenerating ? genProgress : (hasResults ? 100 : 0)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Right block: buttons */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {isGenerating ? (
+              <>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-9 rounded-lg text-[13px]"
+                  onClick={stopGeneration}
+                >
+                  <StopCircle className="h-4 w-4" />
+                  Stop
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-9 rounded-lg text-[13px]"
+                  disabled
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Processing…
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-9 rounded-lg text-[13px]"
+                  onClick={() => {
+                    setFiles([]);
+                    setRows([]);
+                    setShowExportPanel(false);
+                    setDropzoneExpanded(true);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Clear All
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-9 rounded-lg text-[13px]"
+                  onClick={() => startStreamingGeneration()}
+                  disabled={!canGenerate}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Generate All ({readyCount})
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 rounded-lg text-[13px]"
+                  disabled={completedRows.length === 0}
+                  onClick={() => setShowExportPanel((v) => !v)}
+                >
+                  <Download className="h-4 w-4" />
+                  Export CSV
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Credit warning */}
+        {!isGenerating && readyCount > 0 && !unlimited && credits < readyCount && (
+          <p className="mt-2 text-[11px] text-amber-400">
+            You need {readyCount} credits but have {credits}.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  ) : undefined;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
       {/* Left: Control Rail */}
@@ -755,115 +862,11 @@ export function MetadataGenerator({
                   onFilesChange={setFiles}
                   batchLimit={batchLimit}
                   disabled={isGenerating}
+                  actionBar={actionBar}
                 />
               )}
             </CardContent>
           </Card>
-
-          {/* ═══ B) Action Bar ═══ */}
-          {files.length > 0 && (
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                  {/* Left block: status + progress */}
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <p className="text-[11px] text-muted-foreground leading-snug truncate">
-                      {isGenerating ? (
-                        <>
-                          Processing: {genDone}/{genTotal} | Success: {genSucceeded}, Failed: {genFailed}
-                          {etaLabel && <> | ETA: {etaLabel}</>}
-                        </>
-                      ) : (
-                        <>
-                          {readyCount} file{readyCount === 1 ? '' : 's'} ready for metadata | Single: 1 file per request | Total: {totalFileSize}
-                        </>
-                      )}
-                    </p>
-                    <div
-                      className="h-1.5 w-full rounded-full bg-border/60 overflow-hidden"
-                      role="progressbar"
-                      aria-valuenow={isGenerating ? genProgress : (hasResults ? 100 : 0)}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                    >
-                      <div
-                        className="h-full rounded-full bg-foreground transition-all duration-500 ease-out"
-                        style={{ width: `${isGenerating ? genProgress : (hasResults ? 100 : 0)}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Right block: buttons */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    {isGenerating ? (
-                      <>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          className="h-9 rounded-lg text-[13px]"
-                          onClick={stopGeneration}
-                        >
-                          <StopCircle className="h-4 w-4" />
-                          Stop
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="h-9 rounded-lg text-[13px]"
-                          disabled
-                        >
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Processing…
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          className="h-9 rounded-lg text-[13px]"
-                          onClick={() => {
-                            setFiles([]);
-                            setRows([]);
-                            setShowExportPanel(false);
-                            setDropzoneExpanded(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Clear All
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="h-9 rounded-lg text-[13px]"
-                          onClick={() => startStreamingGeneration()}
-                          disabled={!canGenerate}
-                        >
-                          <Sparkles className="h-4 w-4" />
-                          Generate All ({readyCount})
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-9 rounded-lg text-[13px]"
-                          disabled={completedRows.length === 0}
-                          onClick={() => setShowExportPanel((v) => !v)}
-                        >
-                          <Download className="h-4 w-4" />
-                          Export CSV
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Credit warning */}
-                {!isGenerating && readyCount > 0 && !unlimited && credits < readyCount && (
-                  <p className="mt-2 text-[11px] text-amber-400">
-                    You need {readyCount} credits but have {credits}.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
 
           {/* Results table (editable before export) */}
           {files.length > 0 && (

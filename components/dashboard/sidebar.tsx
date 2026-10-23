@@ -17,6 +17,8 @@ import {
   TrendingUp,
   Shield,
   UserCircle,
+  Coins,
+  Infinity as InfinityIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -121,7 +123,16 @@ export function Sidebar({
 
       {/* Credits panel pinned near bottom */}
       <div className="border-t border-border p-3">
-        <div className={cn('rounded-xl border border-border bg-card-2 p-3', collapsed && 'px-2')}>
+        {collapsed ? (
+          <Link
+            href="/dashboard/billing"
+            title={`Credits: ${unlimited ? 'Unlimited' : (mounted ? credits : user.credits)}`}
+            className="flex items-center justify-center rounded-xl border border-border bg-card-2 px-2 py-3 text-accent transition-colors hover:bg-accent/10"
+          >
+            {unlimited ? <InfinityIcon className="h-5 w-5" /> : <Coins className="h-5 w-5" />}
+          </Link>
+        ) : (
+        <div className="rounded-xl border border-border bg-card-2 p-3">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               Credits
@@ -146,6 +157,7 @@ export function Sidebar({
             </Button>
           </Link>
         </div>
+        )}
 
         {/* User chip */}
         <Link href="/dashboard/profile" className="mt-2 flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/10 transition-colors">

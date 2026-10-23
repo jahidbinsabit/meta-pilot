@@ -21,10 +21,14 @@ The JSON object must have exactly these keys:
 No extra keys. No trailing text outside the JSON.
 End the prompt as soon as the description is complete. Never repeat words or phrases, and never add filler to make it longer.`;
 
-export function buildImagePromptSystemInstruction(presetInstruction: string, strict = false) {
+export function buildImagePromptSystemInstruction(
+  presetInstruction: string,
+  strict = false,
+  extraInstruction?: string,
+) {
   return `${presetInstruction}
 
-${SHAPE_INSTRUCTION}${
+${SHAPE_INSTRUCTION}${extraInstruction ? `\n\n${extraInstruction}` : ''}${
     strict
       ? '\nSTRICT MODE: return ONLY the JSON object, nothing else. Even a single word outside the braces is an error.'
       : ''

@@ -83,7 +83,11 @@ export async function POST(req: Request) {
         );
       }
       const contributorId = Number(parsed.data.contributorId);
-      const result = await searchByContributor({ userId: user.id, contributorId });
+      const result = await searchByContributor({
+        userId: user.id,
+        contributorId,
+        generativeAi: parsed.data.generativeAi,
+      });
 
       // Best-effort history; result payload is trimmed to counts, not assets.
       await recordQuery(user.id, 'contributor_id', String(contributorId), {
