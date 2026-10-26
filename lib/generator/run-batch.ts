@@ -26,10 +26,10 @@ export interface RunBatchGenerationArgs {
 /**
  * Background batch runner for the metadata generator (polling delivery).
  *
- * Same group logic as the SSE stream route — up to 5 images per AI call,
+ * Group logic: up to 5 images per AI call,
  * 3 groups concurrently, one retry per group with a stricter prompt,
- * results mapped back by 1-based index — but instead of pushing SSE
- * events it writes progress into the ToolJob row after each group, so
+ * results mapped back by 1-based index — instead of pushing SSE events
+ * it writes progress into the ToolJob row after each group, so
  * the frontend can poll `GET /api/generate/jobs/[jobId]`. SSE delivery
  * proved unreliable through the production proxy stack (browsers
  * received zero events while jobs completed server-side); plain
@@ -69,10 +69,36 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
   let refundedTotal = 0;
   let refundError: string | undefined;
 
+  // Defense-in-depth (H1/H2): batch/start validates and normalizes every
+  // reference to a raw storage key or a size-capped data: URL before this
+  // runner is invoked. If a caller ever bypassed that, a non-conforming
+  // reference (external URL, foreign path, oversized data: payload) must
+  // never reach the AI adapter, which resolves whatever it is handed —
+  // blank it so its group fails honestly (failed + refunded) instead.
+  const safeImages = images.map((img) => {
+    const ref = typeof img.previewUrl === 'string' ? img.previewUrl : '';
+    const conforms =
+      ref.startsWith('uploads/') ||
+      ref.startsWith('previews/') ||
+      // ~12 MB decoded ≈ 16.8M base64 chars; bound the string itself.
+      (ref.startsWith('data:') && ref.length <= 17_000_000);
+    if (conforms) return img;
+    console.error(
+      'runBatchGeneration: dropped non-conforming image reference',
+      jobId,
+      img.id,
+    );
+    return { ...img, previewUrl: '' };
+  });
+
   const writeProgress = async () => {
     try {
-      await prisma.toolJob.update({
-        where: { id: jobId },
+      // Status-guarded (R7-01): only a still-running job accepts
+      // progress. If the stale-job reaper already claimed this job
+      // (FAILED + refunded), a late progress write must not overwrite
+      // its outputData — that would erase the reaper's refund record.
+      await prisma.toolJob.updateMany({
+        where: { id: jobId, status: { in: ['QUEUED', 'PROCESSING'] } },
         data: {
           outputData: {
             results: entries,
@@ -100,8 +126,8 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
     const GROUP_CONCURRENCY = 3;
 
     const groups: { start: number; items: BatchImage[] }[] = [];
-    for (let i = 0; i < images.length; i += GROUP_SIZE) {
-      groups.push({ start: i, items: images.slice(i, i + GROUP_SIZE) });
+    for (let i = 0; i < safeImages.length; i += GROUP_SIZE) {
+      groups.push({ start: i, items: safeImages.slice(i, i + GROUP_SIZE) });
     }
 
     let currentGroup = 0;
@@ -251,8 +277,13 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
 
     const succeeded = entries.filter((r) => r.status === 'complete').length;
 
-    await prisma.toolJob.update({
-      where: { id: jobId },
+    // R7-01: the terminal write is status-guarded. If the stale-job
+    // reaper claimed this job during a >20-min heartbeat gap (FAILED +
+    // refunded via refundCreditsOnce — the refund above then dedupes
+    // to 0), this runner must NOT flip it back to COMPLETE or overwrite
+    // the reaper's refund fields; skip the write entirely.
+    const finalWrite = await prisma.toolJob.updateMany({
+      where: { id: jobId, status: { in: ['QUEUED', 'PROCESSING'] } },
       data: {
         status: failed === images.length ? 'FAILED' : 'COMPLETE',
         outputData: {
@@ -269,20 +300,28 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
         completedAt: new Date(),
       },
     });
+    if (finalWrite.count === 0) {
+      console.error(
+        'runBatchGeneration: job already claimed by the reaper — final write skipped',
+        jobId,
+      );
+    }
   } catch (err: any) {
     console.error('runBatchGeneration error:', err);
     // Unexpected failure: never leave the user charged for images that
     // did not complete, and never leave the job hanging in a live state.
-    // Only the not-yet-refunded remainder is attempted (CQ-02): the main
-    // path above may already have refunded the failed entries before the
-    // final update threw, and refundCreditsOnce dedupes per job as well.
+    // refundCreditsOnce is CUMULATIVE: pass the TOTAL owed for the job
+    // (all not-complete images), not a delta — it subtracts whatever was
+    // already refunded for this job (the main path above may have paid
+    // the failed entries before the final update threw, or the reaper
+    // may have) and pays only the difference.
     const notComplete = entries.filter((r) => r.status !== 'complete').length;
     const remaining = notComplete - refundedImages;
     if (remaining > 0 && deducted) {
       try {
         refundedTotal += await refundCreditsOnce(
           userId,
-          remaining * costPerImage,
+          notComplete * costPerImage,
           jobId,
           'metadata_batch_failure',
         );
@@ -303,8 +342,10 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
     }
     const succeeded = entries.filter((r) => r.status === 'complete').length;
     try {
-      await prisma.toolJob.update({
-        where: { id: jobId },
+      // Status-guarded like the success path (R7-01) — a reaped job
+      // keeps the reaper's FAILED state and refund record.
+      const failWrite = await prisma.toolJob.updateMany({
+        where: { id: jobId, status: { in: ['QUEUED', 'PROCESSING'] } },
         data: {
           status: 'FAILED',
           outputData: {
@@ -321,6 +362,12 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
           completedAt: new Date(),
         },
       });
+      if (failWrite.count === 0) {
+        console.error(
+          'runBatchGeneration: job already claimed by the reaper — failure write skipped',
+          jobId,
+        );
+      }
     } catch (updateErr) {
       console.error('runBatchGeneration: failed-status update failed', updateErr);
     }

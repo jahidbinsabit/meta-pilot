@@ -86,14 +86,26 @@ model AiProviderConfig {
 }
 
 model ApiKey {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  key       String   @unique
+  // Legacy plaintext secret. Nullable: new keys store ONLY keyHash and
+  // leave this null. Existing rows are migrated by lib/db-sync.ts, which
+  // fills keyHash + keyPrefix and then nulls this column.
+  key       String?   @unique
+  // SHA-256 hex of the full secret (M6 hardening, R7). Auth looks up by
+  // this hash; the plaintext is never stored for new keys.
+  keyHash   String?   @unique
+  // Non-secret display mask captured at creation (e.g. "sk_ab12...wxyz"),
+  // so list views can show a preview without the plaintext.
+  keyPrefix String?
   name      String
   scopes    String[]
-  revoked   Boolean  @default(false)
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  revoked   Boolean   @default(false)
+  // Optional expiry (M6 hardening, R7). Null = never expires. Expired
+  // keys are rejected at auth time.
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([revoked])
   @@index([userId])

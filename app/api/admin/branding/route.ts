@@ -16,8 +16,9 @@ import { uploadFile, deleteFile, listFiles } from '@/lib/s3/client';
  * Re-uploads delete the previous variant first, so at most ONE logo file and
  * ONE favicon file ever exist — branding storage never grows.
  *
- * SVG is stored as-is: uploads here are admin-only (requireApiAdmin), and the
- * serve route returns them with an image/svg+xml content type.
+ * SVG is stored as-is: uploads here are admin-only (requireApiAdmin), and
+ * the serve route returns them with an image/svg+xml content type plus a
+ * `Content-Security-Policy: sandbox` header.
  */
 
 export const runtime = 'nodejs';
@@ -108,16 +109,24 @@ export async function POST(req: Request) {
 
     // Delete any previous variant of this kind (possibly a different
     // extension) so re-uploads overwrite and never accumulate.
+    // A failed delete must NOT block the new upload (availability first),
+    // but it is logged rather than swallowed silently (R7-03): the
+    // leftover file is harmless because the serve route always picks the
+    // NEWEST variant by lastModified.
     try {
       const existing = await listFiles('branding/');
       await Promise.all(
         existing
           .map((f) => f.key)
           .filter((k) => k.startsWith(`branding/${kind}.`))
-          .map((k) => deleteFile(k).catch(() => {})),
+          .map((k) =>
+            deleteFile(k).catch((deleteErr) => {
+              console.error(`[branding] failed to delete previous variant ${k}:`, deleteErr);
+            }),
+          ),
       );
-    } catch {
-      /* listing is best-effort; the upload below still lands on the fixed key */
+    } catch (listErr) {
+      console.error('[branding] could not list previous variants before upload:', listErr);
     }
 
     await uploadFile(key, buffer, mime);

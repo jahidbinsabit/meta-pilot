@@ -51,6 +51,15 @@ export function keywordDensity(rawInput: string) {
         'List your target keywords below the --- separator, one per line.',
       );
     }
+    // N2: targeted mode scans the whole haystack once per target —
+    // O(targets × text length). Cap the target count so the product term
+    // stays bounded (the route also caps total input chars).
+    const MAX_DENSITY_TARGETS = 200;
+    if (targets.length > MAX_DENSITY_TARGETS) {
+      throw new ToolValidationError(
+        `Too many target keywords (${targets.length}). Please list at most ${MAX_DENSITY_TARGETS}.`,
+      );
+    }
     const haystack = ` ${words.join(' ')} `;
     const results = targets.map((kw) => {
       const kwWords = tokenize(kw);

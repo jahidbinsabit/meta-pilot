@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
-import { uploadImage, makeKey, publicUrl } from '@/lib/s3/client';
+import { uploadImage, makeAvatarKey, publicUrl } from '@/lib/s3/client';
 import { refreshSessionJWT } from '@/lib/auth-handler';
 
 export const runtime = 'nodejs';
@@ -84,7 +84,11 @@ export async function PATCH(req: Request) {
           );
         }
         const buffer = Buffer.from(await avatarFile.arrayBuffer());
-        const key = makeKey(user.id, `avatar-${avatarFile.name}`);
+        // Permanent `avatars/` prefix — NOT makeKey's `uploads/` prefix,
+        // which the cleanup cron TTL-deletes after ~90 min (audit R7).
+        // Legacy avatars already stored under uploads/ keep resolving
+        // through the same publicUrl/read paths while their files last.
+        const key = makeAvatarKey(user.id, `avatar-${avatarFile.name}`);
         // Store with the validated safe MIME, not the client-sent file.type.
         await uploadImage(key, buffer, safeMime);
         imageUrl = publicUrl(key);

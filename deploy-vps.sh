@@ -17,7 +17,7 @@ APP_DIR="/opt/metapilot"
 REPO="https://github.com/jahidbinsabit/meta-pilot.git"
 COMPOSE="docker compose -f docker-compose.prod.yml"
 
-echo "=== [1/6] Docker ==="
+echo "=== [1/7] Docker ==="
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
   systemctl enable --now docker 2>/dev/null || true
@@ -25,7 +25,7 @@ else
   echo "docker already installed: $(docker --version)"
 fi
 
-echo "=== [2/6] Code ==="
+echo "=== [2/7] Code ==="
 if [ -d "$APP_DIR/.git" ]; then
   git -C "$APP_DIR" fetch -q origin
   git -C "$APP_DIR" reset -q --hard origin/main
@@ -36,7 +36,7 @@ else
 fi
 cd "$APP_DIR"
 
-echo "=== [3/6] .env ==="
+echo "=== [3/7] .env ==="
 set_kv() { # $1=key $2=value — replace existing line or append
   local key="$1" val="$2"
   if grep -qE "^${key}=" .env 2>/dev/null; then
@@ -73,7 +73,7 @@ if ! grep -qE "^USE_LOCAL_STORAGE=" .env 2>/dev/null; then
   fi
 fi
 
-echo "=== [4/6] DNS check ==="
+echo "=== [4/7] DNS check ==="
 RESOLVED="$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1 || true)"
 if [ -z "$RESOLVED" ]; then
   echo "WARNING: $DOMAIN does not resolve yet — add an A record to this VPS IP first."
@@ -82,7 +82,7 @@ else
   echo "DNS: $DOMAIN -> $RESOLVED"
 fi
 
-echo "=== [5/6] Deploy ==="
+echo "=== [5/7] Deploy ==="
 PORTS_BUSY=""
 ss -ltn 2>/dev/null | grep -qE ':80\s'  && PORTS_BUSY="80 $PORTS_BUSY"  || true
 ss -ltn 2>/dev/null | grep -qE ':443\s' && PORTS_BUSY="443 $PORTS_BUSY" || true
@@ -97,7 +97,7 @@ else
   USE_CADDY=0
 fi
 
-echo "=== [6/6] Cron jobs ==="
+echo "=== [6/7] Cron jobs ==="
 CRON_SECRET="$(grep -E '^CRON_SECRET=' .env | cut -d= -f2 || true)"
 ( crontab -l 2>/dev/null | grep -v "api/cron/" || true
   echo "0 0 * * * curl -s -H \"Authorization: Bearer ${CRON_SECRET}\" http://127.0.0.1:3100/api/cron/daily-credits >/dev/null 2>&1"
@@ -106,6 +106,13 @@ CRON_SECRET="$(grep -E '^CRON_SECRET=' .env | cut -d= -f2 || true)"
   echo "*/30 * * * * curl -s -H \"Authorization: Bearer ${CRON_SECRET}\" http://127.0.0.1:3100/api/cron/cleanup-uploads >/dev/null 2>&1"
 ) | crontab -
 echo "crons installed (daily-credits 00:00, cleanup-uploads every 30 min)"
+
+echo "=== [7/7] Image cleanup ==="
+# Every --build leaves the previous app image behind as a dangling layer
+# set; without this they pile up until the VPS disk fills. Dangling ONLY —
+# never `prune -a`: tagged images (db, redis, caddy) must stay.
+docker image prune -f >/dev/null 2>&1 || true
+echo "dangling docker images pruned"
 
 echo ""
 echo "================= DONE ================="

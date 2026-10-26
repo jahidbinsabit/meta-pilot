@@ -6,7 +6,6 @@ import { getToolCost } from '@/lib/credits/cost';
 import { refundCredits } from '@/lib/credits/engine';
 import { chargeCredits } from '@/lib/credits/charge';
 import { prisma } from '@/lib/db';
-import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 import { downloadFile } from '@/lib/s3/client';
 import { storePreview } from '@/lib/generator/images';
 import { removeBackground } from '@/lib/tools/bg-remover';
@@ -24,12 +23,10 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
-    // M-B7: BYOK gate BEFORE deduction — so the frontend API-key dialog
-    // fires instead of a generic 500 after deduct+refund.
-    const keyError = await requireUserApiKeyIfNeeded(user.id);
-    if (keyError) {
-      return NextResponse.json(keyError, { status: 400 });
-    }
+    // R7-02: NO BYOK gate here — background removal is a fully local,
+    // deterministic corner-colour chroma key (lib/tools/bg-remover); it
+    // never calls an AI provider, so keyless users must not be blocked
+    // while BYOK mode is on.
     const body = await req.json();
     const { key, fileName } = body;
     if (!key) {

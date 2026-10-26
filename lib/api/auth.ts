@@ -1,6 +1,12 @@
 import { auth } from '@/lib/auth-handler';
 import { prisma } from '@/lib/db';
 import type { Prisma, User } from '@prisma/client';
+import crypto from 'crypto';
+
+/** SHA-256 hex of a full sk_ secret — the only form stored for new keys. */
+export function hashApiKey(key: string): string {
+  return crypto.createHash('sha256').update(key).digest('hex');
+}
 
 export async function requireApiUser(req?: Request): Promise<User> {
   // In Next.js App Router with NextAuth v5, auth() doesn't take parameters
@@ -39,11 +45,25 @@ export async function requireApiKey(req: Request, scope?: string): Promise<User>
   if (!match) throw new Error('UNAUTHORIZED');
   const key = match[1];
 
-  const record = await prisma.apiKey.findUnique({
-    where: { key },
+  // Primary lookup: by SHA-256 hash (new keys store no plaintext).
+  let record = await prisma.apiKey.findUnique({
+    where: { keyHash: hashApiKey(key) },
     include: { user: true },
   });
+  // Legacy fallback: rows created before the hashing migration may still
+  // carry only the plaintext column (keyHash null). db-sync backfills the
+  // hash and nulls the plaintext at boot, so this path is transitional.
+  if (!record) {
+    record = await prisma.apiKey.findUnique({
+      where: { key },
+      include: { user: true },
+    });
+  }
   if (!record || record.revoked) throw new Error('UNAUTHORIZED');
+  // M6: enforce optional expiry.
+  if (record.expiresAt && record.expiresAt.getTime() <= Date.now()) {
+    throw new Error('UNAUTHORIZED');
+  }
   if (scope && !record.scopes.includes(scope)) throw new Error('FORBIDDEN');
 
   assertUserActive(record.user);

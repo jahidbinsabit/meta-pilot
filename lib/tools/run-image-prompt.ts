@@ -3,6 +3,11 @@ import { generateWithAI } from '@/lib/ai';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
 import { refundCreditsOnce } from '@/lib/credits/engine';
 import { downloadFile } from '@/lib/s3/client';
+import {
+  decodeDataImageUrl,
+  fetchImageGuarded,
+  normalizeOwnedImageRef,
+} from '@/lib/net/safe-fetch';
 import { resizeImage } from '@/lib/generator/images';
 import type { ImagePromptResult, PromptStylePreset } from '@/lib/prompt-styles/types';
 import {
@@ -23,8 +28,8 @@ export interface PromptImage {
 /**
  * Dashboard "Prompt Controls" settings (white background, camera
  * parameters, target prompt length, prefix/suffix, negative words).
- * Only the polling start route supplies these — the stream and
- * non-stream routes never pass controls, so their behavior is unchanged.
+ * Only the polling start route supplies these — the non-stream route
+ * never passes controls, so its behavior is unchanged.
  */
 export interface PromptControls {
   whiteBackground: boolean;
@@ -38,23 +43,37 @@ export interface PromptControls {
   negativeWords: string;
 }
 
-async function toBase64(img: PromptImage): Promise<{ data: string; mime: string }> {
-  const mime = img.mimeType || 'image/png';
+async function toBase64(
+  img: PromptImage,
+  userId: string,
+): Promise<{ data: string; mime: string }> {
+  let mime = img.mimeType || 'image/png';
   let buf: Buffer;
 
   if (img.key) {
     buf = await downloadFile(img.key);
   } else if (img.previewUrl) {
-    const dataUrlMatch = /^data:([^;]+);base64,(.+)$/s.exec(img.previewUrl);
-    if (dataUrlMatch) {
-      buf = Buffer.from(dataUrlMatch[2], 'base64');
+    // H1/H2: references arrive ownership-validated + normalized from the
+    // start route, but resolve defensively anyway — an owned reference
+    // is read from storage, a data: URL is decoded under the size cap,
+    // and only a genuinely external http(s) URL is fetched, through the
+    // SSRF-guarded fetcher (the old bare fetch followed redirects to
+    // internal addresses and capped size by Content-Length alone, and
+    // the data: branch had no cap at all).
+    const ref = normalizeOwnedImageRef(userId, img.previewUrl);
+    if (ref.ok && /^data:/i.test(ref.value)) {
+      const decoded = decodeDataImageUrl(ref.value);
+      if (!decoded) throw new Error('invalid_image_reference');
+      buf = decoded.buffer;
+      mime = decoded.mime;
+    } else if (ref.ok) {
+      buf = await downloadFile(ref.value);
+    } else if (/^https?:\/\//i.test(img.previewUrl)) {
+      const fetched = await fetchImageGuarded(img.previewUrl);
+      buf = fetched.buffer;
+      mime = fetched.contentType;
     } else {
-      const res = await fetch(img.previewUrl, { signal: AbortSignal.timeout(30000) });
-      if (!res.ok) throw new Error('preview_fetch_failed');
-      // 10MB cap — refuse to buffer huge responses into memory.
-      const len = Number(res.headers.get('content-length') || 0);
-      if (len > 10 * 1024 * 1024) throw new Error('preview_too_large');
-      buf = Buffer.from(await res.arrayBuffer());
+      throw new Error('invalid_image_reference');
     }
   } else {
     throw new Error('image_reference_required');
@@ -81,7 +100,7 @@ export interface RunImagePromptGenerationArgs {
 /**
  * Background image-to-prompt runner (polling delivery).
  *
- * The worker loop is identical to the SSE stream route's — a pool of 4
+ * Worker loop: a pool of 4
  * workers, one single-pass AI call per image, same entry shape — but
  * instead of pushing SSE events it writes progress into the ToolJob row
  * after each image finishes, so the frontend can poll
@@ -138,8 +157,12 @@ export async function runImagePromptGeneration(
 
   const writeProgress = async () => {
     try {
-      await prisma.toolJob.update({
-        where: { id: jobId },
+      // Status-guarded (R7-01): only a still-running job accepts progress.
+      // If the stale-job reaper already claimed this job (FAILED +
+      // refunded), a late progress write must not overwrite its
+      // outputData — that would erase the reaper's refund record.
+      await prisma.toolJob.updateMany({
+        where: { id: jobId, status: 'PROCESSING' },
         data: {
           outputData: {
             style: preset.slug,
@@ -197,7 +220,7 @@ export async function runImagePromptGeneration(
         };
 
         try {
-          const { data, mime } = await toBase64(img);
+          const { data, mime } = await toBase64(img, userId);
           const imageUrl = `data:${mime};base64,${data}`;
 
           // Single pass: base.ts salvages truncated output automatically,
@@ -241,8 +264,7 @@ export async function runImagePromptGeneration(
           }
         } catch (e: any) {
           failed += 1;
-          // Static error code — never leak raw internals to the client
-          // (matches the stream route's hardcoded 'generation_failed').
+          // Static error code — never leak raw internals to the client.
           entry.error = 'generation_failed';
         }
 
@@ -281,8 +303,13 @@ export async function runImagePromptGeneration(
       }
     }
 
-    await prisma.toolJob.update({
-      where: { id: jobId },
+    // R7-01: the terminal write is status-guarded. If the stale-job
+    // reaper claimed this job while a long group chain was stalled
+    // (FAILED + refunded via refundCreditsOnce — the refund above then
+    // dedupes to 0), this runner must NOT flip it back to COMPLETE or
+    // overwrite the reaper's refund fields; skip the write entirely.
+    const finalWrite = await prisma.toolJob.updateMany({
+      where: { id: jobId, status: 'PROCESSING' },
       data: {
         status: failed === images.length ? 'FAILED' : 'COMPLETE',
         outputData: {
@@ -302,6 +329,12 @@ export async function runImagePromptGeneration(
         completedAt: new Date(),
       },
     });
+    if (finalWrite.count === 0) {
+      console.error(
+        'runImagePromptGeneration: job already claimed by the reaper — final write skipped',
+        jobId,
+      );
+    }
   } catch (err: any) {
     console.error('runImagePromptGeneration error:', err);
     // Unexpected failure: never leave the user charged for images that
@@ -310,9 +343,13 @@ export async function runImagePromptGeneration(
     const notComplete = images.length - completeCount;
     if (notComplete > refundedImages && deducted) {
       try {
+        // refundCreditsOnce is CUMULATIVE: pass the TOTAL owed for the
+        // job (all not-complete images), not a delta — it subtracts
+        // whatever was already refunded for this job (by this runner's
+        // main path or by the reaper) and pays only the difference.
         refundedTotal += await refundCreditsOnce(
           userId,
-          (notComplete - refundedImages) * costPerImage,
+          notComplete * costPerImage,
           jobId,
           'image_prompt_failure',
         );
@@ -324,8 +361,10 @@ export async function runImagePromptGeneration(
       }
     }
     try {
-      await prisma.toolJob.update({
-        where: { id: jobId },
+      // Status-guarded like the success path (R7-01) — a reaped job
+      // keeps the reaper's FAILED state and refund record.
+      const failWrite = await prisma.toolJob.updateMany({
+        where: { id: jobId, status: 'PROCESSING' },
         data: {
           status: 'FAILED',
           outputData: {
@@ -343,6 +382,12 @@ export async function runImagePromptGeneration(
           completedAt: new Date(),
         },
       });
+      if (failWrite.count === 0) {
+        console.error(
+          'runImagePromptGeneration: job already claimed by the reaper — failure write skipped',
+          jobId,
+        );
+      }
     } catch (updateErr) {
       console.error('runImagePromptGeneration: failed-status update failed', updateErr);
     }

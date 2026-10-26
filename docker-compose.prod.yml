@@ -11,6 +11,11 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_USER: stockforge
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
@@ -26,6 +31,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -42,6 +52,11 @@ services:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?Set NEXT_PUBLIC_APP_URL in .env (https://<DOMAIN>)}
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       db:
         condition: service_healthy
@@ -65,13 +80,17 @@ services:
     # incomplete — it only creates 3 of 31 tables and its first migration
     # ALTERs a table that no migration creates (fails P3009 on fresh DBs).
     # `db push` syncs the full schema from prisma/schema.prisma instead and
-    # is a fast no-op when the DB already matches. The web process also
-    # starts the BullMQ workers itself (see lib/queue/bootstrap.ts).
+    # is a fast no-op when the DB already matches.
     command: ["sh", "-c", "npx prisma db push --skip-generate && node server.js"]
 
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "80:80"
       - "443:443"

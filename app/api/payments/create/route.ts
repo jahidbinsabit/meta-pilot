@@ -132,16 +132,25 @@ export async function POST(req: Request) {
       // bKash/Nagad TrxID cannot both pass the check and create two
       // PENDING rows (double-approval would double-grant). The unique
       // index on transactionRef (created by db-sync after dedupe) is the
-      // hard backstop; P2002 (unique violation) and P2034 (serialization
-      // conflict) map to the same duplicate response as a sequential dup.
+      // hard backstop: a genuine duplicate resolves via the in-transaction
+      // existence check or a P2002 unique violation.
+      //
+      // R7-04: P2034 is a serialization/write conflict, NOT proof of a
+      // duplicate — under Serializable isolation two concurrent
+      // submissions (even with different TrxIDs) can abort each other.
+      // The transaction is retried up to 3 attempts with jittered
+      // backoff; each fresh attempt re-runs the existence check, so a
+      // true duplicate still lands on the duplicate path while a
+      // transient conflict succeeds on retry. A conflict that survives
+      // every attempt returns a retryable 503 — never a false
+      // "duplicate_transaction_ref" to a legit payer.
       const trimmedRef = transactionRef.trim();
       type CreateOutcome =
         | { kind: 'created'; id: string; status: string }
         | { kind: 'duplicate' };
 
-      let outcome: CreateOutcome;
-      try {
-        outcome = await prisma.$transaction(
+      const attemptCreate = (): Promise<CreateOutcome> =>
+        prisma.$transaction(
           async (tx): Promise<CreateOutcome> => {
             const existingRef = await tx.payment.findFirst({
               where: {
@@ -178,13 +187,35 @@ export async function POST(req: Request) {
           },
           { isolationLevel: 'Serializable' },
         );
-      } catch (e: any) {
-        if (e?.code === 'P2002' || e?.code === 'P2034') {
-          outcome = { kind: 'duplicate' };
-        } else {
+
+      const MAX_TX_ATTEMPTS = 3;
+      let outcome: CreateOutcome | null = null;
+      for (let attempt = 1; attempt <= MAX_TX_ATTEMPTS; attempt++) {
+        try {
+          outcome = await attemptCreate();
+          break;
+        } catch (e: any) {
+          if (e?.code === 'P2002') {
+            // Unique-index violation: the TrxID is genuinely taken.
+            outcome = { kind: 'duplicate' };
+            break;
+          }
+          if (e?.code === 'P2034' && attempt < MAX_TX_ATTEMPTS) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, 60 * attempt + Math.floor(Math.random() * 90)),
+            );
+            continue;
+          }
+          if (e?.code === 'P2034') {
+            return NextResponse.json(
+              { error: 'payment_busy_please_retry' },
+              { status: 503 },
+            );
+          }
           throw e;
         }
       }
+      if (!outcome) throw new Error('payment_create_unreachable');
 
       if (outcome.kind === 'duplicate') {
         return NextResponse.json({ error: 'duplicate_transaction_ref' }, { status: 400 });

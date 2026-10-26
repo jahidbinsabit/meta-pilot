@@ -6,6 +6,10 @@
  * nothing produces, which made every ownership check fail with 403):
  *   - uploads:  `uploads/<userId>/<timestamp>-<slug>`   (lib/s3/client makeKey)
  *   - previews: `previews/<userId>/<timestamp>-<hex>-<name>` (lib/generator/images storePreview)
+ *   - avatars:  `avatars/<userId>/<timestamp>-avatar-<slug>` (lib/s3/client
+ *     makeAvatarKey) — PERMANENT assets: the cleanup cron TTL-purges only
+ *     uploads/ and previews/, so avatars must NOT live under uploads/
+ *     (they did until R7, and were deleted ~90 min after upload).
  *
  * The check mirrors the /api/s3 route: normalize `.`/`..` segments first
  * (so `uploads/<me>/../../<other>/x` cannot sneak past), then require
@@ -28,7 +32,7 @@ export function ownsStorageKey(userId: string, key: string): boolean {
 
   return (
     out.length >= 3 &&
-    (out[0] === 'uploads' || out[0] === 'previews') &&
+    (out[0] === 'uploads' || out[0] === 'previews' || out[0] === 'avatars') &&
     out[1] === userId
   );
 }

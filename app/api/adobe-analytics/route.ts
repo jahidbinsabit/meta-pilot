@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { requireApiUser } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { searchByContributor, searchByKeyword, recordQuery } from '@/lib/adobe-analytics/service';
@@ -57,6 +58,79 @@ export async function GET(req: Request) {
   }
 }
 
+/**
+ * Daily-cap configuration. `ADOBE_DAILY_SEARCH_LIMIT` overrides the
+ * default of 30 — parsed explicitly so an intentional `0` ("block all
+ * non-admin searches") works; the old `Number(...) || 30` silently turned
+ * 0 back into 30 (audit R7-09). Unset/invalid/negative → 30.
+ */
+function dailySearchLimit(): number {
+  const parsed = Number.parseInt(process.env.ADOBE_DAILY_SEARCH_LIMIT ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 30;
+}
+
+/**
+ * Reserve one search attempt against the daily cap (audit N1): the
+ * AdobeAnalyticsQuery row is created BEFORE the search runs and counts
+ * ATTEMPTS, not successes — a search that fails after the Apify actor
+ * starts still cost the owner money, so it stays counted.
+ *
+ * Atomicity: count + insert run inside a Serializable transaction.
+ * Under Postgres SSI, a concurrent transaction inserting a row that
+ * matches this transaction's count predicate aborts one of them with
+ * P2034, so parallel bursts serialize instead of all passing a stale
+ * count. P2034 is retried (bounded) so a legit user is not rejected by
+ * a transient conflict; if conflicts persist we return null and the
+ * caller 429s — the safe direction for a cost cap.
+ *
+ * Returns the attempt row id, or null when the cap is already reached.
+ */
+async function reserveSearchAttempt(
+  userId: string,
+  limit: number,
+  queryType: 'keyword' | 'contributor_id',
+  queryValue: string,
+): Promise<string | null> {
+  const startOfUtcDay = new Date();
+  startOfUtcDay.setUTCHours(0, 0, 0, 0);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          const searchesToday = await tx.adobeAnalyticsQuery.count({
+            where: { userId, createdAt: { gte: startOfUtcDay } },
+          });
+          if (searchesToday >= limit) return null;
+          const row = await tx.adobeAnalyticsQuery.create({
+            data: { userId, queryType, queryValue, resultData: undefined },
+            select: { id: true },
+          });
+          return row.id;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (e: any) {
+      if (e?.code === 'P2034' && attempt < 2) continue;
+      if (e?.code === 'P2034') return null;
+      throw e;
+    }
+  }
+  return null;
+}
+
+/** Best-effort: fill in an attempt row's outcome (counts or failure). */
+async function completeSearchAttempt(attemptId: string | null, resultData: unknown) {
+  if (!attemptId) return;
+  try {
+    await prisma.adobeAnalyticsQuery.update({
+      where: { id: attemptId },
+      data: { resultData: resultData as any },
+    });
+  } catch {
+    // History is best-effort; never fail a search because logging failed.
+  }
+}
+
 export async function POST(req: Request) {
   let user;
   try {
@@ -75,26 +149,19 @@ export async function POST(req: Request) {
   const { type, ...rest } = (body ?? {}) as Record<string, unknown>;
   const queryType = type === 'contributor' ? 'contributor' : 'keyword';
 
+  // Set once the attempt row exists (non-admins only); used to record the
+  // outcome on both the success and failure paths.
+  let attemptId: string | null = null;
+
   try {
-    // Per-user daily search cap (audit N9): every search can trigger a paid
-    // Apify run billed to the owner's token, so cap searches per user per
-    // day. Admins are exempt. Adjust via the ADOBE_DAILY_SEARCH_LIMIT env
-    // var (default 30) — no admin UI by design. The window is the UTC
-    // calendar day: AdobeAnalyticsQuery rows with createdAt >= UTC midnight.
-    const DAILY_SEARCH_LIMIT = Number(process.env.ADOBE_DAILY_SEARCH_LIMIT) || 30;
-    if (user.role !== 'ADMIN') {
-      const startOfUtcDay = new Date();
-      startOfUtcDay.setUTCHours(0, 0, 0, 0);
-      const searchesToday = await prisma.adobeAnalyticsQuery.count({
-        where: { userId: user.id, createdAt: { gte: startOfUtcDay } },
-      });
-      if (searchesToday >= DAILY_SEARCH_LIMIT) {
-        return err(
-          `Daily Adobe Analytics search limit reached (${DAILY_SEARCH_LIMIT}/day). Try again tomorrow.`,
-          429,
-        );
-      }
-    }
+    // Per-user daily search cap (audit N9, hardened in R7/N1): every search
+    // can trigger a paid Apify run billed to the owner's token, so cap
+    // ATTEMPTS per user per day. Admins are exempt. Adjust via the
+    // ADOBE_DAILY_SEARCH_LIMIT env var (default 30) — no admin UI by
+    // design. The window is the UTC calendar day: AdobeAnalyticsQuery
+    // rows with createdAt >= UTC midnight.
+    const DAILY_SEARCH_LIMIT = dailySearchLimit();
+    const isAdmin = user.role === 'ADMIN';
 
     if (queryType === 'contributor') {
       const parsed = contributorSearchSchema.safeParse(rest);
@@ -105,6 +172,24 @@ export async function POST(req: Request) {
         );
       }
       const contributorId = Number(parsed.data.contributorId);
+
+      // Reserve BEFORE searching so the attempt counts even if the
+      // search fails, and parallel bursts cannot all pass a stale count.
+      if (!isAdmin) {
+        attemptId = await reserveSearchAttempt(
+          user.id,
+          DAILY_SEARCH_LIMIT,
+          'contributor_id',
+          String(contributorId),
+        );
+        if (attemptId === null) {
+          return err(
+            `Daily Adobe Analytics search limit reached (${DAILY_SEARCH_LIMIT}/day). Try again tomorrow.`,
+            429,
+          );
+        }
+      }
+
       const result = await searchByContributor({
         userId: user.id,
         contributorId,
@@ -113,12 +198,17 @@ export async function POST(req: Request) {
         generativeAi: parsed.data.generativeAi,
       });
 
-      // Best-effort history; result payload is trimmed to counts, not assets.
-      await recordQuery(user.id, 'contributor_id', String(contributorId), {
+      // Record the outcome; result payload is trimmed to counts, not assets.
+      const resultData = {
         totalAssets: result.totalAssets,
         assetCount: result.assets.length,
         tier: result.tier,
-      });
+      };
+      if (attemptId) {
+        await completeSearchAttempt(attemptId, resultData);
+      } else {
+        await recordQuery(user.id, 'contributor_id', String(contributorId), resultData);
+      }
 
       return NextResponse.json({ type: 'contributor', result });
     }
@@ -131,16 +221,39 @@ export async function POST(req: Request) {
       );
     }
 
+    if (!isAdmin) {
+      attemptId = await reserveSearchAttempt(
+        user.id,
+        DAILY_SEARCH_LIMIT,
+        'keyword',
+        parsed.data.query,
+      );
+      if (attemptId === null) {
+        return err(
+          `Daily Adobe Analytics search limit reached (${DAILY_SEARCH_LIMIT}/day). Try again tomorrow.`,
+          429,
+        );
+      }
+    }
+
     const result = await searchByKeyword({ userId: user.id, ...parsed.data });
 
-    await recordQuery(user.id, 'keyword', parsed.data.query, {
+    const resultData = {
       totalResults: result.totalResults,
       assetCount: result.assets.length,
       tier: result.tier,
-    });
+    };
+    if (attemptId) {
+      await completeSearchAttempt(attemptId, resultData);
+    } else {
+      await recordQuery(user.id, 'keyword', parsed.data.query, resultData);
+    }
 
     return NextResponse.json({ type: 'keyword', result });
   } catch (e) {
+    // A reserved attempt whose search failed stays counted (it may still
+    // have cost a paid Apify run) — mark it failed, don't delete it.
+    await completeSearchAttempt(attemptId, { failed: true });
     console.error('adobe analytics search failed', e);
     return err('search_failed', 500);
   }

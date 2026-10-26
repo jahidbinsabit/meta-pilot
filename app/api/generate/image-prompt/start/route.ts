@@ -13,6 +13,8 @@ import {
 } from '@/lib/tools/run-image-prompt';
 
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
+import { rateLimit } from '@/lib/rate-limit';
+import { normalizeOwnedImageRef } from '@/lib/net/safe-fetch';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -51,8 +53,9 @@ function parsePromptControls(raw: unknown): PromptControls {
  * Start an image-to-prompt job and return immediately with its jobId.
  *
  * The preamble (auth, validation, API-key gate, preset lookup, ownership
- * check, credit deduction, job creation) is identical to the SSE stream
- * route, and the error shapes mirror the non-stream JSON route; the
+ * check, credit deduction, job creation) mirrors the original stream
+ * route (deleted in the R7 cleanup), and the error shapes mirror the
+ * non-stream JSON route; the
  * difference is delivery: generation runs detached via
  * `runImagePromptGeneration`, which writes progress into the ToolJob
  * row, and the frontend polls `GET /api/generate/jobs/[jobId]`. SSE
@@ -65,6 +68,18 @@ export async function POST(req: Request) {
     user = await requireApiUserOrKey(req, 'tools:run');
   } catch {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  // M1: per-user rate limit on job starts (see batch/start).
+  const rl = rateLimit(`generate-image-prompt-start:${user.id}`, {
+    max: 30,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'rate_limited', retryAfter: rl.retryAfter },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+    );
   }
 
   let body: unknown;
@@ -109,6 +124,30 @@ export async function POST(req: Request) {
     }
   }
 
+  // H1/H2: the previewUrl fallback gets the same treatment as
+  // batch/start — it must be the caller's own storage reference
+  // (normalized to the canonical raw key) or a data: image within the
+  // size cap. Before this, an omitted `key` let previewUrl point at
+  // another user's object or an internal URL and the runner fetched it
+  // verbatim (SSRF). External http(s) URLs are rejected here; the
+  // extension's external-image flow uses the non-stream route, which
+  // fetches through the guarded fetcher instead.
+  const validatedImages: PromptImage[] = [];
+  for (const img of images) {
+    if (img.previewUrl) {
+      const ref = normalizeOwnedImageRef(user.id, img.previewUrl);
+      if (!ref.ok) {
+        return NextResponse.json(
+          { error: 'invalid_image_reference' },
+          { status: 400 },
+        );
+      }
+      validatedImages.push({ ...img, previewUrl: ref.value });
+    } else {
+      validatedImages.push(img);
+    }
+  }
+
   // Optional dashboard Prompt Controls (white background, camera
   // parameters, prompt length, prefix/suffix, negative words).
   const controls = parsePromptControls(rawControls);
@@ -149,12 +188,12 @@ export async function POST(req: Request) {
         userId: user.id,
         toolSlug: TOOL_SLUG,
         status: 'PROCESSING',
-        inputFileUrls: images.map((i) => i.key || i.fileName || ''),
+        inputFileUrls: validatedImages.map((i) => i.key || i.fileName || ''),
         creditsCharged: deduction.deducted === true ? total : 0,
         outputData: {
           style: preset.slug,
           styleLabel: preset.label,
-          images: images.map((i) => ({ id: i.id, fileName: i.fileName })),
+          images: validatedImages.map((i) => ({ id: i.id, fileName: i.fileName })),
         } as any,
       },
     });
@@ -177,7 +216,7 @@ export async function POST(req: Request) {
   void runImagePromptGeneration({
     userId: user.id,
     jobId: job.id,
-    images,
+    images: validatedImages,
     preset,
     costPerImage,
     deduction: {

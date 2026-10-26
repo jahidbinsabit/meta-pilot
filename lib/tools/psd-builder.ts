@@ -34,8 +34,31 @@ async function toRawPixels(png: Buffer): Promise<RawPixels> {
   };
 }
 
+/**
+ * Total-pixel ceiling. The byte size of an upload says nothing about its
+ * decoded size — a small, highly-compressible file can expand to hundreds
+ * of megabytes of raw RGBA (this builder holds ~3 full pixel buffers at
+ * once). 50 MP bounds worst-case memory to roughly 600 MB while covering
+ * any realistic stock-content image.
+ */
+const MAX_TOTAL_PIXELS = 50_000_000;
+
 export async function buildLayeredPsd(input: Buffer): Promise<Buffer> {
   try {
+    // 0. Pixel ceiling BEFORE any full decode: read header metadata only
+    // and reject oversized images. The throw lands in the caller's normal
+    // failure path (credits refunded, tool returns its failure response).
+    const meta = await sharp(input).metadata();
+    const width = meta.width ?? 0;
+    const height = meta.height ?? 0;
+    if (width > 0 && height > 0 && width * height > MAX_TOTAL_PIXELS) {
+      throw new Error(
+        `Image is too large for PSD conversion: ${width}x${height} is ${Math.round(
+          (width * height) / 1_000_000,
+        )} MP — the limit is ${MAX_TOTAL_PIXELS / 1_000_000} MP`,
+      );
+    }
+
     // 1. Normalize to PNG, then decode the original pixels (Background).
     const normalized = await sharp(input).png().toBuffer();
     const background = await toRawPixels(normalized);

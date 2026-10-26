@@ -15,6 +15,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { buildCsv, csvFilename, type CsvRow, type ExportFormat } from '@/lib/generator/csv';
 
 interface JobSummary {
   id: string;
@@ -22,6 +23,10 @@ interface JobSummary {
   status: 'QUEUED' | 'PROCESSING' | 'COMPLETE' | 'FAILED';
   createdAt: string;
   completedAt: string | null;
+  /** Platform the batch was generated for; null on legacy jobs. */
+  platform: ExportFormat | null;
+  /** True once the cron's 90-day payload retention stripped the results. */
+  resultsExpired: boolean;
   totals: { total: number; succeeded: number; failed: number; refunded: number };
 }
 
@@ -76,10 +81,6 @@ function formatDate(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   })}`;
-}
-
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
 function downloadText(filename: string, text: string, mime: string) {
@@ -172,18 +173,22 @@ export function HistoryClient() {
       if (!results) return;
       const complete = results.filter((r) => r.status === 'complete');
       if (job.tool === 'metadata-generator') {
-        const lines = ['Filename,Title,Description,Keywords'];
-        for (const r of complete) {
-          lines.push(
-            [
-              csvCell(String(r.fileName || '')),
-              csvCell(String(r.title || '')),
-              csvCell(String(r.description || '')),
-              csvCell(Array.isArray(r.keywords) ? r.keywords.join(', ') : ''),
-            ].join(','),
-          );
-        }
-        downloadText(`metadata-${job.id.slice(0, 8)}.csv`, lines.join('\n'), 'text/csv');
+        // Re-export in the job's OWN platform format (R7-F4) — the same
+        // buildCsv the generator's export flow uses, so a CSV recovered
+        // from History maps in the platform's importer exactly like the
+        // original in-session export (incl. NO Description column for
+        // Adobe). Stored results carry no export-time category/releases,
+        // so those columns stay empty, same as an export without them.
+        const format: ExportFormat = job.platform ?? 'generic';
+        const rows: CsvRow[] = complete.map((r) => ({
+          fileName: String(r.fileName || ''),
+          title: String(r.title || ''),
+          description: String(r.description || ''),
+          keywords: Array.isArray(r.keywords) ? r.keywords.map((k: any) => String(k)) : [],
+          category: typeof r.category === 'string' ? r.category : undefined,
+          releases: typeof r.releases === 'string' ? r.releases : undefined,
+        }));
+        downloadText(csvFilename(format), buildCsv(format, rows), 'text/csv');
       } else if (job.tool === 'image-to-prompt') {
         const blocks = complete.map((r) => {
           const lines = [String(r.fileName || ''), String(r.prompt || '')];
@@ -249,6 +254,7 @@ export function HistoryClient() {
           const detail = details[job.id];
           const downloadable =
             job.status === 'COMPLETE' &&
+            !job.resultsExpired &&
             (job.tool === 'metadata-generator' || job.tool === 'image-to-prompt');
           return (
             <Card key={job.id}>
@@ -374,6 +380,12 @@ export function HistoryClient() {
                           </div>
                         ))}
                       </div>
+                    ) : job.resultsExpired ? (
+                      <p className="py-3 text-sm text-muted-foreground">
+                        Results expired — full results are kept for 90 days. This batch&apos;s
+                        counts above are still accurate, but its per-image results and downloads
+                        are no longer available.
+                      </p>
                     ) : (
                       <p className="py-3 text-sm text-muted-foreground">No results stored for this batch.</p>
                     )}

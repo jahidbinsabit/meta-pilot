@@ -43,6 +43,13 @@ const TYPE_VARIANT: Record<
   seasonal: 'success',
 };
 
+/**
+ * localStorage is a 5 MB shared quota and this list previously grew
+ * without bound (silent data loss once the quota filled). Retain only
+ * the newest 100 events — enforced at write time and on load.
+ */
+const MAX_STORED_EVENTS = 100;
+
 export function EventsClient({ tool }: { tool: ToolEntry }) {
   const [events, setEvents] = React.useState<Event[]>([]);
   const [title, setTitle] = React.useState('');
@@ -56,7 +63,10 @@ export function EventsClient({ tool }: { tool: ToolEntry }) {
   React.useEffect(() => {
     try {
       const saved = localStorage.getItem('stockforge:events');
-      if (saved) setEvents(JSON.parse(saved));
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setEvents(parsed.slice(-MAX_STORED_EVENTS));
+      }
     } catch {
       /* ignore */
     }
@@ -64,7 +74,10 @@ export function EventsClient({ tool }: { tool: ToolEntry }) {
 
   React.useEffect(() => {
     try {
-      localStorage.setItem('stockforge:events', JSON.stringify(events));
+      localStorage.setItem(
+        'stockforge:events',
+        JSON.stringify(events.slice(-MAX_STORED_EVENTS)),
+      );
     } catch {
       /* ignore */
     }

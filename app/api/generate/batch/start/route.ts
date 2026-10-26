@@ -9,6 +9,8 @@ import { isInsufficientCreditsError } from '@/lib/credits/errors';
 import { getToolCost } from '@/lib/credits/cost';
 
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
+import { rateLimit } from '@/lib/rate-limit';
+import { normalizeOwnedImageRef } from '@/lib/net/safe-fetch';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -18,7 +20,8 @@ export const maxDuration = 300;
  * Start a metadata batch job and return immediately with its jobId.
  *
  * The preamble (auth, validation, API-key gate, credit deduction, job
- * creation) is identical to the SSE stream route; the difference is
+ * creation) mirrors the original non-stream batch route (deleted in the
+ * R7 cleanup); the difference is
  * delivery: generation runs detached via `runBatchGeneration`, which
  * writes progress into the ToolJob row, and the frontend polls
  * `GET /api/generate/jobs/[jobId]`. SSE events never reached browsers
@@ -31,6 +34,20 @@ export async function POST(req: Request) {
     user = await requireApiUserOrKey(req, 'tools:run');
   } catch {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  // M1: per-user rate limit on job starts (generation is the most
+  // expensive surface in the app). Generous for real batch workflows;
+  // the limiter counts attempts, so it is checked before any deduction.
+  const rl = rateLimit(`generate-batch-start:${user.id}`, {
+    max: 30,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: 'rate_limited', retryAfter: rl.retryAfter },
+      { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+    );
   }
 
   let body: unknown;
@@ -50,13 +67,32 @@ export async function POST(req: Request) {
   }
 
   // Validate maximum batch size BEFORE deducting credits — unbounded
-  // batches leave credits unrefunded. Mirrors batch/route.ts.
+  // batches leave credits unrefunded.
   const MAX_BATCH_SIZE = 100;
   if (images.length > MAX_BATCH_SIZE) {
     return NextResponse.json(
       { error: 'batch_too_large', max: MAX_BATCH_SIZE, received: images.length },
       { status: 400 },
     );
+  }
+
+  // H1/H2: every image reference must be the caller's OWN storage object
+  // (raw key, /api/s3/<key> URL, or local /uploads/<flat> URL — all
+  // normalized to the canonical raw key) or a data: image within the
+  // size cap. Anything else (another user's key, an external URL, an
+  // internal address) rejects the WHOLE request before any job exists
+  // or any credit moves — the AI adapters resolve whatever they are
+  // handed, so the entry point is where ownership is enforced.
+  const validatedImages: BatchImage[] = [];
+  for (const img of images) {
+    const ref = normalizeOwnedImageRef(user.id, img?.previewUrl);
+    if (!ref.ok) {
+      return NextResponse.json(
+        { error: 'invalid_image_reference' },
+        { status: 400 },
+      );
+    }
+    validatedImages.push({ ...img, previewUrl: ref.value });
   }
 
   // Check if user API key is enforced
@@ -108,12 +144,12 @@ export async function POST(req: Request) {
       data: {
         userId: user.id,
         toolSlug: 'metadata-generator',
-        inputFileUrls: images.map((i) => i.previewUrl),
+        inputFileUrls: validatedImages.map((i) => i.previewUrl),
         creditsCharged: deduction.deducted === true ? total : 0,
         outputData: {
           platform: targetPlatform,
           settings: merged,
-          images: images.map((i) => ({ id: i.id, fileName: i.fileName })),
+          images: validatedImages.map((i) => ({ id: i.id, fileName: i.fileName })),
         } as any,
       },
     });
@@ -136,7 +172,7 @@ export async function POST(req: Request) {
   void runBatchGeneration({
     userId: user.id,
     jobId: job.id,
-    images,
+    images: validatedImages,
     mergedSettings: merged,
     platform: targetPlatform,
     costPerImage,

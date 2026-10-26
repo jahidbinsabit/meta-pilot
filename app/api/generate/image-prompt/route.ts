@@ -17,6 +17,11 @@ import {
 } from '@/lib/prompt-styles/prompt';
 
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
+import {
+  decodeDataImageUrl,
+  fetchImageGuarded,
+  normalizeOwnedImageRef,
+} from '@/lib/net/safe-fetch';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -38,25 +43,41 @@ interface PromptImage {
  * expect (gemini.ts puts image.data straight into inline_data.data; openai.ts
  * builds a data: URL from it). Downscales to max 1024px and compresses to JPEG
  * to ensure fast generation and minimal token consumption.
+ *
+ * Reference resolution (H1/H2): a storage `key` is read directly (the
+ * caller validated ownership above); a `previewUrl` is first checked as
+ * an owned storage reference / data: URL via normalizeOwnedImageRef —
+ * data: payloads are size-capped by decodeDataImageUrl — and only a
+ * genuinely EXTERNAL http(s) URL (the Chrome-extension flow) is fetched,
+ * through fetchImageGuarded (SSRF-safe: public-IP validation, manual
+ * redirects, image-only, streamed size cap). A bare fetch here was the
+ * old SSRF sink.
  */
-async function toBase64(img: PromptImage): Promise<{ data: string; mime: string }> {
-  const mime = img.mimeType || 'image/png';
+async function toBase64(
+  img: PromptImage,
+  userId: string,
+): Promise<{ data: string; mime: string }> {
+  let mime = img.mimeType || 'image/png';
   let buf: Buffer;
 
   if (img.key) {
     buf = await downloadFile(img.key);
   } else if (img.previewUrl) {
-    const dataUrlMatch = /^data:([^;]+);base64,(.+)$/s.exec(img.previewUrl);
-    if (dataUrlMatch) {
-      buf = Buffer.from(dataUrlMatch[2], 'base64');
+    const ref = normalizeOwnedImageRef(userId, img.previewUrl);
+    if (ref.ok && /^data:/i.test(ref.value)) {
+      const decoded = decodeDataImageUrl(ref.value);
+      if (!decoded) throw new Error('invalid_image_reference');
+      buf = decoded.buffer;
+      mime = decoded.mime;
+    } else if (ref.ok) {
+      // Owned storage reference normalized to its raw key.
+      buf = await downloadFile(ref.value);
+    } else if (/^https?:\/\//i.test(img.previewUrl)) {
+      const fetched = await fetchImageGuarded(img.previewUrl);
+      buf = fetched.buffer;
+      mime = fetched.contentType;
     } else {
-      // H2: 30s timeout + 10MB cap — same as the stream route. A bare fetch
-      // with unbounded arrayBuffer() is a hang/OOM DoS vector.
-      const res = await fetch(img.previewUrl, { signal: AbortSignal.timeout(30000) });
-      if (!res.ok) throw new Error('preview_fetch_failed');
-      const len = Number(res.headers.get('content-length') || 0);
-      if (len > 10 * 1024 * 1024) throw new Error('preview_too_large');
-      buf = Buffer.from(await res.arrayBuffer());
+      throw new Error('invalid_image_reference');
     }
   } else {
     throw new Error('image_reference_required');
@@ -166,7 +187,7 @@ export async function POST(req: Request) {
       };
 
       try {
-        const { data, mime } = await toBase64(img);
+        const { data, mime } = await toBase64(img, user.id);
         const imageUrl = `data:${mime};base64,${data}`;
 
         // Single pass: base.ts salvages truncated output automatically,
@@ -198,8 +219,7 @@ export async function POST(req: Request) {
         entry.mood = result.mood;
       } catch (e: any) {
         failed += 1;
-        // M2: static error code — never leak raw internals per item
-        // (matches the stream route's hardcoded 'generation_failed').
+        // M2: static error code — never leak raw internals per item.
         entry.error = 'generation_failed';
       }
 

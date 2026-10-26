@@ -93,7 +93,14 @@ export const authOptions: any = {
             },
             issuer: 'https://accounts.google.com',
             wellKnown: 'https://accounts.google.com/.well-known/openid-configuration',
-            allowDangerousEmailAccountLinking: true,
+            // H3 hardening (R7): NEVER link a Google sign-in to an existing
+            // account just because the email matches. Registration does not
+            // verify email ownership (SMTP is parked), so email-match linking
+            // let an attacker pre-register a victim's email with a password
+            // and later take over / be merged into the victim's Google
+            // identity. Linking is now adapter-managed only, keyed by the
+            // provider account id.
+            allowDangerousEmailAccountLinking: false,
           }),
         ]
       : []),
@@ -151,38 +158,20 @@ export const authOptions: any = {
     error: '/login',
   },
   callbacks: {
-    async jwt({ token, user, account }: any) {
+    async jwt({ token, user }: any) {
       // First sign-in: `user` is the raw provider-returned object.
       if (user?.id) {
         token.sub = user.id;
         token.email = user.email;
         token.name = user.name;
 
-        // Google account linking: if the Google email matches an existing
-        // user who hasn't linked Google yet, link the account to them.
-        if (account?.provider === 'google' && user.email) {
-          const existing = await prisma.user.findUnique({
-            where: { email: user.email },
-            include: { accounts: true },
-          });
-          if (existing && !existing.accounts.some((a) => a.provider === 'google')) {
-            await prisma.account.create({
-              data: {
-                userId: existing.id,
-                type: 'oauth',
-                provider: 'google',
-                providerAccountId: account.providerAccountId!,
-                access_token: account.access_token,
-                expires_at: account.expires_at,
-                token_type: account.token_type,
-                scope: account.scope,
-                id_token: account.id_token,
-              },
-            });
-            user.id = existing.id;
-            token.sub = existing.id;
-          }
-        }
+        // H3 hardening (R7): the manual email-match account linking that
+        // used to live here has been REMOVED. It merged a Google sign-in
+        // into any pre-existing account with the same email — combined with
+        // unverified password registration, that was an account
+        // pre-hijacking path. Account linking is now left to the Prisma
+        // adapter, keyed by provider account id only; a Google sign-in
+        // whose email matches an existing password account will NOT merge.
         const dbUser = await prisma.user.findUnique({
           where: { id: user.id },
           include: {

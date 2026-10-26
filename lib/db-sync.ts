@@ -111,8 +111,53 @@ export async function ensureDatabaseSchema(): Promise<void> {
           CREATE UNIQUE INDEX IF NOT EXISTS "Payment_transactionRef_key" ON "Payment"("transactionRef");
         EXCEPTION WHEN OTHERS THEN NULL;
         END;
+
+        -- ApiKey hashing columns (M6 hardening): new keys store only a
+        -- SHA-256 hash. The key column stays but becomes nullable so
+        -- hashed rows can leave it NULL; its unique constraint is kept
+        -- for the legacy rows until the backfill below nulls them.
+        BEGIN
+          ALTER TABLE "ApiKey" ADD COLUMN IF NOT EXISTS "keyHash" TEXT;
+          ALTER TABLE "ApiKey" ADD COLUMN IF NOT EXISTS "keyPrefix" TEXT;
+          ALTER TABLE "ApiKey" ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP(3);
+          ALTER TABLE "ApiKey" ALTER COLUMN "key" DROP NOT NULL;
+          CREATE UNIQUE INDEX IF NOT EXISTS "ApiKey_keyHash_key" ON "ApiKey"("keyHash");
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
       END $$;
     `);
+
+    // ApiKey plaintext backfill (M6 hardening): hash every legacy row
+    // that still carries a plaintext secret, capture its display mask,
+    // then null the plaintext. Idempotent: rows already hashed (or with
+    // no plaintext left) are skipped. Done in TypeScript so the hash is
+    // plain Node SHA-256 and does not depend on the pgcrypto extension.
+    try {
+      const { createHash } = await import('crypto');
+      const legacy = await prisma.apiKey.findMany({
+        where: { keyHash: null, key: { not: null } },
+        select: { id: true, key: true, keyPrefix: true },
+      });
+      for (const row of legacy) {
+        if (!row.key) continue;
+        const keyHash = createHash('sha256').update(row.key).digest('hex');
+        const keyPrefix =
+          row.keyPrefix ||
+          (row.key.length <= 8 ? 'sk_...' : `${row.key.slice(0, 6)}...${row.key.slice(-4)}`);
+        await prisma.apiKey.update({
+          where: { id: row.id },
+          data: { keyHash, keyPrefix, key: null },
+        });
+      }
+      if (legacy.length > 0) {
+        console.log(`[db-sync] ApiKey hashing migration: ${legacy.length} legacy key(s) hashed.`);
+      }
+    } catch (migrationErr) {
+      // Non-fatal: auth still accepts legacy plaintext rows as a fallback,
+      // and the backfill retries on the next boot.
+      console.warn('[db-sync] ApiKey hashing migration notice:', migrationErr);
+    }
+
     isSynced = true;
   } catch (err) {
     // Non-fatal fallback

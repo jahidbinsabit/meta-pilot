@@ -120,3 +120,15 @@ export function makeKey(userId: string, name: string) {
   const slug = name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60);
   return `uploads/${userId}/${Date.now()}-${slug}`;
 }
+
+/**
+ * Key for a profile avatar — a PERMANENT asset, unlike generation uploads.
+ * Lives under its own `avatars/` prefix because the cleanup cron TTL-purges
+ * everything under `uploads/` (~90 min): avatars written via makeKey were
+ * deleted shortly after upload (audit R7 garbage §). `avatars/` is never
+ * purged, and ownsStorageKey accepts the prefix.
+ */
+export function makeAvatarKey(userId: string, name: string) {
+  const slug = name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60);
+  return `avatars/${userId}/${Date.now()}-${slug}`;
+}

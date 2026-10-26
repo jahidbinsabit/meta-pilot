@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApiAdmin } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
-import { deleteGatewayConfig, saveGatewayConfig } from '@/lib/payments/config';
+import { deleteGatewayConfig, saveGatewayConfig, maskCredentials } from '@/lib/payments/config';
 
 export const runtime = 'nodejs';
 
@@ -32,7 +32,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       admin.id,
     );
 
-    return NextResponse.json({ ok: true, gateway });
+    // M5: same leak as the POST route — mask credentials in the response.
+    return NextResponse.json({
+      ok: true,
+      gateway: { ...gateway, credentials: maskCredentials(gateway.credentials) },
+    });
   } catch (error: any) {
     console.error('Admin update gateway error:', error);
     const status = error.message === 'FORBIDDEN' ? 403 : error.message === 'UNAUTHORIZED' ? 401 : 500;

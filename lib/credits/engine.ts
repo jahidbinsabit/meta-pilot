@@ -142,19 +142,29 @@ export async function refundCredits(
 }
 
 /**
- * Idempotent refund for ONE generation job (CQ-02). `refundCredits` happily
- * writes a second `REFUND` row for the same job — this variant checks the
- * ledger inside the same transaction and pays at most once per `jobId`:
- * it returns the amount actually refunded, or 0 when the refund is skipped
- * (invalid input, or a `REFUND` row for this job already exists — written
- * by an earlier runner pass, the stale-job reaper, or a legacy
- * `refundCredits` call, all of which stamp `metadata.toolJobId`).
+ * Cumulative refund for ONE generation job (CQ-02, N3). `refundCredits`
+ * happily writes a second `REFUND` row for the same job; the original
+ * version of this function deduped whole-job (any prior `REFUND` row →
+ * pay 0), which made a legitimate two-phase refund impossible: a runner
+ * that refunded the failed images and then died before its final update
+ * left the remainder permanently unrefundable when the reaper later
+ * computed it (N3 defect (a)).
  *
- * Concurrency: the wallet row is locked (`SELECT … FOR UPDATE`) BEFORE the
- * ledger check. At READ COMMITTED a check-then-write without the lock can
- * interleave and double-pay — the same race `grantBonus` documents for
- * grants. With the lock held, a concurrent attempt blocks until this
- * transaction commits, then sees its `REFUND` row and skips.
+ * Semantics now: `amount` is the TOTAL refund owed for the job — callers
+ * derive it server-side from the job's full failure count (failed ×
+ * per-image cost, or the reaper's notComplete × per-image cost), NOT a
+ * not-yet-refunded delta. Inside the same wallet-locked transaction the
+ * function sums every prior `REFUND` transaction stamped with this jobId
+ * and pays only the outstanding remainder, `max(0, amount −
+ * alreadyRefunded)`. It returns the amount actually paid by THIS call —
+ * 0 when the job was already refunded in full.
+ *
+ * Concurrency: the wallet row is locked (`SELECT … FOR UPDATE`) BEFORE
+ * the ledger read. At READ COMMITTED a check-then-write without the lock
+ * can interleave and double-pay — the same race `grantBonus` documents
+ * for grants. With the lock held, a concurrent runner/reaper attempt for
+ * the same job blocks until this transaction commits, then sees the
+ * updated sum and pays only what is still owed.
  *
  * Unlimited mode: like `refundCredits`, this function has no unlimited
  * check of its own — callers gate on "credits were actually deducted"
@@ -178,32 +188,34 @@ export async function refundCreditsOnce(
 
   return prisma.$transaction(async (tx) => {
     await ensureWallet(tx, userId);
-    // Take the wallet row lock first, then check the ledger (see header).
+    // Take the wallet row lock first, then read the ledger (see header).
     await tx.$queryRaw`SELECT "id" FROM "CreditWallet" WHERE "userId" = ${userId} FOR UPDATE`;
-    const existing = await tx.creditTransaction.findFirst({
+    const prior = await tx.creditTransaction.aggregate({
       where: {
         userId,
         type: 'REFUND',
         metadata: { path: ['toolJobId'], equals: jobId },
       },
-      select: { id: true },
+      _sum: { amount: true },
     });
-    if (existing) return 0;
+    const alreadyRefunded = prior._sum.amount ?? 0;
+    const due = amount - alreadyRefunded;
+    if (due <= 0) return 0;
 
     const wallet = await tx.creditWallet.findUnique({ where: { userId } });
-    const next = (wallet?.balance ?? 0) + amount;
+    const next = (wallet?.balance ?? 0) + due;
     await tx.creditWallet.update({ where: { userId }, data: { balance: next } });
     await syncUserCredits(tx, userId, next);
     await tx.creditTransaction.create({
       data: {
         userId,
-        amount,
+        amount: due,
         type: 'REFUND' as any,
         reason: reason ?? null,
         metadata: { toolJobId: jobId, ...(reason ? { reason } : {}) } as any,
       },
     });
-    return amount;
+    return due;
   });
 }
 

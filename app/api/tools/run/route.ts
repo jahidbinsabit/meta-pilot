@@ -5,6 +5,7 @@ import { refundCredits } from '@/lib/credits/engine';
 import { chargeCredits } from '@/lib/credits/charge';
 import { prisma } from '@/lib/db';
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
+import { rateLimit } from '@/lib/rate-limit';
 import { generateWithAI } from '@/lib/ai';
 import { AdobeKeywordsSchema } from '@/lib/ai/schemas';
 import {
@@ -28,7 +29,26 @@ import {
  * 400 with a clear message and are never charged; unknown slugs are a
  * 400, never an echo of the input. (Previously every unhandled slug hit
  * `default: result = input` AFTER the credit was deducted.)
+ *
+ * R7 hardening:
+ * - The BYOK user-API-key gate applies ONLY to slugs that actually call
+ *   an AI provider (R7-02). The deterministic text tools run locally and
+ *   must stay usable for keyless users while BYOK mode is on.
+ * - Input is size-capped BEFORE compute and runs are rate-limited per
+ *   user (N2): the compute-first ordering otherwise lets one free
+ *   account pin the single Node process with unbounded text at no cost.
+ * - An AI response that parses to nothing usable is a FAILED run
+ *   (no charge), not a billable empty/fabricated result (R7-06).
  */
+
+/** Slugs whose compute path calls an AI provider (generateWithAI). */
+const AI_TOOL_SLUGS = new Set(['adobe-keywords', 'alt-text']);
+
+/** Hard cap on tool input text, enforced before any compute. */
+const MAX_TOOL_INPUT_CHARS = 100_000;
+
+/** Per-user run budget: 60 runs per 10 minutes. */
+const TOOL_RUN_LIMIT = { max: 60, windowMs: 10 * 60 * 1000 };
 async function computeToolResult(slug: string, input: unknown, userId: string): Promise<any> {
   const text = String(input ?? '');
   switch (slug) {
@@ -48,7 +68,14 @@ async function computeToolResult(slug: string, input: unknown, userId: string): 
         temperature: 0.6,
         userId,
       });
-      return ai.parsed || { keywords: [subject], longTail: [], categories: [] };
+      // R7-06: an unparseable model response is a failed generation, NOT
+      // a billable result. (The old fallback handed the user's own subject
+      // back as the "keywords" — the R6-N3 echo pattern in miniature.)
+      // Throwing here means no charge (compute-first ordering).
+      if (!ai.parsed) {
+        throw new Error('ai_empty_result');
+      }
+      return ai.parsed;
     }
     case 'alt-text': {
       const subject = text.trim();
@@ -61,7 +88,13 @@ async function computeToolResult(slug: string, input: unknown, userId: string): 
         temperature: 0.4,
         userId,
       });
-      return { altText: ai.raw.trim() };
+      // R7-06: an empty model response is a failed generation (no charge),
+      // never a billable empty result.
+      const altText = ai.raw.trim();
+      if (!altText) {
+        throw new Error('ai_empty_result');
+      }
+      return { altText };
     }
     case 'keyword-density':
       return keywordDensity(text);
@@ -86,16 +119,45 @@ export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
     userId = user.id;
-    // M-B7: BYOK gate BEFORE anything else — so the frontend API-key
-    // dialog fires instead of a generic 500.
-    const keyError = await requireUserApiKeyIfNeeded(user.id);
-    if (keyError) {
-      return NextResponse.json(keyError, { status: 400 });
+
+    // N2: per-user rate limit BEFORE any compute. Keys on the user id
+    // (not IP) via the shared in-memory limiter.
+    const rl = rateLimit(`tools-run:${user.id}`, TOOL_RUN_LIMIT);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'rate_limited', retryAfter: rl.retryAfter },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+      );
     }
+
     const body = await req.json().catch(() => ({}));
     const { slug, input, metadata } = body ?? {};
     if (!slug) {
       return NextResponse.json({ error: 'slug_required' }, { status: 400 });
+    }
+
+    // M-B7 + R7-02: the BYOK gate fires BEFORE compute/charge so the
+    // frontend API-key dialog appears instead of a generic 500 — but ONLY
+    // for slugs that call an AI provider. The deterministic text tools
+    // (keyword-density, contrast-checker, keyword-clustering, title-ab,
+    // batch-export) run locally and are never gated.
+    if (AI_TOOL_SLUGS.has(slug)) {
+      const keyError = await requireUserApiKeyIfNeeded(user.id);
+      if (keyError) {
+        return NextResponse.json(keyError, { status: 400 });
+      }
+    }
+
+    // N2: cap input size BEFORE compute (the deterministic tools scan the
+    // text; unbounded input is a free CPU/memory DoS on a shared process).
+    if (typeof input === 'string' && input.length > MAX_TOOL_INPUT_CHARS) {
+      return NextResponse.json(
+        {
+          error: 'input_too_large',
+          message: `Input is too large (max ${MAX_TOOL_INPUT_CHARS.toLocaleString()} characters).`,
+        },
+        { status: 400 },
+      );
     }
 
     cost = await getToolCost(slug);
@@ -123,8 +185,17 @@ export async function POST(req: Request) {
 
     // 3) Log usage. A failure here throws into the catch block, which
     // refunds the deduction above — never charge for an unlogged run.
+    // R7-05: caller `metadata` is spread FIRST so it can never overwrite
+    // the server-computed `result`, and it is size-capped (an unbounded
+    // metadata blob would bloat the ToolUsage row on every run).
+    const safeMetadata =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? metadata
+        : {};
+    const boundedMetadata =
+      JSON.stringify(safeMetadata).length <= 4096 ? safeMetadata : {};
     await prisma.toolUsage.create({
-      data: { userId: user.id, tool: slug, metadata: { result, ...metadata } },
+      data: { userId: user.id, tool: slug, metadata: { ...boundedMetadata, result } },
     });
 
     return NextResponse.json({ result, balance });

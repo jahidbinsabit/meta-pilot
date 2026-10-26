@@ -43,7 +43,13 @@ export async function POST(req: Request) {
       admin.id,
     );
 
-    return NextResponse.json({ ok: true, gateway });
+    // M5: saveGatewayConfig returns DECRYPTED credentials — mask them in
+    // the response exactly like GET does, so full payment secrets never
+    // leave the server on a save.
+    return NextResponse.json({
+      ok: true,
+      gateway: { ...gateway, credentials: maskCredentials(gateway.credentials) },
+    });
   } catch (error: any) {
     console.error('Admin save gateway error:', error);
     const status = error.message === 'FORBIDDEN' ? 403 : error.message === 'UNAUTHORIZED' ? 401 : 500;

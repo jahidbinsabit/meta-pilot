@@ -74,13 +74,15 @@ export async function GET(req: Request, { params }: { params: { key: string[] } 
     if (!key) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
-    // Objects are namespaced per user: `uploads/<userId>/…` and
+    // Objects are namespaced per user: `uploads/<userId>/…`,
     // `previews/<userId>/…` (storePreview writes previews; 4 tool routes
-    // serve them back). segments[0] = namespace, segments[1] = userId.
+    // serve them back) and `avatars/<userId>/…` (profile avatars, R7 —
+    // permanent prefix outside the cleanup cron's TTL purge).
+    // segments[0] = namespace, segments[1] = userId.
     const segments = key.split('/');
     if (
       segments.length < 3 ||
-      (segments[0] !== 'uploads' && segments[0] !== 'previews') ||
+      (segments[0] !== 'uploads' && segments[0] !== 'previews' && segments[0] !== 'avatars') ||
       segments[1] !== user.id
     ) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });

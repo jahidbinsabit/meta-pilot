@@ -54,7 +54,23 @@ export async function GET(req: Request) {
         ? output.failed
         : results.filter((r) => r.status === 'failed').length;
     const inputCount = Array.isArray(job.inputFileUrls) ? job.inputFileUrls.length : 0;
-    const images = results.length > 0 ? results.length : Math.max(inputCount, succeeded + failed);
+    // R7-11: prefer the job's true input total. The image-prompt runner
+    // appends results incrementally, so `results.length` alone undercounts
+    // a running job (3 of 10 done would read as "3 images" in History).
+    // The [jobId] poll route reports the same succeeded/failed derivation
+    // below; this makes the total agree with it.
+    const images = Math.max(inputCount, results.length);
+
+    // The platform the batch was generated for (outputData.platform,
+    // written by the runners) — History needs it to re-export the job in
+    // the platform's own CSV format. Null for legacy jobs that predate it.
+    const platform =
+      typeof output.platform === 'string' &&
+      ['adobe', 'shutterstock', 'freepik', 'vecteezy', 'istock', 'generic'].includes(
+        output.platform,
+      )
+        ? output.platform
+        : null;
 
     return {
       id: job.id,
@@ -62,6 +78,10 @@ export async function GET(req: Request) {
       status: job.status,
       createdAt: job.createdAt,
       completedAt: job.completedAt,
+      platform,
+      // Set by the cleanup cron's payload retention (90 days): the row
+      // and its counts stay, the per-image results are gone.
+      resultsExpired: output.resultsExpired === true,
       totals: {
         total: images,
         succeeded,

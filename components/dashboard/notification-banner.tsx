@@ -14,6 +14,13 @@ export interface DashboardNotification {
 
 const STORAGE_KEY = 'sf_dismissed_notifications';
 
+/**
+ * The stored shape is a bare id list (no timestamps), so age-based
+ * pruning isn't possible — cap it instead: only the 200 most recently
+ * dismissed ids are retained. Enforced on load and on write.
+ */
+const MAX_DISMISSED_IDS = 200;
+
 export function NotificationBanner({ notifications }: { notifications: DashboardNotification[] }) {
   const [mounted, setMounted] = React.useState(false);
   const [dismissedIds, setDismissedIds] = React.useState<string[]>([]);
@@ -26,7 +33,11 @@ export function NotificationBanner({ notifications }: { notifications: Dashboard
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        setDismissedIds(parsed.filter((value): value is string => typeof value === 'string'));
+        setDismissedIds(
+          parsed
+            .filter((value): value is string => typeof value === 'string')
+            .slice(-MAX_DISMISSED_IDS),
+        );
       }
     } catch {
       // ignore malformed persisted state
@@ -48,7 +59,9 @@ export function NotificationBanner({ notifications }: { notifications: Dashboard
   if (!mounted || !current) return null;
 
   const dismissCurrent = () => {
-    const nextDismissed = Array.from(new Set([...dismissedIds, current.id]));
+    const nextDismissed = Array.from(new Set([...dismissedIds, current.id])).slice(
+      -MAX_DISMISSED_IDS,
+    );
     setDismissedIds(nextDismissed);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextDismissed));

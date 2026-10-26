@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server';
+import { timingSafeEqual } from 'node:crypto';
 import { listFiles, deleteFile } from '@/lib/s3/client';
 import { prisma } from '@/lib/db';
+import { Prisma } from '@prisma/client';
 import { refundCreditsOnce } from '@/lib/credits/engine';
+import { purgeDeletedUsers } from '@/lib/account/purge';
 
 /**
  * Cleanup cron — deletes temporary uploads/previews older than 60 minutes,
- * reaps orphaned generation jobs, and purges old AiCallLog rows.
+ * reaps orphaned generation jobs, and runs the retention sweeps:
+ * AiCallLog purge (90d), soft-deleted account purge (past their 30-day
+ * deadline), ToolJob result-payload strip (90d — rows + counts stay for
+ * History, the heavy per-image payload goes), ToolUsage prune (90d) and
+ * AuditLog prune (180d).
  *
  * Key patterns:  uploads/<userId>/<timestamp>-<filename>
  *                previews/<userId>/<timestamp>-<hex>-<filename>
@@ -21,6 +28,18 @@ import { refundCreditsOnce } from '@/lib/credits/engine';
 
 const TTL_MS = 60 * 60 * 1000; // 60 minutes
 const AI_LOG_RETENTION_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+// ToolJob rows are History's data and stay forever, but the per-image
+// result payloads inside outputData (~50 KB for a 40-image job, ~85% of
+// all DB growth) are stripped after this window; the cron marks the job
+// `resultsExpired` and History shows an honest "results expired" state.
+const JOB_PAYLOAD_RETENTION_DAYS = 90;
+const JOB_PAYLOAD_BATCH_LIMIT = 200;
+// ToolUsage rows are written per tool run and read by nothing — prune.
+const TOOL_USAGE_RETENTION_DAYS = 90;
+// AuditLog rows carry fat before/after snapshots; 180 days online is
+// ample for an admin audit trail.
+const AUDIT_LOG_RETENTION_DAYS = 180;
 // A generation job with no heartbeat (or creation) for this long is
 // orphaned — its detached runner died with the process (CQ-01: deploys
 // restart the app container). Live runners rewrite the job's outputData
@@ -198,6 +217,71 @@ async function reapStaleJobs(): Promise<{
   return { reaped, refundedCredits, refundFailed };
 }
 
+/**
+ * ToolJob payload retention: terminal jobs older than the window keep
+ * their row and every summary field, but lose the heavy `results` array.
+ *
+ * Preserved verbatim from outputData: `platform`, `settings`, `partial`,
+ * `succeeded`, `failed`, `refunded`, `refundError`, `balance`,
+ * `heartbeatAt`, `reaperNote`, `reapedAt` (i.e. everything except
+ * `results`). Both the History list and the [jobId] poll route derive a
+ * finished job's counts from `succeeded`/`failed`, and the row's totals
+ * come from the `inputFileUrls` column, so a stripped job still renders
+ * correctly in History — only the per-image detail/download is gone,
+ * which the added `resultsExpired` marker says honestly.
+ */
+async function stripExpiredJobPayloads(): Promise<number> {
+  const cutoff = new Date(Date.now() - JOB_PAYLOAD_RETENTION_DAYS * DAY_MS);
+  const jobs = await prisma.toolJob.findMany({
+    where: {
+      status: { in: ['COMPLETE', 'FAILED'] },
+      createdAt: { lt: cutoff },
+      outputData: { not: Prisma.DbNull },
+    },
+    select: { id: true, outputData: true },
+    orderBy: { createdAt: 'asc' },
+    take: JOB_PAYLOAD_BATCH_LIMIT,
+  });
+
+  let stripped = 0;
+  for (const job of jobs) {
+    try {
+      const output: any = job.outputData ?? {};
+      if (output.resultsExpired === true) continue;
+      if (!Array.isArray(output.results) || output.results.length === 0) continue;
+
+      const next: any = { ...output };
+      delete next.results;
+      next.resultsExpired = true;
+      next.resultsExpiredAt = new Date().toISOString();
+
+      await prisma.toolJob.update({
+        where: { id: job.id },
+        data: { outputData: next },
+      });
+      stripped++;
+    } catch (jobErr) {
+      console.error(`[cleanup-uploads] payload strip failed for job ${job.id}:`, jobErr);
+    }
+  }
+
+  if (stripped > 0) {
+    console.log(
+      `[cleanup-uploads] stripped result payloads from ${stripped} ToolJob(s) older than ${JOB_PAYLOAD_RETENTION_DAYS}d`,
+    );
+  }
+  return stripped;
+}
+
+/** Constant-time secret comparison (length-checked; timingSafeEqual throws on length mismatch). */
+function secretMatches(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 export async function GET(req: Request) {
   // Auth: Vercel sends "Authorization: Bearer <CRON_SECRET>" automatically
   // Also accept x-cron-secret for manual/external triggers
@@ -209,8 +293,11 @@ export async function GET(req: Request) {
   if (!expectedSecret) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  const validBearer = authHeader === `Bearer ${expectedSecret}`;
-  const validHeader = cronSecret === expectedSecret;
+  const bearerToken = authHeader?.startsWith('Bearer ')
+    ? authHeader.slice('Bearer '.length)
+    : null;
+  const validBearer = secretMatches(bearerToken, expectedSecret);
+  const validHeader = secretMatches(cronSecret, expectedSecret);
   if (!validBearer && !validHeader) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
@@ -239,7 +326,7 @@ export async function GET(req: Request) {
     // one row per AI call — would grow unboundedly otherwise).
     let aiLogsPurged = 0;
     try {
-      const cutoff = new Date(Date.now() - AI_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      const cutoff = new Date(Date.now() - AI_LOG_RETENTION_DAYS * DAY_MS);
       const res = await prisma.aiCallLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
       aiLogsPurged = res.count;
       if (aiLogsPurged > 0) {
@@ -247,6 +334,50 @@ export async function GET(req: Request) {
       }
     } catch (logErr) {
       console.error('[cleanup-uploads] AiCallLog purge failed:', logErr);
+    }
+
+    // Account purge: hard-delete soft-deleted users past their 30-day
+    // deadline (see lib/account/purge.ts). Never throws.
+    let accountPurge = { users: 0, filesDeleted: 0, failures: 0 };
+    try {
+      accountPurge = await purgeDeletedUsers();
+    } catch (purgeErr) {
+      console.error('[cleanup-uploads] account purge failed:', purgeErr);
+    }
+
+    // ToolJob payload retention (rows + counts stay; results go).
+    let jobPayloadsStripped = 0;
+    try {
+      jobPayloadsStripped = await stripExpiredJobPayloads();
+    } catch (stripErr) {
+      console.error('[cleanup-uploads] ToolJob payload retention failed:', stripErr);
+    }
+
+    // ToolUsage prune: full results are stored per run and read by
+    // nothing, so rows past the window are pure garbage.
+    let toolUsagePruned = 0;
+    try {
+      const cutoff = new Date(Date.now() - TOOL_USAGE_RETENTION_DAYS * DAY_MS);
+      const res = await prisma.toolUsage.deleteMany({ where: { createdAt: { lt: cutoff } } });
+      toolUsagePruned = res.count;
+      if (toolUsagePruned > 0) {
+        console.log(`[cleanup-uploads] pruned ${toolUsagePruned} ToolUsage rows older than ${TOOL_USAGE_RETENTION_DAYS}d`);
+      }
+    } catch (usageErr) {
+      console.error('[cleanup-uploads] ToolUsage prune failed:', usageErr);
+    }
+
+    // AuditLog prune: admin audit trail, bounded online retention.
+    let auditLogsPruned = 0;
+    try {
+      const cutoff = new Date(Date.now() - AUDIT_LOG_RETENTION_DAYS * DAY_MS);
+      const res = await prisma.auditLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+      auditLogsPruned = res.count;
+      if (auditLogsPruned > 0) {
+        console.log(`[cleanup-uploads] pruned ${auditLogsPruned} AuditLog rows older than ${AUDIT_LOG_RETENTION_DAYS}d`);
+      }
+    } catch (auditErr) {
+      console.error('[cleanup-uploads] AuditLog prune failed:', auditErr);
     }
 
     return NextResponse.json({
@@ -261,6 +392,12 @@ export async function GET(req: Request) {
       reapedRefundedCredits: reaper.refundedCredits,
       reapedRefundFailed: reaper.refundFailed,
       aiLogsPurged,
+      purgedUsers: accountPurge.users,
+      purgeFilesDeleted: accountPurge.filesDeleted,
+      purgeFailures: accountPurge.failures,
+      jobPayloadsStripped,
+      toolUsagePruned,
+      auditLogsPruned,
     });
   } catch (err: any) {
     console.error('[cleanup-uploads] fatal error:', err);
