@@ -36,6 +36,132 @@ const TOOLS: Record<string, { title: string; desc: string; cost: number }> = {
   'batch-export': { title: 'Batch Export', desc: 'Export metadata in CSV / JSON.', cost: 0 },
 };
 
+function humanizeKey(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function CsvBlock({ csv }: { csv: string }) {
+  const [copiedCsv, setCopiedCsv] = React.useState(false);
+  const copyCsv = async () => {
+    await navigator.clipboard.writeText(csv);
+    setCopiedCsv(true);
+    setTimeout(() => setCopiedCsv(false), 1500);
+  };
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          CSV
+        </span>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={copyCsv}>
+          {copiedCsv ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+          {copiedCsv ? 'Copied' : 'Copy CSV'}
+        </Button>
+      </div>
+      <pre className="overflow-auto rounded-lg border border-border bg-card-2 p-3 font-mono text-[11px] leading-relaxed">
+        {csv}
+      </pre>
+    </div>
+  );
+}
+
+/** Recursive value renderer: objects → key/value rows, arrays → lists/blocks. */
+function ValueView({ value }: { value: any }): React.ReactNode {
+  if (value === null || value === undefined) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  if (typeof value === 'string') {
+    if (value.includes('\n')) {
+      return (
+        <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed">
+          {value}
+        </pre>
+      );
+    }
+    return <span className="break-words">{value}</span>;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return <span>{String(value)}</span>;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="text-muted-foreground">None</span>;
+    if (value.every((v) => v === null || typeof v !== 'object')) {
+      return (
+        <ul className="list-inside list-disc space-y-0.5">
+          {value.map((v, i) => (
+            <li key={i}>{v === null || v === undefined ? '—' : String(v)}</li>
+          ))}
+        </ul>
+      );
+    }
+    return (
+      <div className="space-y-2">
+        {value.map((v, i) => (
+          <div key={i} className="rounded-lg border border-border bg-card-2 p-2.5">
+            <ValueView value={v} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (typeof value === 'object') {
+    return <KeyValueRows obj={value} />;
+  }
+  return <span>{String(value)}</span>;
+}
+
+function KeyValueRows({ obj }: { obj: Record<string, any> }) {
+  return (
+    <div className="space-y-2">
+      {Object.entries(obj).map(([key, value]) => (
+        <div key={key} className="grid grid-cols-[112px_1fr] items-start gap-2 text-xs">
+          <span className="pt-px font-medium text-muted-foreground">{humanizeKey(key)}</span>
+          <div className="min-w-0">
+            <ValueView value={value} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Readable result renderer (raw JSON is only a fallback for shapes the
+ * generic walker can't represent). A `csv` string field gets its own
+ * monospace block + copy button; the remaining fields render as rows.
+ */
+function ResultView({ result }: { result: any }) {
+  if (typeof result === 'string') {
+    return (
+      <pre className="whitespace-pre-wrap break-words rounded-lg border border-border bg-card-2 p-3 font-sans text-xs leading-relaxed">
+        {result}
+      </pre>
+    );
+  }
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    const { csv, ...rest } = result as Record<string, any>;
+    return (
+      <div className="space-y-3">
+        {Object.keys(rest).length > 0 && <KeyValueRows obj={rest} />}
+        {typeof csv === 'string' && <CsvBlock csv={csv} />}
+        {typeof csv !== 'string' && Object.keys(rest).length === 0 && (
+          <ValueView value={result} />
+        )}
+      </div>
+    );
+  }
+  if (result && typeof result === 'object') {
+    return <ValueView value={result} />;
+  }
+  // Unknown primitive shape — raw fallback.
+  return (
+    <pre className="overflow-auto rounded-lg border border-border bg-card-2 p-3 text-xs">
+      {JSON.stringify(result, null, 2)}
+    </pre>
+  );
+}
+
 export function ToolClient({ slug, tool }: { slug: string; tool: ToolEntry }) {
   const [input, setInput] = React.useState('');
   const [result, setResult] = React.useState<null | any>(null);
@@ -122,9 +248,9 @@ export function ToolClient({ slug, tool }: { slug: string; tool: ToolEntry }) {
                 <p className="text-sm">Output will appear here.</p>
               </div>
             ) : (
-              <pre className="max-h-[360px] overflow-auto rounded-lg border border-border bg-card-2 p-3 text-xs">
-                {JSON.stringify(result, null, 2)}
-              </pre>
+              <div className="max-h-[420px] overflow-auto pr-1">
+                <ResultView result={result} />
+              </div>
             )}
           </CardContent>
         </Card>

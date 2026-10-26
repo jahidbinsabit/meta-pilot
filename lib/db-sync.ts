@@ -75,6 +75,42 @@ export async function ensureDatabaseSchema(): Promise<void> {
           CREATE INDEX IF NOT EXISTS "CouponRedemption_userId_idx" ON "CouponRedemption"("userId");
         EXCEPTION WHEN OTHERS THEN NULL;
         END;
+
+        -- Payment transactionRef uniqueness (H4 backstop). Deliberately
+        -- NOT a @unique in schema.prisma: deploy runs prisma db push
+        -- before app boot, and db push would fail on a database that
+        -- still contains duplicate refs — the dedupe below must run
+        -- first, so the unique index is created here, after dedupe.
+        BEGIN
+          -- Free refs held by REJECTED payments, mirroring rejectPayment
+          -- (which suffixes the ref at rejection time): a rejected
+          -- payment must not block a corrected re-submission with the
+          -- original TrxID once the unique index exists.
+          UPDATE "Payment"
+          SET "transactionRef" = "transactionRef" || ':rejected:' || "id"
+          WHERE "transactionRef" IS NOT NULL
+            AND "status" = 'REJECTED'
+            AND "transactionRef" NOT LIKE ('%:rejected:' || "id");
+
+          -- Rename later duplicates of any still-shared ref: the
+          -- earliest-created row keeps the bare ref, later rows are
+          -- suffixed with their own id so the index can be created.
+          UPDATE "Payment" p
+          SET "transactionRef" = p."transactionRef" || ':dup:' || p."id"
+          FROM (
+            SELECT "id",
+                   ROW_NUMBER() OVER (
+                     PARTITION BY "transactionRef"
+                     ORDER BY "createdAt" ASC, "id" ASC
+                   ) AS rn
+            FROM "Payment"
+            WHERE "transactionRef" IS NOT NULL
+          ) ranked
+          WHERE p."id" = ranked."id" AND ranked.rn > 1;
+
+          CREATE UNIQUE INDEX IF NOT EXISTS "Payment_transactionRef_key" ON "Payment"("transactionRef");
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
       END $$;
     `);
     isSynced = true;

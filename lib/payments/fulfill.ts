@@ -122,10 +122,21 @@ export async function rejectPayment(paymentId: string, adminId: string, reason?:
   if (!payment) return { ok: false as const, error: 'payment_not_found' };
   if (payment.status === 'COMPLETED') return { ok: false as const, error: 'already_completed' };
 
+  // H4: free the transactionRef in the same update — suffix it with this
+  // payment's id so the rejected row no longer holds the bare TrxID. The
+  // unique index on transactionRef (db-sync) would otherwise block a
+  // corrected re-submission with the original TrxID forever. Idempotent:
+  // re-rejecting the same row leaves an already-suffixed ref unchanged.
+  const freedRef =
+    payment.transactionRef && !payment.transactionRef.endsWith(`:rejected:${payment.id}`)
+      ? `${payment.transactionRef}:rejected:${payment.id}`
+      : payment.transactionRef;
+
   await prisma.payment.update({
     where: { id: paymentId },
     data: {
       status: 'REJECTED' as PaymentStatus,
+      transactionRef: freedRef,
       reviewedByAdminId: adminId,
       reviewedAt: new Date(),
       gatewayPayload: {

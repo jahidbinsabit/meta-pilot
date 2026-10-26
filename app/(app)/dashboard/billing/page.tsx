@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import getServerSession from '@/lib/server-session';
 import { buildCheckoutGateways } from '@/lib/payments/public';
+import { getSiteSettings } from '@/lib/site-settings';
 import { BillingCheckout } from '@/components/dashboard/billing-checkout';
 import { RedeemCoupon } from '@/components/dashboard/redeem-coupon';
 
@@ -90,6 +91,11 @@ export default async function BillingPage() {
 
   const walletBalance = user.creditWallet?.balance ?? 0;
 
+  // Global unlimited mode — same source the sidebar/topbar use (via
+  // /api/credits), so the balance card agrees with them.
+  const siteSettings = await getSiteSettings().catch(() => null);
+  const unlimitedMode = siteSettings?.unlimitedMode === true;
+
   // Plan display name from the SAME source of truth the sidebar uses
   // (dashboard layout: active Membership → plan, else the User.membership enum).
   // Used as a fallback so the "Current Membership" card never disagrees with the sidebar.
@@ -121,6 +127,7 @@ export default async function BillingPage() {
         currentMembership={membership}
         planFallbackName={planFallbackName}
         walletBalance={walletBalance}
+        unlimitedMode={unlimitedMode}
         payments={payments}
         transactions={transactions}
         userId={user.id}

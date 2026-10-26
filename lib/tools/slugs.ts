@@ -42,19 +42,19 @@ export const TOOL_META: Record<ToolSlug, { title: string; desc: string; cost: nu
   },
   'bg-remover': {
     title: 'Background Remover',
-    desc: 'Remove image backgrounds in one click.',
+    desc: 'Remove a solid-color background in one click.',
     cost: 1,
   },
   'bento-builder': {
     title: 'Bento Builder',
     desc: 'Assemble a bento-box image grid and export as PNG.',
-    cost: 1,
+    cost: 0,
   },
-  palette: { title: 'Color Palette', desc: 'Extract a color palette from an image.', cost: 1 },
+  palette: { title: 'Color Palette', desc: 'Extract a color palette from an image.', cost: 0 },
   'ascii-vision': {
     title: 'ASCII Vision',
     desc: 'Convert an image to ASCII art, export text or PNG.',
-    cost: 1,
+    cost: 0,
   },
   events: { title: 'Events', desc: 'A content calendar for stock-content creators.', cost: 0 },
   'adobe-keywords': {
@@ -70,12 +70,12 @@ export const TOOL_META: Record<ToolSlug, { title: string; desc: string; cost: nu
   'halftone-studio': {
     title: 'Halftone Studio',
     desc: 'Apply a halftone-dot filter to an image.',
-    cost: 1,
+    cost: 0,
   },
   'dither-studio': {
     title: 'Dither Studio',
     desc: 'Apply dithering effects (Floyd-Steinberg, ordered).',
-    cost: 1,
+    cost: 0,
   },
   'image-to-psd': {
     title: 'Image to PSD',

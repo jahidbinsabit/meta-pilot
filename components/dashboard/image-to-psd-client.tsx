@@ -101,7 +101,7 @@ export function ImageToPsdClient({ tool }: { tool: ToolEntry }) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <CardTitle>Layered PSD</CardTitle>
-                <CardDescription>Background + AI-detected subject layers.</CardDescription>
+                <CardDescription>Background + subject layers.</CardDescription>
               </div>
               {resultUrl && (
                 <Button variant="outline" size="sm" onClick={download}>

@@ -24,8 +24,10 @@ function handleAuth(e: unknown) {
  * GET  /api/adobe-analytics            -> recent query history + tier gate
  * POST /api/adobe-analytics            -> run a keyword or contributor search
  *
- * This module never consumes image-generation credits: access is purely a
- * function of plan tier, enforced server-side in getAnalyticsGate().
+ * This module never consumes image-generation credits: access is a
+ * function of plan tier, enforced server-side in getAnalyticsGate(),
+ * plus a per-user daily search cap in POST (paid Apify runs are billed
+ * to the owner's token).
  */
 export async function GET(req: Request) {
   try {
@@ -74,6 +76,26 @@ export async function POST(req: Request) {
   const queryType = type === 'contributor' ? 'contributor' : 'keyword';
 
   try {
+    // Per-user daily search cap (audit N9): every search can trigger a paid
+    // Apify run billed to the owner's token, so cap searches per user per
+    // day. Admins are exempt. Adjust via the ADOBE_DAILY_SEARCH_LIMIT env
+    // var (default 30) — no admin UI by design. The window is the UTC
+    // calendar day: AdobeAnalyticsQuery rows with createdAt >= UTC midnight.
+    const DAILY_SEARCH_LIMIT = Number(process.env.ADOBE_DAILY_SEARCH_LIMIT) || 30;
+    if (user.role !== 'ADMIN') {
+      const startOfUtcDay = new Date();
+      startOfUtcDay.setUTCHours(0, 0, 0, 0);
+      const searchesToday = await prisma.adobeAnalyticsQuery.count({
+        where: { userId: user.id, createdAt: { gte: startOfUtcDay } },
+      });
+      if (searchesToday >= DAILY_SEARCH_LIMIT) {
+        return err(
+          `Daily Adobe Analytics search limit reached (${DAILY_SEARCH_LIMIT}/day). Try again tomorrow.`,
+          429,
+        );
+      }
+    }
+
     if (queryType === 'contributor') {
       const parsed = contributorSearchSchema.safeParse(rest);
       if (!parsed.success) {

@@ -3,7 +3,7 @@ import { buildMetadataBatchPrompt, buildRetryBatchSystemPrompt } from '@/lib/gen
 import type { TargetPlatform } from '@/lib/generator/types';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataBatchSchema } from '@/lib/ai/schemas';
-import { refundCredits } from '@/lib/credits/engine';
+import { refundCreditsOnce } from '@/lib/credits/engine';
 
 export interface BatchImage {
   id: string;
@@ -60,6 +60,14 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
   }));
 
   let failed = 0;
+  // Refund bookkeeping (CQ-02/CQ-03): `refundedImages` counts images whose
+  // refund is settled (paid by us, or already paid — refundCreditsOnce
+  // skips duplicates), `refundedTotal` sums only amounts ACTUALLY returned
+  // by refund calls in this run, and `refundError` records a refund that
+  // was attempted but failed so the job never claims money it didn't move.
+  let refundedImages = 0;
+  let refundedTotal = 0;
+  let refundError: string | undefined;
 
   const writeProgress = async () => {
     try {
@@ -70,6 +78,10 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
             results: entries,
             platform: targetPlatform,
             partial: true,
+            // ToolJob has no updatedAt column — this heartbeat is what the
+            // cleanup cron's stale-job reaper reads to tell a live job
+            // (progress within 20 min) from an orphaned one.
+            heartbeatAt: new Date().toISOString(),
           } as any,
         },
       });
@@ -210,15 +222,34 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
 
     if (failed > 0 && deducted) {
       try {
-        const refund = await refundCredits(userId, jobId, failed * costPerImage);
-        balance = refund.balance;
+        // Idempotent per job (CQ-02): if this refund was already paid —
+        // e.g. the stale-job reaper got here first — it returns 0 and
+        // writes nothing instead of paying twice.
+        refundedTotal += await refundCreditsOnce(
+          userId,
+          failed * costPerImage,
+          jobId,
+          'metadata_batch_partial_failure',
+        );
+        refundedImages = failed;
+        try {
+          const walletBalance = await prisma.creditWallet.findUnique({
+            where: { userId },
+            select: { balance: true },
+          });
+          if (walletBalance) balance = walletBalance.balance;
+        } catch {
+          // Balance refresh is cosmetic — the refund itself already landed.
+        }
       } catch (e) {
+        // CQ-03: record the failure — the final write below must not
+        // claim these credits were refunded.
+        refundError = 'refund_failed';
         console.error('runBatchGeneration: refund failed', e);
       }
     }
 
     const succeeded = entries.filter((r) => r.status === 'complete').length;
-    const refunded = deducted ? failed * costPerImage : 0;
 
     await prisma.toolJob.update({
       where: { id: jobId },
@@ -230,7 +261,8 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
           partial: false,
           succeeded,
           failed,
-          refunded,
+          refunded: refundedTotal,
+          ...(refundError ? { refundError } : {}),
           balance,
         } as any,
         errorMessage: failed > 0 ? `${failed} image(s) failed` : undefined,
@@ -241,12 +273,31 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
     console.error('runBatchGeneration error:', err);
     // Unexpected failure: never leave the user charged for images that
     // did not complete, and never leave the job hanging in a live state.
+    // Only the not-yet-refunded remainder is attempted (CQ-02): the main
+    // path above may already have refunded the failed entries before the
+    // final update threw, and refundCreditsOnce dedupes per job as well.
     const notComplete = entries.filter((r) => r.status !== 'complete').length;
-    if (notComplete > 0 && deducted) {
+    const remaining = notComplete - refundedImages;
+    if (remaining > 0 && deducted) {
       try {
-        const refund = await refundCredits(userId, jobId, notComplete * costPerImage);
-        balance = refund.balance;
+        refundedTotal += await refundCreditsOnce(
+          userId,
+          remaining * costPerImage,
+          jobId,
+          'metadata_batch_failure',
+        );
+        refundedImages = notComplete;
+        try {
+          const walletBalance = await prisma.creditWallet.findUnique({
+            where: { userId },
+            select: { balance: true },
+          });
+          if (walletBalance) balance = walletBalance.balance;
+        } catch {
+          // Balance refresh is cosmetic — the refund itself already landed.
+        }
       } catch (refundErr) {
+        refundError = 'refund_failed';
         console.error('runBatchGeneration: failure refund failed', refundErr);
       }
     }
@@ -262,7 +313,8 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
             partial: false,
             succeeded,
             failed: notComplete,
-            refunded: deducted ? notComplete * costPerImage : 0,
+            refunded: refundedTotal,
+            ...(refundError ? { refundError } : {}),
             balance,
           } as any,
           errorMessage: err?.message || 'generation_failed',

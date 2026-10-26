@@ -303,7 +303,16 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
       setGeneratingIds(new Set());
       queryClient.invalidateQueries({ queryKey: ['credits'] });
 
-      if (data.failed > 0) {
+      if (data.refundError) {
+        // The job reported a refund that was attempted but failed —
+        // never claim the credits came back automatically (CQ-03).
+        toast({
+          title: 'Refund issue',
+          description:
+            'Some credits could not be refunded automatically — please contact support.',
+          variant: 'warning',
+        });
+      } else if (data.failed > 0) {
         // The backend reports `refunded` even in unlimited mode, where
         // nothing was actually deducted — only mention the refund then.
         const refundedText =

@@ -44,6 +44,9 @@ interface BillingCheckoutProps {
    *  sidebar uses. Shown when there is no Membership record. */
   planFallbackName?: string | null;
   walletBalance: number;
+  /** Global unlimited mode (site settings) — mirrors the sidebar/topbar,
+   *  which show "Unlimited" instead of the raw wallet number. */
+  unlimitedMode?: boolean;
   payments?: Payment[];
   transactions?: CreditTransaction[];
   userId: string;
@@ -73,7 +76,7 @@ const PLAN_FEATURES: Record<string, string[]> = {
     'Highest credit volume',
     'Unlimited analytics results',
     'Priority onboarding',
-    'Dedicated support',
+    'Account manager',
   ],
 };
 
@@ -84,6 +87,7 @@ export function BillingCheckout({
   currentMembership,
   planFallbackName,
   walletBalance,
+  unlimitedMode = false,
   payments = [],
   transactions = [],
 }: BillingCheckoutProps) {
@@ -152,7 +156,7 @@ export function BillingCheckout({
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Billing & Top up</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Manage your subscription plan, top up credits with USD or BDT, and view billing history.
+            Manage your plan, top up credits with USD or BDT, and view billing history.
           </p>
         </div>
 
@@ -207,15 +211,31 @@ export function BillingCheckout({
             </div>
           </CardHeader>
           <CardContent>
-            <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-extrabold tracking-tight text-foreground">
-                {walletBalance.toLocaleString()}
-              </span>
-              <span className="text-sm font-medium text-muted-foreground">credits</span>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Credits are deducted automatically when using AI generation, prompt extraction, and analytics tools.
-            </p>
+            {unlimitedMode ? (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-extrabold tracking-tight text-foreground">
+                    Unlimited
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Wallet: {walletBalance.toLocaleString()} credits · Credits are deducted
+                  automatically when using AI generation, prompt extraction, and analytics tools.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-extrabold tracking-tight text-foreground">
+                    {walletBalance.toLocaleString()}
+                  </span>
+                  <span className="text-sm font-medium text-muted-foreground">credits</span>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Credits are deducted automatically when using AI generation, prompt extraction, and analytics tools.
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -247,7 +267,8 @@ export function BillingCheckout({
             <p className="mt-2 text-xs text-muted-foreground">
               {currentMembership?.plan?.creditsIncluded && currentMembership.plan.creditsIncluded > 0 ? (
                 <span>
-                  Includes {currentMembership.plan.creditsIncluded.toLocaleString()} credits / month.
+                  Includes {currentMembership.plan.creditsIncluded.toLocaleString()} credits,
+                  added to your wallet on purchase.
                 </span>
               ) : currentMembership?.plan?.dailyFreeCredits ? (
                 <span>
@@ -255,10 +276,10 @@ export function BillingCheckout({
                 </span>
               ) : planFallbackName ? (
                 <span>
-                  Current plan: {planFallbackName}. Choose a subscription below to manage billing.
+                  Current plan: {planFallbackName}. Choose a plan below to manage billing.
                 </span>
               ) : (
-                <span>Upgrade to Pro or Plus for monthly rollover credits and higher limits.</span>
+                <span>Upgrade to Pro or Plus for more credits and higher limits.</span>
               )}
             </p>
           </CardContent>
@@ -274,7 +295,7 @@ export function BillingCheckout({
           </TabsTrigger>
           <TabsTrigger value="plans" className="flex items-center gap-1.5">
             <Crown className="h-4 w-4" />
-            Subscription Plans
+            Plans
           </TabsTrigger>
           <TabsTrigger value="payments" className="flex items-center gap-1.5">
             <CreditCard className="h-4 w-4" />
@@ -366,14 +387,16 @@ export function BillingCheckout({
           </div>
         </TabsContent>
 
-        {/* TAB 2: SUBSCRIPTION PLANS */}
+        {/* TAB 2: PLANS */}
         <TabsContent value="plans" className="space-y-6">
           <div>
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-xl font-bold">Subscription Plans</h2>
+                <h2 className="text-xl font-bold">Plans</h2>
                 <p className="text-sm text-muted-foreground">
-                  Upgrade your plan for monthly credit allowances, batch processing, and Adobe Analytics.
+                  One-time purchase — each plan runs for 30 days. Plan credits are added to
+                  your wallet instantly and never expire. Includes batch processing and
+                  Adobe Analytics.
                 </p>
               </div>
             </div>
@@ -386,7 +409,7 @@ export function BillingCheckout({
                 const formattedPrice = isFree ? (currency === 'USD' ? '$0' : '৳0') : formatCheckoutAmount(currency, price);
                 const features = PLAN_FEATURES[plan.tier] || [
                   plan.creditsIncluded > 0
-                    ? `${plan.creditsIncluded.toLocaleString()} credits / month`
+                    ? `${plan.creditsIncluded.toLocaleString()} credits included`
                     : `${plan.dailyFreeCredits} free credits / day`,
                 ];
 
@@ -422,7 +445,7 @@ export function BillingCheckout({
                         <Zap className="h-3.5 w-3.5" />
                         <span className="font-semibold">
                           {plan.creditsIncluded > 0
-                            ? `${plan.creditsIncluded.toLocaleString()} credits / mo`
+                            ? `${plan.creditsIncluded.toLocaleString()} credits included`
                             : `${plan.dailyFreeCredits} free credits / day`}
                         </span>
                       </div>
@@ -471,7 +494,7 @@ export function BillingCheckout({
             <CardHeader>
               <CardTitle className="text-lg font-semibold">Payment History</CardTitle>
               <CardDescription>
-                Records of your previous top-up and subscription transactions.
+                Records of your previous top-up and plan transactions.
               </CardDescription>
             </CardHeader>
             <CardContent>

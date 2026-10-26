@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db';
 import { generateWithAI } from '@/lib/ai';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
-import { refundCredits } from '@/lib/credits/engine';
+import { refundCreditsOnce } from '@/lib/credits/engine';
 import { downloadFile } from '@/lib/s3/client';
 import { resizeImage } from '@/lib/generator/images';
 import type { ImagePromptResult, PromptStylePreset } from '@/lib/prompt-styles/types';
@@ -130,6 +130,11 @@ export async function runImagePromptGeneration(
   const results: any[] = [];
   let failed = 0;
   let refundedImages = 0;
+  // CQ-03: `refundedTotal` sums only amounts ACTUALLY returned by refund
+  // calls in this run; `refundError` records an attempted-but-failed refund
+  // so the job never claims money it didn't move.
+  let refundedTotal = 0;
+  let refundError: string | undefined;
 
   const writeProgress = async () => {
     try {
@@ -141,12 +146,30 @@ export async function runImagePromptGeneration(
             styleLabel: preset.label,
             results: [...results],
             partial: true,
+            // ToolJob has no updatedAt column — this heartbeat is what the
+            // cleanup cron's stale-job reaper reads to tell a live job
+            // (progress within 20 min) from an orphaned one.
+            heartbeatAt: new Date().toISOString(),
           } as any,
         },
       });
     } catch (e) {
       // Progress writes are best-effort — the final update is authoritative.
       console.error('runImagePromptGeneration: progress update failed', e);
+    }
+  };
+
+  // Refresh the local balance after a refund (refundCreditsOnce returns
+  // only the amount). Cosmetic — a failure here never masks the refund.
+  const refreshBalance = async () => {
+    try {
+      const walletBalance = await prisma.creditWallet.findUnique({
+        where: { userId },
+        select: { balance: true },
+      });
+      if (walletBalance) balance = walletBalance.balance;
+    } catch {
+      // Keep the last known balance.
     }
   };
 
@@ -239,12 +262,21 @@ export async function runImagePromptGeneration(
     // would mint phantom credits.
     if (failed > 0 && deducted) {
       try {
-        const refund = await refundCredits(userId, jobId, failed * costPerImage, {
-          toolSlug: TOOL_SLUG,
-        });
-        balance = refund.balance;
+        // Idempotent per job (CQ-02): if this refund was already paid —
+        // e.g. the stale-job reaper got here first — it returns 0 and
+        // writes nothing instead of paying twice.
+        refundedTotal += await refundCreditsOnce(
+          userId,
+          failed * costPerImage,
+          jobId,
+          'image_prompt_partial_failure',
+        );
         refundedImages = failed;
+        await refreshBalance();
       } catch (e) {
+        // CQ-03: record the failure — the final write below must not
+        // claim these credits were refunded.
+        refundError = 'refund_failed';
         console.error('runImagePromptGeneration: refund failed', e);
       }
     }
@@ -260,9 +292,10 @@ export async function runImagePromptGeneration(
           partial: false,
           succeeded: images.length - failed,
           failed,
-          // Only report refunded credits when something was actually
-          // deducted — in unlimited mode the API must not claim refunds.
-          refunded: deducted ? failed * costPerImage : 0,
+          // Only ACTUAL refunded amounts are reported (CQ-03) — and in
+          // unlimited mode nothing was deducted, so nothing is claimed.
+          refunded: refundedTotal,
+          ...(refundError ? { refundError } : {}),
           balance,
         } as any,
         errorMessage: failed > 0 ? `${failed} image(s) failed` : undefined,
@@ -277,15 +310,16 @@ export async function runImagePromptGeneration(
     const notComplete = images.length - completeCount;
     if (notComplete > refundedImages && deducted) {
       try {
-        const refund = await refundCredits(
+        refundedTotal += await refundCreditsOnce(
           userId,
-          jobId,
           (notComplete - refundedImages) * costPerImage,
-          { toolSlug: TOOL_SLUG },
+          jobId,
+          'image_prompt_failure',
         );
-        balance = refund.balance;
         refundedImages = notComplete;
+        await refreshBalance();
       } catch (refundErr) {
+        refundError = 'refund_failed';
         console.error('runImagePromptGeneration: failure refund failed', refundErr);
       }
     }
@@ -301,7 +335,8 @@ export async function runImagePromptGeneration(
             partial: false,
             succeeded: completeCount,
             failed: notComplete,
-            refunded: deducted ? refundedImages * costPerImage : 0,
+            refunded: refundedTotal,
+            ...(refundError ? { refundError } : {}),
             balance,
           } as any,
           errorMessage: err?.message || 'generation_failed',

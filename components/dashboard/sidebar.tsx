@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   Image,
   Sparkles,
+  History,
   BarChart3,
   Wrench,
   CreditCard,
@@ -38,6 +39,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { label: 'Overview', href: '/dashboard', icon: LayoutGrid },
   { label: 'Generate', href: '/dashboard/generate', icon: Sparkles },
+  { label: 'History', href: '/dashboard/history', icon: History },
   { label: 'Adobe Analytics', href: '/dashboard/adobe-analytics', icon: BarChart3 },
   { label: 'Tools', href: '/dashboard/tools', icon: Wrench },
   { label: 'Billing', href: '/dashboard/billing', icon: CreditCard },

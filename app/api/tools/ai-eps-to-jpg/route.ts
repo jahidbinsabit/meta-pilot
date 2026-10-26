@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
     // Free utility — no credit deduction.
     const original = await downloadFile(key);
-    const { buffer, mime } = await convertVectorToJpg(original, width);
+    const { buffer, mime, width: outWidth, height: outHeight } = await convertVectorToJpg(original, width);
     const { key: outKey, url } = await storePreview(
       user.id,
       (fileName || 'converted.jpg').replace(/\.(ai|eps|svg)$/i, '.jpg'),
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       data: { userId: user.id, tool: 'ai-eps-to-jpg', metadata: { key, outKey } },
     });
 
-    return NextResponse.json({ jpgUrl: url, width: 0, height: 0 });
+    return NextResponse.json({ jpgUrl: url, width: outWidth, height: outHeight });
   } catch (e: any) {
     console.error('ai-eps-to-jpg failed', e);
     return new Response(JSON.stringify({ error: 'convert_failed' }), {

@@ -1,59 +1,83 @@
 /**
  * Layered PSD builder (PROMPT 10.10).
  *
- * Vercel-compatible PSD builder using sharp.
- * Creates a simplified two-layer PSD with background and subject separation.
+ * Writes a REAL Photoshop PSD via ag-psd (pure JS writer — no
+ * node-canvas needed when layers are supplied as raw `imageData`):
+ *   - "Subject" layer: the chroma-key cutout's RGBA pixels
+ *     (same deterministic corner-sample algorithm as bg-remover)
+ *   - "Background" layer: the original image pixels
+ * The document composite (`imageData`) is the original image, so the
+ * flattened preview matches the source. Output starts with the "8BPS"
+ * signature. (Audit R6 / N4 — previously this returned a PNG composite
+ * saved with a .psd filename.)
  */
 
 import sharp from 'sharp';
+import { writePsdBuffer, type Psd } from 'ag-psd';
 import { removeBackground } from '@/lib/tools/bg-remover';
+
+interface RawPixels {
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+}
+
+async function toRawPixels(png: Buffer): Promise<RawPixels> {
+  const { data, info } = await sharp(png)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return {
+    width: info.width,
+    height: info.height,
+    data: new Uint8ClampedArray(data),
+  };
+}
 
 export async function buildLayeredPsd(input: Buffer): Promise<Buffer> {
   try {
-    // For Vercel compatibility, we'll create a composite PNG instead of true PSD
-    // (Sharp doesn't support writing PSD format, and ImageMagick is unavailable)
-    
-    // 1. Normalize to PNG
-    const normalized = await sharp(input)
-      .png()
-      .toBuffer();
+    // 1. Normalize to PNG, then decode the original pixels (Background).
+    const normalized = await sharp(input).png().toBuffer();
+    const background = await toRawPixels(normalized);
 
-    // 2. Create background layer (full image on white)
-    const background = await sharp(normalized)
-      .flatten({ background: { r: 255, g: 255, b: 255 } })
-      .png()
-      .toBuffer();
+    // 2. Subject layer: chroma-key cutout of the same image, decoded raw.
+    const subjectPng = await removeBackground(normalized);
+    const subject = await toRawPixels(subjectPng);
+    if (subject.width !== background.width || subject.height !== background.height) {
+      throw new Error('Subject layer size does not match the source image');
+    }
 
-    // 3. Create subject layer (background removed, on white)
-    const subject = await removeBackground(normalized);
-    const subjectFlattened = await sharp(subject)
-      .flatten({ background: { r: 255, g: 255, b: 255 } })
-      .png()
-      .toBuffer();
-
-    // 4. Since true PSD writing isn't available on Vercel without ImageMagick,
-    //    return a composite PNG with both layers stacked vertically
-    //    This preserves the concept while being Vercel-compatible
-    const { width, height } = await sharp(background).metadata();
-    
-    const composite = await sharp({
-      create: {
-        width: width || 800,
-        height: (height || 600) * 2,
-        channels: 3,
-        background: { r: 255, g: 255, b: 255 },
+    // 3. Emit a true layered PSD. Children are listed top layer first:
+    // Subject sits above Background; the composite is the original image.
+    const psd: Psd = {
+      width: background.width,
+      height: background.height,
+      imageData: {
+        width: background.width,
+        height: background.height,
+        data: background.data,
       },
-    })
-      .composite([
-        { input: background, top: 0, left: 0 },
-        { input: subjectFlattened, top: height || 600, left: 0 },
-      ])
-      .png()
-      .toBuffer();
-
-    return composite;
+      children: [
+        {
+          name: 'Subject',
+          imageData: {
+            width: subject.width,
+            height: subject.height,
+            data: subject.data,
+          },
+        },
+        {
+          name: 'Background',
+          imageData: {
+            width: background.width,
+            height: background.height,
+            data: background.data,
+          },
+        },
+      ],
+    };
+    return writePsdBuffer(psd);
   } catch (e: any) {
     throw new Error(`PSD building failed: ${e.message}`);
   }
 }
-

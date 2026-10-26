@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import getServerSession from '@/lib/server-session';
 import { prisma } from '@/lib/db';
+import { getSiteSettings } from '@/lib/site-settings';
 import { OnboardingChecklist } from '@/components/dashboard/onboarding-checklist';
 
 const QUICK_ACTIONS = [
@@ -134,15 +135,26 @@ async function StatsSection() {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  const [totalJobs, creditsSpentToday] = await Promise.all([
+  // Since the polling migration the dashboard generators write results
+  // only into ToolJob.outputData; GeneratedMetadata is written solely by
+  // the legacy single-image route (which creates no ToolJob), so the two
+  // counts cover disjoint generations and can be summed safely.
+  const [metaCount, jobCount, creditsSpentToday, settings] = await Promise.all([
     userId ? prisma.generatedMetadata.count({ where: { userId } }) : 0,
+    userId ? prisma.toolJob.count({ where: { userId, status: 'COMPLETE' } }) : 0,
     userId
       ? prisma.creditTransaction.aggregate({
           where: { userId, type: 'SPEND', createdAt: { gte: startOfToday } },
           _sum: { amount: true },
         })
       : null,
+    getSiteSettings().catch(() => null),
   ]);
+
+  const totalJobs = metaCount + jobCount;
+  // Match /api/credits (sidebar/topbar) semantics exactly: the global
+  // unlimited-mode flag decides whether the balance renders as a number.
+  const unlimited = settings?.unlimitedMode === true;
 
   const todayCreditsUsed = Math.abs(creditsSpentToday?._sum?.amount || 0);
   const availableCredits = user?.credits ?? 0;
@@ -158,18 +170,28 @@ async function StatsSection() {
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Credits
               </p>
-              <p className="mt-1 font-mono text-2xl font-bold">{availableCredits}</p>
+              {unlimited ? (
+                <p className="mt-1 text-2xl font-bold">Unlimited</p>
+              ) : (
+                <p className="mt-1 font-mono text-2xl font-bold">{availableCredits}</p>
+              )}
             </div>
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent/15 text-accent">
               <Zap className="h-5 w-5" />
             </div>
           </div>
-          <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-accent transition-all duration-500"
-              style={{ width: `${creditProgress}%` }}
-            />
-          </div>
+          {unlimited ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Wallet: {availableCredits} credits
+            </p>
+          ) : (
+            <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-500"
+                style={{ width: `${creditProgress}%` }}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -227,10 +249,19 @@ async function StatsSection() {
   );
 }
 
+interface RecentItem {
+  key: string;
+  title: string;
+  sub: string;
+  date: Date;
+  status: string;
+  isPromptJob: boolean;
+}
+
 /** Streams in after the hero — recent generations list. */
 async function RecentSection() {
   const { userId } = await getDashboardUser();
-  const [recent, totalJobs] = await Promise.all([
+  const [recentMeta, recentJobs, metaCount, jobCount] = await Promise.all([
     userId
       ? prisma.generatedMetadata.findMany({
           where: { userId },
@@ -238,10 +269,50 @@ async function RecentSection() {
           take: 5,
         })
       : [],
+    userId
+      ? prisma.toolJob.findMany({
+          where: { userId, status: 'COMPLETE' },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        })
+      : [],
     userId ? prisma.generatedMetadata.count({ where: { userId } }) : 0,
+    userId ? prisma.toolJob.count({ where: { userId, status: 'COMPLETE' } }) : 0,
   ]);
 
-  if (totalJobs === 0) {
+  // Merge legacy single-image rows with completed batch/prompt jobs —
+  // the polling generators only ever produce the latter.
+  const items: RecentItem[] = [
+    ...recentMeta.map((r: any) => ({
+      key: `meta-${r.id}`,
+      title: r.title || r.originalName || 'Untitled',
+      sub: `${(r.keywords || []).length} keywords`,
+      date: r.createdAt as Date,
+      status: r.status as string,
+      isPromptJob: false,
+    })),
+    ...recentJobs.map((j: any) => {
+      const output: any = j.outputData ?? {};
+      const results: any[] = Array.isArray(output.results) ? output.results : [];
+      const first =
+        results.find((r) => r && (r.title || r.fileName)) || results[0] || {};
+      const inputCount = Array.isArray(j.inputFileUrls) ? j.inputFileUrls.length : 0;
+      const n = results.length || inputCount;
+      const isPromptJob = j.toolSlug === 'image-to-prompt';
+      return {
+        key: `job-${j.id}`,
+        title: first.title || first.fileName || (isPromptJob ? 'Image to Prompt' : 'Metadata batch'),
+        sub: `Batch · ${n} image${n === 1 ? '' : 's'} · ${isPromptJob ? 'Image to Prompt' : 'Metadata'}`,
+        date: j.createdAt as Date,
+        status: j.status === 'COMPLETE' ? 'COMPLETED' : (j.status as string),
+        isPromptJob,
+      };
+    }),
+  ]
+    .sort((a, b) => b.date.getTime() - a.date.getTime())
+    .slice(0, 5);
+
+  if (metaCount + jobCount === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 py-12 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-accent">
@@ -263,32 +334,38 @@ async function RecentSection() {
 
   return (
     <div className="space-y-2">
-      {recent.map((r: any) => (
+      {items.map((item) => (
         <div
-          key={r.id}
+          key={item.key}
           className="flex items-center gap-3 rounded-xl border border-border bg-card/30 p-3.5 transition-colors hover:bg-card/60"
         >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-            <Sparkles className="h-4.5 w-4.5" />
+            {item.isPromptJob ? (
+              <Image className="h-4.5 w-4.5" />
+            ) : (
+              <Sparkles className="h-4.5 w-4.5" />
+            )}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">
-              {r.title || r.originalName || 'Untitled'}
-            </p>
+            <p className="truncate text-sm font-medium">{item.title}</p>
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span>{(r.keywords || []).length} keywords</span>
+              <span>{item.sub}</span>
               <span>&middot;</span>
               <Calendar className="h-3 w-3" />
-              <span>{r.createdAt.toLocaleDateString()}</span>
+              <span>{item.date.toLocaleDateString()}</span>
             </p>
           </div>
           <Badge
             variant={
-              r.status === 'COMPLETED' ? 'success' : r.status === 'FAILED' ? 'warning' : 'muted'
+              item.status === 'COMPLETED'
+                ? 'success'
+                : item.status === 'FAILED'
+                  ? 'warning'
+                  : 'muted'
             }
             className="shrink-0 capitalize"
           >
-            {r.status.toLowerCase()}
+            {item.status.toLowerCase()}
           </Badge>
         </div>
       ))}

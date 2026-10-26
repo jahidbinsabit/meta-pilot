@@ -146,7 +146,7 @@ export const HOMEPAGE_DEFAULTS: Record<string, any> = {
       {
         question: 'How many free credits do I get?',
         answer:
-          '20 free credits on sign-up. Each metadata generation costs 1 credit. Free tier renews monthly.',
+          'The Free plan includes 5 free credits every day — no card required. Each metadata generation costs 1 credit.',
       },
       {
         question: 'Can I use my own API keys?',

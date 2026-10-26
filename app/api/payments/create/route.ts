@@ -127,45 +127,72 @@ export async function POST(req: Request) {
       const finalAmountBDT = currency === 'BDT' ? Math.round(amountBDT) : 0;
       const finalAmountUSD = currency === 'USD' ? amountUSD : 0;
 
-      // M5: reject duplicate transaction refs — the same bKash/Nagad TrxID
-      // must not be submitted twice (double-approval would double-grant).
-      const existingRef = await prisma.payment.findFirst({
-        where: {
-          method,
-          transactionRef: transactionRef.trim(),
-          status: { not: 'REJECTED' },
-        },
-        select: { id: true },
-      });
-      if (existingRef) {
+      // H4: duplicate check + insert run inside ONE Serializable
+      // transaction, so two concurrent submissions carrying the same
+      // bKash/Nagad TrxID cannot both pass the check and create two
+      // PENDING rows (double-approval would double-grant). The unique
+      // index on transactionRef (created by db-sync after dedupe) is the
+      // hard backstop; P2002 (unique violation) and P2034 (serialization
+      // conflict) map to the same duplicate response as a sequential dup.
+      const trimmedRef = transactionRef.trim();
+      type CreateOutcome =
+        | { kind: 'created'; id: string; status: string }
+        | { kind: 'duplicate' };
+
+      let outcome: CreateOutcome;
+      try {
+        outcome = await prisma.$transaction(
+          async (tx): Promise<CreateOutcome> => {
+            const existingRef = await tx.payment.findFirst({
+              where: {
+                method,
+                transactionRef: trimmedRef,
+                status: { not: 'REJECTED' },
+              },
+              select: { id: true },
+            });
+            if (existingRef) return { kind: 'duplicate' };
+
+            const payment = await tx.payment.create({
+              data: {
+                id: createId(),
+                userId: user.id,
+                method,
+                amountUSD: finalAmountUSD,
+                amountBDT: finalAmountBDT,
+                status: 'PENDING',
+                transactionRef: trimmedRef,
+                planIdOrCreditPackageId: planId || packageId || null,
+                gatewayPayload: {
+                  ...payload,
+                  senderNumber: senderNumber.trim(),
+                  provider,
+                  providerDisplayName: dbGateway?.displayName || provider,
+                  accountType: publicGw?.accountType,
+                  currency,
+                } as any,
+                updatedAt: new Date(),
+              },
+            });
+            return { kind: 'created', id: payment.id, status: payment.status };
+          },
+          { isolationLevel: 'Serializable' },
+        );
+      } catch (e: any) {
+        if (e?.code === 'P2002' || e?.code === 'P2034') {
+          outcome = { kind: 'duplicate' };
+        } else {
+          throw e;
+        }
+      }
+
+      if (outcome.kind === 'duplicate') {
         return NextResponse.json({ error: 'duplicate_transaction_ref' }, { status: 400 });
       }
 
-      const payment = await prisma.payment.create({
-        data: {
-          id: createId(),
-          userId: user.id,
-          method,
-          amountUSD: finalAmountUSD,
-          amountBDT: finalAmountBDT,
-          status: 'PENDING',
-          transactionRef: transactionRef.trim(),
-          planIdOrCreditPackageId: planId || packageId || null,
-          gatewayPayload: {
-            ...payload,
-            senderNumber: senderNumber.trim(),
-            provider,
-            providerDisplayName: dbGateway?.displayName || provider,
-            accountType: publicGw?.accountType,
-            currency,
-          } as any,
-          updatedAt: new Date(),
-        },
-      });
-
       return NextResponse.json({
         ok: true,
-        payment: { id: payment.id, status: payment.status },
+        payment: { id: outcome.id, status: outcome.status },
         instructions:
           publicGw?.instructions ||
           'Your payment was submitted successfully. Our team will verify and activate your service shortly.',

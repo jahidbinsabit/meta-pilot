@@ -363,7 +363,14 @@ export async function searchByContributor(
       });
 
       const filteredAssets = applyContributorFilters(res.assets, input);
-      const total = filteredAssets.length;
+      // Totals mirror the Adobe-API fallback path below: with no filter
+      // active, the scraper's reported total is authoritative and exact.
+      // With a filter active, the total is the local match count — and it
+      // is only exact when the fetched page covered the contributor's
+      // whole reported pool (sort never affects totals).
+      const anyFilterActive = input.contentType !== 'all' || input.generativeAi !== 'all';
+      const total = anyFilterActive ? filteredAssets.length : res.totalResults;
+      const totalIsExact = anyFilterActive ? res.assets.length >= res.totalResults : true;
       const { visible, hidden } = applyRowGate(total, gate.limit);
       const assets = filteredAssets.slice(0, visible);
 
@@ -381,7 +388,7 @@ export async function searchByContributor(
           res.assets.find((a) => a.contributorName)?.contributorName ||
           `Contributor #${input.contributorId}`,
         totalAssets: total,
-        totalIsExact: true,
+        totalIsExact,
         assets,
         hiddenCount: hidden,
         limit: gate.limit,

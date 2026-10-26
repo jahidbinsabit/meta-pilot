@@ -141,6 +141,72 @@ export async function refundCredits(
   return addCredits(userId, amount, 'REFUND', { ...metadata, toolJobId });
 }
 
+/**
+ * Idempotent refund for ONE generation job (CQ-02). `refundCredits` happily
+ * writes a second `REFUND` row for the same job — this variant checks the
+ * ledger inside the same transaction and pays at most once per `jobId`:
+ * it returns the amount actually refunded, or 0 when the refund is skipped
+ * (invalid input, or a `REFUND` row for this job already exists — written
+ * by an earlier runner pass, the stale-job reaper, or a legacy
+ * `refundCredits` call, all of which stamp `metadata.toolJobId`).
+ *
+ * Concurrency: the wallet row is locked (`SELECT … FOR UPDATE`) BEFORE the
+ * ledger check. At READ COMMITTED a check-then-write without the lock can
+ * interleave and double-pay — the same race `grantBonus` documents for
+ * grants. With the lock held, a concurrent attempt blocks until this
+ * transaction commits, then sees its `REFUND` row and skips.
+ *
+ * Unlimited mode: like `refundCredits`, this function has no unlimited
+ * check of its own — callers gate on "credits were actually deducted"
+ * (runners use their `deducted` flag; the reaper uses `creditsCharged`),
+ * so a refund can never mint phantom credits in unlimited mode.
+ *
+ * Controlled no-op paths return 0 rather than throwing; a genuine DB
+ * failure still throws so callers can surface it (CQ-03 — a job must never
+ * report a refund that didn't happen).
+ */
+export async function refundCreditsOnce(
+  userId: string,
+  amount: number,
+  jobId: string,
+  reason?: string,
+): Promise<number> {
+  // Without a job id the refund cannot be keyed, so it cannot be made
+  // idempotent — refuse rather than risk an un-trackable double-pay.
+  if (!jobId) return 0;
+  if (!Number.isInteger(amount) || amount <= 0) return 0;
+
+  return prisma.$transaction(async (tx) => {
+    await ensureWallet(tx, userId);
+    // Take the wallet row lock first, then check the ledger (see header).
+    await tx.$queryRaw`SELECT "id" FROM "CreditWallet" WHERE "userId" = ${userId} FOR UPDATE`;
+    const existing = await tx.creditTransaction.findFirst({
+      where: {
+        userId,
+        type: 'REFUND',
+        metadata: { path: ['toolJobId'], equals: jobId },
+      },
+      select: { id: true },
+    });
+    if (existing) return 0;
+
+    const wallet = await tx.creditWallet.findUnique({ where: { userId } });
+    const next = (wallet?.balance ?? 0) + amount;
+    await tx.creditWallet.update({ where: { userId }, data: { balance: next } });
+    await syncUserCredits(tx, userId, next);
+    await tx.creditTransaction.create({
+      data: {
+        userId,
+        amount,
+        type: 'REFUND' as any,
+        reason: reason ?? null,
+        metadata: { toolJobId: jobId, ...(reason ? { reason } : {}) } as any,
+      },
+    });
+    return amount;
+  });
+}
+
 /** Read the current wallet state without writing. */
 export async function getWallet(userId: string): Promise<WalletState> {
   const wallet = await prisma.creditWallet.findUnique({ where: { userId } });

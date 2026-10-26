@@ -1,45 +1,46 @@
 /**
  * Vector → raster conversion (PROMPT 10.7).
  *
- * Vercel-compatible vector conversion using sharp.
  * SVG: sharp (librsvg) → JPEG
- * EPS/AI: gray placeholder (Ghostscript not available on Vercel)
+ * EPS/AI: real Ghostscript rasterization via `convertEpsAiToPng` from
+ * the generator image pipeline (the same rasterizer the upload flow
+ * uses), then PNG → JPEG via sharp. (Audit R6 / N5 — previously EPS/AI
+ * returned a blank gray placeholder box.)
  */
 
 import sharp from 'sharp';
+import { convertEpsAiToPng } from '@/lib/generator/images';
 
 export interface ConvertResult {
   buffer: Buffer;
   mime: string;
+  width: number;
+  height: number;
 }
 
 export async function convertVectorToJpg(input: Buffer, maxDim = 2000): Promise<ConvertResult> {
   const ext = detectExt(input);
 
   try {
+    let buffer: Buffer;
     if (ext === '.svg') {
       // Sharp can handle SVG directly via librsvg
-      const buffer = await sharp(input, { density: 150 })
+      buffer = await sharp(input, { density: 150 })
         .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true })
         .flatten({ background: { r: 255, g: 255, b: 255 } })
         .jpeg({ quality: 92, progressive: true })
         .toBuffer();
-      return { buffer, mime: 'image/jpeg' };
     } else {
-      // EPS/AI: Create a placeholder since Ghostscript is unavailable on Vercel
-      // User can still use the tool but gets a notice that EPS/AI needs local processing
-      const placeholder = await sharp({
-        create: {
-          width: Math.min(maxDim, 800),
-          height: Math.min(maxDim, 600),
-          channels: 3,
-          background: { r: 240, g: 240, b: 240 },
-        },
-      })
-        .jpeg({ quality: 92 })
+      // EPS/AI: rasterize with Ghostscript (real conversion, no placeholder)
+      const png = await convertEpsAiToPng(input);
+      buffer = await sharp(png)
+        .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true })
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .jpeg({ quality: 92, progressive: true })
         .toBuffer();
-      return { buffer: placeholder, mime: 'image/jpeg' };
     }
+    const meta = await sharp(buffer).metadata();
+    return { buffer, mime: 'image/jpeg', width: meta.width ?? 0, height: meta.height ?? 0 };
   } catch (e: any) {
     throw new Error(`Vector conversion failed: ${e.message}`);
   }

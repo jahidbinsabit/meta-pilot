@@ -52,6 +52,7 @@ export async function GET(
     succeeded,
     failed,
     refunded: typeof output.refunded === 'number' ? output.refunded : 0,
+    refundError: typeof output.refundError === 'string' ? output.refundError : null,
     balance:
       finished && typeof output.balance === 'number'
         ? output.balance

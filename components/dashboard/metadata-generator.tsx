@@ -279,13 +279,22 @@ export function MetadataGenerator({
 
     // Finish path for a completed job — same state + toasts as the old
     // SSE 'done' handler.
-    const finishDone = (succeeded: number, failed: number) => {
+    const finishDone = (succeeded: number, failed: number, refundError?: string) => {
       setIsGenerating(false);
       setGeneratingIds(new Set());
       queryClient.invalidateQueries({ queryKey: ['credits'] });
       setSuccessModalOpen(true);
 
-      if (failed > 0) {
+      if (refundError) {
+        // The job reported a refund that was attempted but failed —
+        // never claim the credits came back automatically (CQ-03).
+        toast({
+          title: 'Refund issue',
+          description:
+            'Some credits could not be refunded automatically — please contact support.',
+          variant: 'warning',
+        });
+      } else if (failed > 0) {
         toast({
           title: `${succeeded}/${succeeded + failed} generated`,
           description: unlimited
@@ -382,7 +391,7 @@ export function MetadataGenerator({
           if (data.status === 'FAILED' && data.succeeded === 0 && data.failed === 0) {
             throw new Error(data.errorMessage || 'Generation failed');
           }
-          finishDone(data.succeeded ?? 0, data.failed ?? 0);
+          finishDone(data.succeeded ?? 0, data.failed ?? 0, data.refundError);
           return;
         }
 
@@ -532,7 +541,9 @@ export function MetadataGenerator({
           } else {
             toast({
               title: 'Regeneration failed',
-              description: result.error || 'Generation failed',
+              description: data.refundError
+                ? 'Some credits could not be refunded automatically — please contact support.'
+                : result.error || 'Generation failed',
               variant: 'error',
             });
           }
