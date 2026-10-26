@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { AdobeAnalyticsLimits } from '@/components/admin/adobe-analytics-limits';
-import { Server, Shield, Save, Loader2, Bot, Eye, EyeOff, CheckCircle2, XCircle, Key } from 'lucide-react';
+import { Server, Shield, Save, Loader2, Bot, Eye, EyeOff, CheckCircle2, XCircle, Key, Upload, Trash2 } from 'lucide-react';
 
 type SiteSettings = {
   siteName?: string | null;
@@ -138,6 +138,40 @@ export function SettingsClient({
 
   const handleSave = () => {
     saveMutation.mutate(settings);
+  };
+
+  // Branding (logo / favicon) is uploaded as a file, not pasted as a URL.
+  // The upload endpoint stores the file under a fixed key and persists the
+  // new internal URL server-side; we mirror it into form state so the
+  // preview refreshes and a later Save can't overwrite it with a stale value.
+  const [uploadingKind, setUploadingKind] = React.useState<'logo' | 'favicon' | null>(null);
+  const logoFileRef = React.useRef<HTMLInputElement>(null);
+  const faviconFileRef = React.useRef<HTMLInputElement>(null);
+
+  const handleBrandingUpload = async (kind: 'logo' | 'favicon', file: File) => {
+    setUploadingKind(kind);
+    try {
+      const form = new FormData();
+      form.append('kind', kind);
+      form.append('file', file);
+      const res = await fetch('/api/admin/branding', { method: 'POST', body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || 'upload_failed');
+      setSettings((s) => ({
+        ...s,
+        [kind === 'logo' ? 'logoUrl' : 'siteIconUrl']: data.url,
+      }));
+      queryClient.invalidateQueries({ queryKey: ['site-settings'] });
+      router.refresh();
+      toast({
+        title: kind === 'logo' ? 'Logo uploaded' : 'Favicon uploaded',
+        variant: 'success',
+      });
+    } catch (err: any) {
+      toast({ title: 'Upload failed', description: err.message, variant: 'error' });
+    } finally {
+      setUploadingKind(null);
+    }
   };
   return (
     <div className="space-y-6">
@@ -346,36 +380,106 @@ export function SettingsClient({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="logoUrl">Project Logo URL</Label>
+              <Label>Project Logo</Label>
               <div className="flex gap-2 items-center">
-                <Input
-                  id="logoUrl"
-                  type="url"
-                  value={settings.logoUrl || ''}
-                  onChange={(e) => setSettings((s) => ({ ...s, logoUrl: e.target.value }))}
-                  placeholder="https://.../logo.png"
-                />
                 {settings.logoUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={settings.logoUrl} alt="Logo Preview" className="h-9 w-9 object-contain rounded border border-border" />
                 )}
+                <input
+                  ref={logoFileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) void handleBrandingUpload('logo', f);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploadingKind !== null}
+                  onClick={() => logoFileRef.current?.click()}
+                  className="gap-2"
+                >
+                  {uploadingKind === 'logo' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4" />
+                  )}
+                  {uploadingKind === 'logo' ? 'Uploading…' : settings.logoUrl ? 'Change logo' : 'Upload logo'}
+                </Button>
+                {settings.logoUrl && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={uploadingKind !== null}
+                    onClick={() => setSettings((s) => ({ ...s, logoUrl: '' }))}
+                    className="gap-1 text-muted-foreground"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove
+                  </Button>
+                )}
               </div>
+              <p className="text-2xs text-muted-foreground">
+                PNG, JPG, WebP or SVG up to 2 MB. The file is stored on this server — no external link needed. Remove clears it on the next save.
+              </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="siteIconUrl">Browser Favicon / Icon URL</Label>
+              <Label>Browser Favicon / Icon</Label>
               <div className="flex gap-2 items-center">
-                <Input
-                  id="siteIconUrl"
-                  type="url"
-                  value={settings.siteIconUrl || ''}
-                  onChange={(e) => setSettings((s) => ({ ...s, siteIconUrl: e.target.value }))}
-                  placeholder="https://.../favicon.ico"
-                />
                 {settings.siteIconUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={settings.siteIconUrl} alt="Favicon Preview" className="h-8 w-8 object-contain rounded border border-border" />
                 )}
+                <input
+                  ref={faviconFileRef}
+                  type="file"
+                  accept="image/x-icon,image/png,image/svg+xml,.ico"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) void handleBrandingUpload('favicon', f);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploadingKind !== null}
+                  onClick={() => faviconFileRef.current?.click()}
+                  className="gap-2"
+                >
+                  {uploadingKind === 'favicon' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4" />
+                  )}
+                  {uploadingKind === 'favicon' ? 'Uploading…' : settings.siteIconUrl ? 'Change icon' : 'Upload icon'}
+                </Button>
+                {settings.siteIconUrl && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={uploadingKind !== null}
+                    onClick={() => setSettings((s) => ({ ...s, siteIconUrl: '' }))}
+                    className="gap-1 text-muted-foreground"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove
+                  </Button>
+                )}
               </div>
+              <p className="text-2xs text-muted-foreground">
+                ICO, PNG or SVG up to 1 MB. The file is stored on this server — no external link needed. Remove clears it on the next save.
+              </p>
             </div>
           </div>
           <div className="space-y-2">
