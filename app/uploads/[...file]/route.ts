@@ -49,10 +49,14 @@ export async function GET(
     }
 
     // Ownership check: local files are flattened from user-scoped keys —
-    // Ownership check via the shared helper (same as the s3 route and
-    // the tool routes). The trailing dash prevents prefix collisions
-    // between user ids (e.g. `abc` vs `abc1`).
-    if (!ownsStorageKey(user.id, cleanName)) {
+    // `avatars/<userId>/<ts>-avatar-x.png` is stored on disk as the flat
+    // `avatars-<userId>-<ts>-avatar-x.png`. ownsStorageKey expects the
+    // logical slash key, so reconstruct it first (first two dashes →
+    // slashes, the same reconstruction listFilesLocal uses). Passing the
+    // flat name directly made this check fail for EVERY local file —
+    // avatars included — so uploads saved fine but never displayed.
+    const logicalKey = cleanName.replace('-', '/').replace('-', '/');
+    if (!ownsStorageKey(user.id, logicalKey)) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
 
