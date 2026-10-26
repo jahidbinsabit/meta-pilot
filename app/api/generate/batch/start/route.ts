@@ -68,6 +68,9 @@ export async function POST(req: Request) {
   const targetPlatform: TargetPlatform = platform || 'adobe';
   const settings = await getGeneratorSettings();
   const merged = { ...settings, ...(overrides || {}) };
+  // Adobe Stock has no description field (title + keywords only) — never
+  // generate one for Adobe, regardless of the saved preference.
+  if (targetPlatform === 'adobe') merged.includeDescription = false;
 
   const costPerImage = await getToolCost('metadata-generator');
   const total = images.length * costPerImage;

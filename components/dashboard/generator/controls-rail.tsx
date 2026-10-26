@@ -479,7 +479,7 @@ export function ControlsRail({
                   <div className='flex items-center justify-between rounded-xl border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground'>
                     <div className='flex items-center gap-2'>
                       <FileText className='h-3.5 w-3.5 text-muted-foreground' />
-                      <span>150 chars (~25 words) (fixed)</span>
+                      <span>{selectedPlatform === 'adobe' ? 'Not used for Adobe Stock' : '150 chars (~25 words) (fixed)'}</span>
                     </div>
                     <Lock className='h-3 w-3 text-muted-foreground/60' />
                   </div>
@@ -529,11 +529,12 @@ export function ControlsRail({
               <div className='flex items-center justify-between'>
                 <div>
                   <span className='text-xs font-medium text-foreground'>Include Description</span>
-                  <p className='text-[11px] text-muted-foreground'>Generate SEO caption</p>
+                  <p className='text-[11px] text-muted-foreground'>{selectedPlatform === 'adobe' ? 'Adobe Stock uses title + keywords only' : 'Generate SEO caption'}</p>
                 </div>
                 <Toggle
                   checked={includeDescription}
                   onCheckedChange={(v) => {
+                    if (selectedPlatform === 'adobe') return;
                     setIncludeDescription(v);
                     persistSettings({ includeDescription: v });
                   }}

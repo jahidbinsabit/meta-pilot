@@ -114,7 +114,8 @@ describe('Multi-Platform CSV Exports', () => {
 
   it('exports valid Adobe Stock CSV with custom attributes and category', () => {
     const csv = buildCsv('adobe', sampleRows);
-    expect(csv).toContain('Filename,Title,Keywords,Category,Subcategory,Description');
+    expect(csv).toContain('Filename,Title,Keywords,Category,Subcategory,Artist Name');
+    expect(csv).not.toContain('Description');
     expect(csv).toContain('photo_01.jpg');
     expect(csv).toContain('"Majestic Mountain Sunrise, Lake Reflection"');
     expect(csvFilename('adobe')).toMatch(/^metadata-export-[\d-]+-adobe\.csv$/);

@@ -97,6 +97,9 @@ export function MetadataGenerator({
   const [includeDescription, setIncludeDescription] = React.useState(
     settings.includeDescription !== false,
   );
+  // Adobe Stock takes title + keywords only — no description. The stored
+  // preference is preserved; Adobe generations/exports just skip it.
+  const effectiveIncludeDescription = selectedPlatform === 'adobe' ? false : includeDescription;
   const [prefixText, setPrefixText] = React.useState(settings.prefix || '');
   const [suffixText, setSuffixText] = React.useState(settings.suffix || '');
   const [negWords, setNegWords] = React.useState<string[]>(settings.negativeTitleWords);
@@ -241,7 +244,7 @@ export function MetadataGenerator({
       settings: {
         titleLength: settings.titleLength,
         descriptionLength: settings.descriptionLength,
-        includeDescription,
+        includeDescription: effectiveIncludeDescription,
         keywordsCount: settings.keywordsCount,
         prefix: prefixEnabled ? prefixText : '',
         suffix: suffixEnabled ? suffixText : '',
@@ -477,7 +480,7 @@ export function MetadataGenerator({
       settings: {
         titleLength: settings.titleLength,
         descriptionLength: settings.descriptionLength,
-        includeDescription,
+        includeDescription: effectiveIncludeDescription,
         keywordsCount: settings.keywordsCount,
         prefix: prefixEnabled ? prefixText : '',
         suffix: suffixEnabled ? suffixText : '',
@@ -833,7 +836,7 @@ export function MetadataGenerator({
         setSettings={setSettings}
         persistSettings={persistSettings}
         currentPlatformConfig={currentPlatformConfig}
-        includeDescription={includeDescription}
+        includeDescription={effectiveIncludeDescription}
         setIncludeDescription={setIncludeDescription}
         prefixEnabled={prefixEnabled}
         setPrefixEnabled={setPrefixEnabled}
@@ -1061,7 +1064,7 @@ export function MetadataGenerator({
                         file={file}
                         row={row}
                         isGenerating={isRowGenerating}
-                        includeDescription={includeDescription}
+                        includeDescription={effectiveIncludeDescription}
                         currentPlatformConfig={currentPlatformConfig}
                         onUpdateRow={updateRow}
                         onRemove={removeFile}

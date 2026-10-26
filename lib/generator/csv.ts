@@ -29,7 +29,6 @@ const ADOBE_HEADERS = [
   'Keywords',
   'Category',
   'Subcategory',
-  'Description',
   'Artist Name',
   'Artist Email',
   'Image Type',
@@ -152,7 +151,6 @@ export function buildCsv(format: ExportFormat, rows: CsvRow[]): string {
       out.Keywords = (r.keywords || []).join(', ');
       out.Category = r.category || '';
       out.Subcategory = '';
-      out.Description = r.description;
       out['Artist Name'] = '';
       out['Artist Email'] = '';
       out['Image Type'] = '';
