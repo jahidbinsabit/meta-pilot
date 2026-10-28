@@ -31,8 +31,10 @@ export async function convertVectorToJpg(input: Buffer, maxDim = 2000): Promise<
         .jpeg({ quality: 92, progressive: true })
         .toBuffer();
     } else {
-      // EPS/AI: rasterize with Ghostscript (real conversion, no placeholder)
-      const png = await convertEpsAiToPng(input);
+      // EPS/AI: rasterize with Ghostscript (real conversion, no placeholder).
+      // Render near the tool's own 2000px output cap instead of an
+      // unbounded 150-DPI render that gets downscaled right after anyway.
+      const png = await convertEpsAiToPng(input, 2048);
       buffer = await sharp(png)
         .resize(maxDim, maxDim, { fit: 'inside', withoutEnlargement: true })
         .flatten({ background: { r: 255, g: 255, b: 255 } })

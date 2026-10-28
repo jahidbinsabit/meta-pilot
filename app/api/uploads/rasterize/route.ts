@@ -56,13 +56,32 @@ export async function POST(req: Request) {
     }
 
     step = 'store';
-    const pngName = file.name.replace(/\.[^.]+$/, '') + '.png';
-    const { key, url } = await storePreview(user.id, pngName, pngBuffer, 'image/png');
-    const dataUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`;
+    // Deliver the raster exactly like a compressed photo upload: <=1024px
+    // long side, JPEG. The generation pipeline only ever consumes images
+    // at that size, and a multi-MB PNG would otherwise be stored AND
+    // shipped back inline as a base64 dataUrl — most of the "ready" wait
+    // for big vector files. Falls back to the raw PNG if encoding fails.
+    let outBuffer = pngBuffer;
+    let outMime = 'image/png';
+    let outExt = '.png';
+    try {
+      outBuffer = await sharp(pngBuffer)
+        .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+        .flatten({ background: { r: 255, g: 255, b: 255 } })
+        .jpeg({ quality: 82 })
+        .toBuffer();
+      outMime = 'image/jpeg';
+      outExt = '.jpg';
+    } catch {
+      // keep the PNG as-is
+    }
+    const outName = file.name.replace(/\.[^.]+$/, '') + outExt;
+    const { key, url } = await storePreview(user.id, outName, outBuffer, outMime);
+    const dataUrl = `data:${outMime};base64,${outBuffer.toString('base64')}`;
 
     return NextResponse.json({
       key,
-      mime: 'image/png',
+      mime: outMime,
       previewUrl: url,
       dataUrl,
       uploadUrl: null,
