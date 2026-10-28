@@ -8,14 +8,13 @@ import {
   ImageOff,
   Download,
   Clock,
-  User,
+  Calendar,
   ExternalLink,
   Copy,
   Check,
   Tag,
   Eye,
   ArrowUpRight,
-  Maximize2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -53,6 +52,14 @@ function formatCount(num: number): string {
   return num.toLocaleString();
 }
 
+/** Absolute upload date in the reference layout's format ("17 Apr 2026"). */
+function formatUploadDate(creationDate: string | null | undefined): string | null {
+  if (!creationDate) return null;
+  const d = new Date(creationDate);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 /**
  * Helper to compute Adobe Stock ftcdn CDN URLs.
  * Adobe Stock's CDN hashes numeric IDs across 4 two-digit directory segments:
@@ -79,7 +86,7 @@ function getAdobeCdnFallbackList(id: number | string): string[] {
  * High-res thumbnail component with multi-tier CDN fallback,
  * hotlinking bypass (no-referrer), server proxy fallback, and graceful placeholder.
  */
-function AssetThumbnail({ asset }: { asset: AssetRow }) {
+function AssetThumbnail({ asset, fit = 'cover' }: { asset: AssetRow; fit?: 'cover' | 'contain' }) {
   const [stage, setStage] = React.useState<number>(0);
   const [loaded, setLoaded] = React.useState<boolean>(false);
 
@@ -163,7 +170,8 @@ function AssetThumbnail({ asset }: { asset: AssetRow }) {
         onLoad={() => setLoaded(true)}
         onError={handleError}
         className={cn(
-          'h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105',
+          'h-full w-full transition-transform duration-700 ease-out group-hover:scale-105',
+          fit === 'contain' ? 'object-contain' : 'object-cover',
           loaded ? 'opacity-100' : 'opacity-0',
         )}
       />
@@ -216,227 +224,190 @@ export function AssetCard({ asset }: { asset: AssetRow }) {
 
   const keywords = asset.keywords || [];
   const displayedKeywords = showAllKeywords ? keywords : keywords.slice(0, 8);
+  const uploadDate = formatUploadDate(asset.creationDate);
+  const contributorName = asset.contributorName || 'Adobe Contributor';
 
   return (
-    <div className="group relative flex flex-col justify-between overflow-hidden rounded-3xl border border-border/80 bg-gradient-to-b from-card/90 via-card/75 to-card/55 backdrop-blur-xl shadow-lg transition-all duration-300 hover:-translate-y-1 hover:border-accent/60 hover:shadow-2xl hover:shadow-accent/10">
-      <div>
-        {/* Thumbnail Preview Banner (Slightly more compact aspect ratio for balanced layout) */}
-        <div className="relative aspect-[16/8.5] w-full overflow-hidden bg-zinc-950">
+    <div className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
+      {/* Header row: content-type pill + copy asset ID */}
+      <div className="flex items-center justify-between px-4 pt-3.5">
+        <span className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-0.5 text-[11px] font-medium text-foreground/80">
+          {contentTypeLabel(asset.contentType)}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopyId}
+          title={`Copy asset ID ${asset.id}`}
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          {copiedId ? (
+            <Check className="h-3.5 w-3.5 text-emerald-500" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+          #{asset.id}
+        </button>
+      </div>
+
+      {/* Thumbnail with the AI / Non-AI badge */}
+      <div className="relative mx-4 mt-2.5 aspect-[4/3] overflow-hidden rounded-xl bg-muted/50">
+        <a
+          href={adobeLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block h-full w-full"
+          title="Open on Adobe Stock"
+        >
+          <AssetThumbnail asset={asset} fit="contain" />
+        </a>
+        {asset.isGenerativeAi ? (
+          <span className="absolute left-2 top-2 inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-accent-foreground shadow-sm">
+            <Sparkles className="mr-1 h-3 w-3" />
+            AI Generated
+          </span>
+        ) : (
+          <span className="absolute left-2 top-2 inline-flex items-center rounded-full bg-emerald-500 px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm">
+            Non-AI
+          </span>
+        )}
+      </div>
+
+      {/* Age + views/dimensions row */}
+      <div className="flex items-center justify-between px-4 pt-3 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          {asset.publishedAgo || '—'}
+        </span>
+        {typeof asset.views === 'number' ? (
+          <span className="inline-flex items-center gap-1">
+            <Eye className="h-3 w-3" />
+            {formatCount(asset.views)} views
+          </span>
+        ) : asset.width && asset.height ? (
+          <span className="font-mono">
+            {asset.width} × {asset.height}
+          </span>
+        ) : null}
+      </div>
+
+      {/* Title */}
+      <div className="px-4 pt-1.5">
+        <a
+          href={adobeLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="line-clamp-2 min-h-[2.6em] text-[15px] font-semibold leading-snug tracking-tight text-foreground transition-colors hover:text-accent"
+          title={asset.title}
+        >
+          {asset.title}
+        </a>
+      </div>
+
+      {/* Contributor */}
+      <div className="flex items-center gap-2 px-4 pt-2 text-xs">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/15 text-[11px] font-bold text-accent">
+          {contributorName.charAt(0).toUpperCase()}
+        </span>
+        {contributorUrl ? (
           <a
-            href={adobeLink}
+            href={contributorUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="block h-full w-full"
-            title="Open on Adobe Stock"
+            className="inline-flex min-w-0 items-center gap-1 font-medium text-foreground/90 transition-colors hover:text-accent"
+            title={`Contributor ID: ${asset.contributorId}`}
           >
-            <AssetThumbnail asset={asset} />
+            <span className="truncate">{contributorName}</span>
+            <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
           </a>
+        ) : (
+          <span className="truncate font-medium text-foreground/90">{contributorName}</span>
+        )}
+      </div>
 
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/65 via-black/20 to-transparent" />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
-
-          {/* Top-Left Floating Badges */}
-          <div className="absolute left-3.5 top-3.5 z-20 flex flex-wrap items-center gap-1.5 pointer-events-none">
-            <span className="inline-flex items-center rounded-lg border border-white/15 bg-black/70 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-md shadow-md">
-              {contentTypeLabel(asset.contentType)}
-            </span>
-            {asset.isGenerativeAi && (
-              <span className="inline-flex items-center rounded-lg border border-accent/40 bg-accent px-2.5 py-1 text-xs font-bold text-accent-foreground backdrop-blur-md shadow-md ring-1 ring-accent/50">
-                <Sparkles className="mr-1 h-3 w-3" />
-                AI Generated
+      {/* Keyword chips */}
+      {keywords.length > 0 && (
+        <div className="px-4 pt-3">
+          <div className="flex flex-wrap gap-1.5">
+            {displayedKeywords.map((kw, i) => (
+              <span
+                key={`${kw}-${i}`}
+                className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-[11px] text-foreground/85 transition-colors hover:bg-accent/10 hover:text-accent"
+              >
+                {kw}
               </span>
-            )}
-          </div>
-
-          {/* Top-Right Asset ID Badge with Copy */}
-          <div className="absolute right-3.5 top-3.5 z-20">
-            <button
-              type="button"
-              onClick={handleCopyId}
-              title="Copy Asset ID"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-black/70 px-2.5 py-1 font-mono text-xs font-medium text-white/95 backdrop-blur-md shadow-md transition-all hover:scale-105 hover:bg-black/90 hover:text-white active:scale-95"
-            >
-              {copiedId ? (
-                <>
-                  <Check className="h-3 w-3 text-emerald-400" />
-                  <span className="text-emerald-400">Copied</span>
-                </>
-              ) : (
-                <>
-                  <span>#{asset.id}</span>
-                  <Copy className="h-2.5 w-2.5 opacity-60" />
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Performance and dimensions overlay */}
-          <div className="absolute inset-x-3 bottom-3 z-20 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              {typeof asset.downloads === 'number' && (
-                <span className="inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-600/90 px-2 py-0.5 text-xs font-bold text-white backdrop-blur-md shadow-md">
-                  <Download className="mr-1 h-3 w-3" />
-                  {formatCount(asset.downloads)} downloads
-                </span>
-              )}
-              {typeof asset.views === 'number' && (
-                <span className="inline-flex items-center rounded-md border border-indigo-500/30 bg-indigo-600/90 px-2 py-0.5 text-xs font-semibold text-white backdrop-blur-md shadow-md">
-                  <Eye className="mr-1 h-3 w-3" />
-                  {formatCount(asset.views)} views
-                </span>
-              )}
-            </div>
-            {asset.width && asset.height && (
-              <span className="inline-flex items-center rounded-md border border-white/15 bg-black/70 px-2 py-0.5 font-mono text-[11px] font-medium text-white/90 backdrop-blur-md shadow-md">
-                <Maximize2 className="mr-1 h-2.5 w-2.5 opacity-60" />
-                {asset.width} × {asset.height}
-              </span>
+            ))}
+            {keywords.length > 8 && (
+              <button
+                type="button"
+                onClick={() => setShowAllKeywords(!showAllKeywords)}
+                className="inline-flex items-center rounded-md bg-accent/15 px-2 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/25"
+              >
+                {showAllKeywords ? 'Show less' : `+${keywords.length - 8} more`}
+              </button>
             )}
           </div>
         </div>
+      )}
 
-        {/* Card Content Body */}
-        <div className="space-y-4 p-5 sm:p-6">
-          {/* Asset Title */}
-          <div>
-            <a
-              href={adobeLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="line-clamp-2 text-base font-bold leading-snug tracking-tight text-foreground transition-colors hover:text-accent sm:text-lg"
-              title={asset.title}
-            >
-              {asset.title}
-            </a>
-          </div>
-
-          {/* Metadata Row: Contributor & Published Date */}
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground pt-1 border-t border-border/40">
-            {/* Contributor */}
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent font-semibold shadow-inner">
-                <User className="h-3.5 w-3.5" />
-              </div>
-              {contributorUrl ? (
-                <a
-                  href={contributorUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="truncate font-semibold text-foreground/90 hover:text-accent transition-colors"
-                  title={`Contributor ID: ${asset.contributorId}`}
-                >
-                  {asset.contributorName || `Contributor #${asset.contributorId}`}
-                </a>
-              ) : (
-                <span className="truncate font-semibold text-foreground/90">
-                  {asset.contributorName || 'Adobe Contributor'}
-                </span>
-              )}
+      {/* Stat tiles: downloads + upload date */}
+      <div className="mt-auto px-4 pb-3 pt-4">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-violet-500/10 px-3 py-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-lg font-bold leading-none">
+                {typeof asset.downloads === 'number' ? formatCount(asset.downloads) : '—'}
+              </span>
+              <Download className="h-4 w-4 text-muted-foreground" />
             </div>
-
-            {/* Published Date */}
-            {asset.publishedAgo && (
-              <div className="flex items-center gap-1.5 shrink-0 text-muted-foreground font-mono text-[11px] bg-muted/50 px-2.5 py-1 rounded-md border border-border/50">
-                <Clock className="h-3 w-3 text-accent/80" />
-                <span>{asset.publishedAgo}</span>
-              </div>
-            )}
+            <span className="mt-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Downloads
+            </span>
           </div>
-
-          {/* Keywords Tag Cloud */}
-          {keywords.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-border/50">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  <Tag className="h-3.5 w-3.5 text-accent" />
-                  Keywords ({keywords.length})
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCopyKeywords}
-                  className="text-xs font-medium text-accent hover:underline flex items-center gap-1 transition-colors hover:text-accent/80"
-                >
-                  {copiedKeywords ? (
-                    <>
-                      <Check className="h-3.5 w-3.5 text-emerald-500" />
-                      Copied all tags!
-                    </>
-                  ) : (
-                    'Copy all'
-                  )}
-                </button>
-              </div>
-
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {displayedKeywords.map((kw, i) => (
-                  <span
-                    key={`${kw}-${i}`}
-                    className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-foreground/90 transition-all hover:bg-accent/10 hover:border-accent/40 hover:text-accent hover:shadow-sm"
-                  >
-                    {kw}
-                  </span>
-                ))}
-                {keywords.length > 8 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllKeywords(!showAllKeywords)}
-                    className="inline-flex items-center rounded-lg bg-accent/15 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/25 transition-all shadow-sm"
-                  >
-                    {showAllKeywords ? 'Show less' : `+${keywords.length - 8} more keywords`}
-                  </button>
-                )}
-              </div>
+          <div className="rounded-xl bg-emerald-500/10 px-3 py-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-bold leading-none">
+                {uploadDate || asset.publishedAgo || '—'}
+              </span>
+              <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
             </div>
-          )}
+            <span className="mt-1 block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Upload date
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Card Footer Actions */}
-      <div className="flex items-center justify-between border-t border-border/60 bg-muted/30 px-5 py-3.5 sm:px-6">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={handleCopyKeywords}
-          className="h-9 px-3 text-xs text-muted-foreground hover:bg-accent/10 hover:text-foreground"
+      {/* Footer */}
+      <div className="flex items-center justify-between border-t border-border/70 px-4 py-2.5">
+        <a
+          href={adobeLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground/85 transition-colors hover:text-accent"
         >
-          {copiedKeywords ? (
-            <>
-              <Check className="mr-1.5 h-4 w-4 text-emerald-500" />
-              <span className="font-semibold text-emerald-500">Copied Tags</span>
-            </>
-          ) : (
-            <>
-              <Copy className="mr-1.5 h-4 w-4" />
-              Copy Tags
-            </>
-          )}
-        </Button>
-
-        <div className="flex items-center gap-2.5">
-          <Button
-            asChild
-            variant="default"
-            size="sm"
-            className="h-9 px-3 text-xs font-semibold shadow-sm hover:shadow-md transition-all"
+          Open In Stock
+          <ArrowUpRight className="h-3.5 w-3.5 opacity-70" />
+        </a>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleCopyKeywords}
+            title="Copy all keywords"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            <a href={`/dashboard/generate?prompt=${encodeURIComponent(asset.title)}`}>
-              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-              Generate Meta
-            </a>
-          </Button>
-
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-9 px-3 text-xs font-semibold border-border/70 hover:border-accent/50 hover:bg-accent/10"
+            {copiedKeywords ? (
+              <Check className="h-4 w-4 text-emerald-500" />
+            ) : (
+              <Tag className="h-4 w-4" />
+            )}
+          </button>
+          <a
+            href={`/dashboard/generate?prompt=${encodeURIComponent(asset.title)}`}
+            title="Generate metadata from this title"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            <a href={adobeLink} target="_blank" rel="noopener noreferrer">
-              <span>Adobe Stock</span>
-              <ArrowUpRight className="ml-1.5 h-3.5 w-3.5 opacity-70" />
-            </a>
-          </Button>
+            <Sparkles className="h-4 w-4" />
+          </a>
         </div>
       </div>
     </div>
@@ -468,8 +439,7 @@ interface Props {
 export function AssetGrid({ assets, hiddenCount, limit, planName, tier, locked }: Props) {
   return (
     <div>
-      {/* Strictly 2-column grid layout per line on md+ screens */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {assets.map((a) => (
           <AssetCard key={a.id} asset={a} />
         ))}

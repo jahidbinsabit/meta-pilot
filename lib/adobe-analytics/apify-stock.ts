@@ -104,7 +104,7 @@ export function mapToApifyInput(params: {
   sort?: SortValue;
   maxItems?: number;
 }) {
-  const maxItems = Math.min(100, Math.max(1, params.maxItems ?? 50));
+  const maxItems = Math.min(1000, Math.max(1, params.maxItems ?? 50));
   const targetUrl = buildAdobeSearchUrl(params);
 
   let ai: '' | 'only' | 'exclude' = '';
@@ -240,6 +240,8 @@ export async function runApifyAdobeStockScraper(params: {
   generativeAi?: GenerativeAiValue;
   sort?: SortValue;
   maxItems?: number;
+  /** Actor run timeout; large contributor pools need longer than 120s. */
+  timeoutSecs?: number;
 }): Promise<{ assets: AssetRow[]; totalResults: number }> {
   const config = await getApifyConfig();
   if (!config) {
@@ -253,9 +255,10 @@ export async function runApifyAdobeStockScraper(params: {
   const input = mapToApifyInput(params);
 
   // Call the actor and wait for execution to complete (with 120s timeout)
+  const timeoutSecs = params.timeoutSecs ?? 120;
   const run = await client.actor(config.actorId).call(input, {
-    timeout: 120,
-    waitSecs: 120,
+    timeout: timeoutSecs,
+    waitSecs: timeoutSecs,
   });
 
   if (!run || !run.defaultDatasetId) {

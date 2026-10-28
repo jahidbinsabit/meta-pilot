@@ -343,6 +343,8 @@ export interface ContributorSearchInput {
   sort: SortValue;
   contentType: ContentTypeValue;
   generativeAi: GenerativeAiValue;
+  /** How much of the pool to fetch this time (100 first, +100 per page). */
+  want?: number;
 }
 
 export async function searchByContributor(
@@ -353,24 +355,36 @@ export async function searchByContributor(
   // 1. Try Apify Adobe Stock Scraper Engine if configured
   if (await isApifyConfigured()) {
     try {
-      const allowed = isUnlimited(gate.limit) ? 100 : Math.min(gate.limit, 100);
+      // Lazy depth: fetch only what the UI has paged to so far (100 on
+      // the first search, +100 per further page). The tier gate still
+      // caps what lower plans can fetch or see.
+      const want = Math.min(1000, Math.max(10, input.want ?? 100));
+      const allowed = isUnlimited(gate.limit) ? want : Math.min(gate.limit, want);
       const res = await runApifyAdobeStockScraper({
         creatorId: input.contributorId,
         contentType: input.contentType,
         generativeAi: input.generativeAi,
         sort: input.sort,
         maxItems: allowed,
+        timeoutSecs: 300,
       });
 
-      const filteredAssets = applyContributorFilters(res.assets, input);
-      // Totals mirror the Adobe-API fallback path below: with no filter
-      // active, the scraper's reported total is authoritative and exact.
-      // With a filter active, the total is the local match count — and it
-      // is only exact when the fetched page covered the contributor's
-      // whole reported pool (sort never affects totals).
+      // The actor is TOLD the creator, but nothing guarantees it honors
+      // it — never present another contributor's assets as this one's.
+      // Rows carrying a DIFFERENT contributor id are dropped; rows with
+      // no id at all are kept (nothing to verify against).
+      const pool = res.assets.filter(
+        (a) => a.contributorId == null || a.contributorId === input.contributorId,
+      );
+
+      const filteredAssets = applyContributorFilters(pool, input);
+      // Totals describe the pool we actually hold and can page through.
+      // When the fetch hit the item cap the contributor may have more,
+      // so the count is a floor, not an exact total (shown with a "+").
       const anyFilterActive = input.contentType !== 'all' || input.generativeAi !== 'all';
-      const total = anyFilterActive ? filteredAssets.length : res.totalResults;
-      const totalIsExact = anyFilterActive ? res.assets.length >= res.totalResults : true;
+      const hitCap = res.assets.length >= allowed;
+      const total = anyFilterActive ? filteredAssets.length : pool.length;
+      const totalIsExact = !hitCap;
       const { visible, hidden } = applyRowGate(total, gate.limit);
       const assets = filteredAssets.slice(0, visible);
 
@@ -385,7 +399,7 @@ export async function searchByContributor(
         contributorId: input.contributorId,
         contributorName:
           filteredAssets.find((a) => a.contributorName)?.contributorName ||
-          res.assets.find((a) => a.contributorName)?.contributorName ||
+          pool.find((a) => a.contributorName)?.contributorName ||
           `Contributor #${input.contributorId}`,
         totalAssets: total,
         totalIsExact,
@@ -430,7 +444,9 @@ export async function searchByContributor(
     warning =
       'The Stock Scraper Engine is not configured yet. Please configure your Apify API Token in Admin Settings (/admin/settings) to fetch live contributor portfolios.';
   } else {
-    const wanted = isUnlimited(gate.limit) ? 500 : Math.min(gate.limit, PAGE_SIZE * 3);
+    const wanted = isUnlimited(gate.limit)
+      ? Math.min(input.want ?? 500, 1000)
+      : Math.min(gate.limit, PAGE_SIZE * 3);
     try {
       const res = await fetchAssets({ creatorId: input.contributorId, order: 'creation' }, wanted);
       files = res.files;

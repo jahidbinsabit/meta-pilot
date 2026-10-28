@@ -22,6 +22,7 @@ import { useToast } from '@/components/ui/toast';
 import { InterestChart } from './interest-chart';
 import { AssetGrid, AssetList, StatTile, WarningNote } from './asset-grid';
 import type {
+  AssetRow,
   ContentTypeValue,
   ContributorResult,
   GenerativeAiValue,
@@ -66,6 +67,91 @@ const CONTRIBUTOR_PRESETS = [
 
 /** How many top results the free tier sees; mirrors FREE_TIER_RESULT_LIMIT. */
 const FREE_LIMIT = 20;
+
+/** Assets shown per results page (both tabs). */
+const PAGE_SIZE = 100;
+
+/**
+ * Progressive chunk ladder for contributor pools: a small first chunk
+ * (25) paints fast, then the pool keeps filling in growing steps
+ * behind what is already on screen.
+ */
+function nextChunk(want: number, target: number): number {
+  const step = want < 50 ? 25 : want < 200 ? 50 : 100;
+  return Math.min(target, want + step);
+}
+
+function pageNumbers(page: number, pageCount: number): (number | 'gap')[] {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
+  const pages = new Set<number>([1, pageCount, page - 1, page, page + 1]);
+  const sorted = [...pages].filter((n) => n >= 1 && n <= pageCount).sort((a, b) => a - b);
+  const out: (number | 'gap')[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    if (i > 0 && sorted[i] - sorted[i - 1] > 1) out.push('gap');
+    out.push(sorted[i]);
+  }
+  return out;
+}
+
+function ResultsPager({
+  page,
+  pageCount,
+  onChange,
+  hasMore,
+  loading,
+}: {
+  page: number;
+  pageCount: number;
+  onChange: (p: number) => void;
+  /** True when paging past the loaded pages fetches more from the server. */
+  hasMore?: boolean;
+  loading?: boolean;
+}) {
+  // With more pages still on the server, the pager stays visible even
+  // when only one page is loaded so far — Next is how the user asks
+  // for the next chunk.
+  if (pageCount <= 1 && !hasMore) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-1.5">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={page <= 1}
+        onClick={() => onChange(page - 1)}
+      >
+        Prev
+      </Button>
+      {pageNumbers(page, pageCount).map((n, i) =>
+        n === 'gap' ? (
+          <span key={`gap-${i}`} className="px-1 text-xs text-muted-foreground">
+            &hellip;
+          </span>
+        ) : (
+          <Button
+            key={n}
+            type="button"
+            variant={n === page ? 'default' : 'outline'}
+            size="sm"
+            className="min-w-9"
+            onClick={() => onChange(n)}
+          >
+            {n}
+          </Button>
+        ),
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={(page >= pageCount && !hasMore) || loading}
+        onClick={() => onChange(page + 1)}
+      >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Next'}
+      </Button>
+    </div>
+  );
+}
 
 async function postSearch(body: Record<string, unknown>) {
   const res = await fetch('/api/adobe-analytics', {
@@ -430,6 +516,18 @@ function ContributorTab({
   const [contentType, setContentType] = React.useState<ContentTypeValue>('all');
   const [generativeAi, setGenerativeAi] = React.useState<GenerativeAiValue>('all');
   const [error, setError] = React.useState<string | null>(null);
+  const [page, setPage] = React.useState(1);
+  const [lastSearch, setLastSearch] = React.useState<{
+    contributorId: string;
+    sort: SortValue;
+    contentType: ContentTypeValue;
+    generativeAi: GenerativeAiValue;
+  } | null>(null);
+  const [filling, setFilling] = React.useState(false);
+  const fillingRef = React.useRef(false);
+  const silentRef = React.useRef(false);
+  const chainRef = React.useRef({ sig: '', target: 0 });
+  const wantRef = React.useRef(0);
 
   const mutation = useMutation({
     mutationFn: (payload: {
@@ -437,16 +535,81 @@ function ContributorTab({
       sort: SortValue;
       contentType: ContentTypeValue;
       generativeAi: GenerativeAiValue;
+      want?: number;
     }) => postSearch({ type: 'contributor', ...payload }),
     onSuccess: () => setError(null),
     onError: (e: Error) => {
+      // Background chunk failures stay quiet — what is loaded stays on
+      // screen and paging again retries.
+      if (silentRef.current) return;
       setError(e.message);
       toast({ title: 'Lookup failed', description: e.message, variant: 'error' });
     },
   });
 
+  // Progressive chunk loading: runChain fetches the pool depth the UI
+  // currently needs, in ladder steps. Calling it again with the same
+  // search just raises the target; a new search changes the signature,
+  // which stops the old chain after its in-flight step.
+  const runChain = (
+    payload: {
+      contributorId: string;
+      sort: SortValue;
+      contentType: ContentTypeValue;
+      generativeAi: GenerativeAiValue;
+    },
+    targetWant: number,
+  ) => {
+    const sig = JSON.stringify(payload);
+    if (fillingRef.current && chainRef.current.sig === sig) {
+      chainRef.current.target = Math.max(chainRef.current.target, targetWant);
+      return;
+    }
+    chainRef.current = { sig, target: targetWant };
+    fillingRef.current = true;
+    setFilling(true);
+    void (async () => {
+      let firstStep = wantRef.current === 0;
+      try {
+        while (chainRef.current.sig === sig && wantRef.current < chainRef.current.target) {
+          const next = nextChunk(wantRef.current, chainRef.current.target);
+          silentRef.current = !firstStep;
+          const data = await mutation.mutateAsync({ ...payload, want: next });
+          wantRef.current = next;
+          firstStep = false;
+          const res = (data as { result?: ContributorResult } | undefined)?.result;
+          if (!res || res.totalIsExact) break;
+        }
+      } catch {
+        // Whatever loaded stays on screen; paging again retries.
+      }
+      silentRef.current = false;
+      if (chainRef.current.sig === sig) {
+        fillingRef.current = false;
+        setFilling(false);
+      }
+    })();
+  };
+
   const result = mutation.data?.result as ContributorResult | undefined;
   const locked = result ? isLocked(result) : false;
+
+  // Lazy paging: the pool grows by 100 per page turn. Pages inside the
+  // loaded pool flip instantly; paging past it fetches the next chunk
+  // (want = page x 100) and lands on that page when it arrives.
+  const displayPages = result ? Math.max(1, Math.ceil(result.assets.length / PAGE_SIZE)) : 1;
+  const safePage = Math.min(page, displayPages);
+  const pageAssets = result
+    ? result.assets.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+    : [];
+  const exhausted = result ? result.totalIsExact : true;
+  const goToPage = (n: number) => {
+    if (n < 1) return;
+    setPage(n);
+    if (lastSearch && !exhausted && n * PAGE_SIZE > wantRef.current) {
+      runChain(lastSearch, n * PAGE_SIZE);
+    }
+  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -458,7 +621,11 @@ function ContributorTab({
       setError('Enter a valid numeric Contributor ID or profile URL');
       return;
     }
-    mutation.mutate({ contributorId: cleaned, sort, contentType, generativeAi });
+    const payload = { contributorId: cleaned, sort, contentType, generativeAi };
+    setLastSearch(payload);
+    setPage(1);
+    wantRef.current = 0;
+    runChain(payload, PAGE_SIZE);
   };
 
   return (
@@ -572,7 +739,11 @@ function ContributorTab({
                   onClick={() => {
                     setValue(p.id);
                     setError(null);
-                    mutation.mutate({ contributorId: p.id, sort, contentType, generativeAi });
+                    const payload = { contributorId: p.id, sort, contentType, generativeAi };
+                    setLastSearch(payload);
+                    setPage(1);
+                    wantRef.current = 0;
+                    runChain(payload, PAGE_SIZE);
                   }}
                   className="h-7 text-xs font-normal"
                 >
@@ -585,22 +756,26 @@ function ContributorTab({
         </CardContent>
       </Card>
 
-      {mutation.isPending && (
+      {(mutation.isPending || filling) && !result && (
         <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading portfolio&hellip;
+          Fetching portfolio — large portfolios can take a minute&hellip;
         </div>
       )}
 
-      {result && !mutation.isPending && (
+      {result && (
         <>
           {result.warning && <WarningNote>{result.warning}</WarningNote>}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Total assets"
-              value={result.totalAssets === null ? '—' : result.totalAssets.toLocaleString()}
-              hint={result.totalIsExact ? 'Reported by Adobe' : 'Not reported'}
+              value={
+                result.totalAssets === null
+                  ? '—'
+                  : `${result.totalAssets.toLocaleString()}${result.totalIsExact ? '' : '+'}`
+              }
+              hint={result.totalIsExact ? 'Reported by Adobe' : 'Fetched pool — may be more'}
               exact={result.totalIsExact}
             />
             <StatTile
@@ -646,19 +821,64 @@ function ContributorTab({
               <CardDescription>
                 {result.totalIsExact
                   ? `${result.totalAssets!.toLocaleString()} public assets`
-                  : 'Public assets returned by Adobe'}
+                  : `${(result.totalAssets ?? result.assets.length).toLocaleString()}+ public assets · shown 100 per page`}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {result.assets.length ? (
-                <AssetGrid
-                  assets={result.assets}
-                  hiddenCount={result.hiddenCount}
-                  limit={result.limit}
-                  planName={result.planName}
-                  tier={result.tier}
-                  locked={locked}
-                />
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      {pageAssets.length ? (
+                        <>
+                          Showing {(safePage - 1) * PAGE_SIZE + 1}&ndash;
+                          {(safePage - 1) * PAGE_SIZE + pageAssets.length} of{' '}
+                          {result.assets.length.toLocaleString()}
+                          {exhausted ? '' : '+'} assets
+                          {filling ? ' · loading more in the background…' : ''}
+                        </>
+                      ) : (
+                        <>Loading page {safePage}&hellip;</>
+                      )}
+                    </p>
+                    <ResultsPager
+                      page={safePage}
+                      pageCount={displayPages}
+                      onChange={goToPage}
+                      hasMore={!exhausted}
+                      loading={filling}
+                    />
+                  </div>
+                  {pageAssets.length ? (
+                    <AssetGrid
+                      assets={pageAssets}
+                      hiddenCount={safePage === displayPages ? result.hiddenCount : 0}
+                      limit={result.limit}
+                      planName={result.planName}
+                      tier={result.tier}
+                      locked={locked && safePage === displayPages}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading page {safePage}&hellip;
+                    </div>
+                  )}
+                  {filling && pageAssets.length > 0 && (
+                    <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading more results in the background&hellip; (
+                      {result.assets.length.toLocaleString()} loaded)
+                    </p>
+                  )}
+                  <ResultsPager
+                    page={safePage}
+                    pageCount={displayPages}
+                    onChange={goToPage}
+                    hasMore={!exhausted}
+                    loading={filling}
+                  />
+                </div>
               ) : (
                 <p className="py-10 text-center text-sm text-muted-foreground">
                   No public assets found for contributor #{result.contributorId}.

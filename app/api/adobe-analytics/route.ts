@@ -173,9 +173,32 @@ export async function POST(req: Request) {
       }
       const contributorId = Number(parsed.data.contributorId);
 
+      // Progressive loading: the UI fetches a small first chunk (25)
+      // and then deeper pools chunk by chunk. Any request past the
+      // first chunk is a CONTINUATION of a search the user already ran
+      // today, not a new search — it neither consumes another daily
+      // attempt nor adds a history row. A non-admin continuation only
+      // rides along when a counted attempt for this same contributor
+      // exists today, so the cap cannot be dodged by asking deep first.
+      const isContinuation = (parsed.data.want ?? 25) > 25;
+      let ridesAlong = false;
+      if (isContinuation && !isAdmin) {
+        const startOfUtcDay = new Date();
+        startOfUtcDay.setUTCHours(0, 0, 0, 0);
+        const priorAttempts = await prisma.adobeAnalyticsQuery.count({
+          where: {
+            userId: user.id,
+            queryType: 'contributor_id',
+            queryValue: String(contributorId),
+            createdAt: { gte: startOfUtcDay },
+          },
+        });
+        ridesAlong = priorAttempts > 0;
+      }
+
       // Reserve BEFORE searching so the attempt counts even if the
       // search fails, and parallel bursts cannot all pass a stale count.
-      if (!isAdmin) {
+      if (!isAdmin && !ridesAlong) {
         attemptId = await reserveSearchAttempt(
           user.id,
           DAILY_SEARCH_LIMIT,
@@ -196,6 +219,7 @@ export async function POST(req: Request) {
         sort: parsed.data.sort,
         contentType: parsed.data.contentType,
         generativeAi: parsed.data.generativeAi,
+        want: parsed.data.want,
       });
 
       // Record the outcome; result payload is trimmed to counts, not assets.
@@ -206,7 +230,7 @@ export async function POST(req: Request) {
       };
       if (attemptId) {
         await completeSearchAttempt(attemptId, resultData);
-      } else {
+      } else if (!isContinuation) {
         await recordQuery(user.id, 'contributor_id', String(contributorId), resultData);
       }
 

@@ -28,6 +28,9 @@ export const contributorSearchSchema = z.object({
   sort: z.enum(sortValues).default('relevance'),
   contentType: z.enum(contentTypeValues).default('all'),
   generativeAi: z.enum(generativeAiValues).default('all'),
+  /** Lazy pagination depth: fetch the pool up to this many rows (the UI
+   *  asks for 100 more each time the user pages past what it holds). */
+  want: z.number().int().min(10).max(1000).optional(),
 });
 
 /** One asset row as returned to the client. */
