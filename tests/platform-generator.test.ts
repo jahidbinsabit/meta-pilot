@@ -64,7 +64,7 @@ describe('Multi-Platform Metadata Generator Prompts', () => {
       platform: 'adobe',
     });
     expect(retryPrompt).toContain('Target Platform: ADOBE');
-    expect(retryPrompt).toContain('Title max 70 chars');
+    expect(retryPrompt).toContain('Title: approximately 70 characters long (between 63 and 77 characters)');
     expect(retryPrompt).toContain('Keywords: exactly 30 strings');
   });
 

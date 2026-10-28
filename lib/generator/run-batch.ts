@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { buildMetadataBatchPrompt, buildRetryBatchSystemPrompt } from '@/lib/generator/prompt';
+import { buildMetadataBatchPrompt, buildRetryBatchSystemPrompt, fitTitleToTarget } from '@/lib/generator/prompt';
 import type { TargetPlatform } from '@/lib/generator/types';
 import { generateWithAI } from '@/lib/ai';
 import { MetadataBatchSchema } from '@/lib/ai/schemas';
@@ -210,7 +210,7 @@ export async function runBatchGeneration(args: RunBatchGenerationArgs): Promise<
             if (!r || typeof r.title !== 'string') return;
             const entry = groupEntries[i];
             entry.status = 'complete';
-            entry.title = String(r.title).slice(0, merged.titleLength);
+            entry.title = fitTitleToTarget(String(r.title), merged.titleLength);
             entry.description = inclDesc
               ? String(r.description || '').slice(0, merged.descriptionLength)
               : '';

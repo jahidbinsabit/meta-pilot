@@ -133,8 +133,9 @@ export async function runImagePromptGeneration(
     );
   }
   if (controls) {
+    const n = controls.promptLength;
     extraLines.push(
-      `Aim for the main prompt text to be approximately ${controls.promptLength} characters long.`,
+      `The main prompt text must be approximately ${n} characters long (between ${Math.round(n * 0.9)} and ${Math.round(n * 1.1)} characters). Reach that length with concrete visual detail — never repetition or filler.`,
     );
   }
   const extraInstruction = extraLines.length > 0 ? extraLines.join('\n') : undefined;
@@ -144,7 +145,10 @@ export async function runImagePromptGeneration(
     false,
     extraInstruction,
   );
-  const userPrompt = buildImagePromptUserPrompt({ strict: false });
+  const userPrompt = buildImagePromptUserPrompt({
+    strict: false,
+    targetChars: controls?.promptLength,
+  });
 
   const results: any[] = [];
   let failed = 0;
@@ -223,25 +227,54 @@ export async function runImagePromptGeneration(
           const { data, mime } = await toBase64(img, userId);
           const imageUrl = `data:${mime};base64,${data}`;
 
-          // Single pass: base.ts salvages truncated output automatically,
-          // so no second "strict" pass is needed.
-          const result = (
-            await generateWithAI({
-              toolSlug: TOOL_SLUG,
-              systemPrompt,
-              userPrompt,
-              imageUrls: [imageUrl],
-              responseSchema: ImagePromptSchema,
-              responseSchemaName: 'ImagePrompt',
-              // 1600 tokens is >2× a legitimate full JSON (~700); the old
-              // 4000 let repetition loops burn most of the call's time.
-              maxTokens: 1600,
-              temperature: 0.7,
-              userId,
-            })
-          ).parsed as ImagePromptResult | null;
+          // 1600 tokens is >2× a legitimate full JSON (~700); the old
+          // 4000 let repetition loops burn most of the call's time. The
+          // cap scales up modestly when the user asks for a long prompt.
+          const maxTokens = controls
+            ? Math.min(2400, Math.max(1600, Math.round(controls.promptLength * 0.9)))
+            : 1600;
+          const callModel = async (correction?: string) =>
+            (
+              await generateWithAI({
+                toolSlug: TOOL_SLUG,
+                systemPrompt,
+                userPrompt: correction ? `${userPrompt}\n\n${correction}` : userPrompt,
+                imageUrls: [imageUrl],
+                responseSchema: ImagePromptSchema,
+                responseSchemaName: 'ImagePrompt',
+                maxTokens,
+                temperature: 0.7,
+                userId,
+              })
+            ).parsed as ImagePromptResult | null;
 
+          let result = await callModel();
           if (!result) throw new Error('malformed_response');
+
+          // Length enforcement: a soft instruction alone landed wherever
+          // the model's habits pushed it, so measure the main prompt and
+          // give the model ONE corrective retry when it lands well
+          // outside the user's target (band wider than the ±10% asked
+          // for, so only real outliers pay for a second call).
+          const target = controls?.promptLength;
+          if (
+            target &&
+            (result.prompt.length < target * 0.8 || result.prompt.length > target * 1.25)
+          ) {
+            const prev = result.prompt.length;
+            const longer = prev < target;
+            const correction =
+              `LENGTH CORRECTION: your previous prompt was ${prev} characters, but it must be approximately ${target} characters (between ${Math.round(target * 0.9)} and ${Math.round(target * 1.1)}). ` +
+              (longer
+                ? 'Write a LONGER version that still covers the full detail checklist — add concrete visual specifics (exact colors, materials, light behavior, camera choices), never repetition or filler.'
+                : 'Write a SHORTER version that still covers the full detail checklist — tighten the phrasing and drop the least important specifics.');
+            try {
+              const retry = await callModel(correction);
+              if (retry) result = retry;
+            } catch {
+              // Keep the first result — a length miss beats a failure.
+            }
+          }
 
           entry.status = 'complete';
           entry.prompt = result.prompt;

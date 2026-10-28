@@ -19,7 +19,7 @@ The JSON object must have exactly these keys:
 - "composition": string — framing, camera angle, depth of field
 - "mood": string — the emotional register
 No extra keys. No trailing text outside the JSON.
-End the prompt as soon as the description is complete. Never repeat words or phrases, and never add filler to make it longer.`;
+Never repeat words or phrases. Reach the requested length with concrete visual detail — never with repetition or filler.`;
 
 export function buildImagePromptSystemInstruction(
   presetInstruction: string,
@@ -35,19 +35,30 @@ ${SHAPE_INSTRUCTION}${extraInstruction ? `\n\n${extraInstruction}` : ''}${
   }`;
 }
 
-export function buildImagePromptUserPrompt(opts: { fileName?: string; strict?: boolean }) {
-  const { fileName, strict = false } = opts;
+export function buildImagePromptUserPrompt(opts: {
+  fileName?: string;
+  strict?: boolean;
+  targetChars?: number;
+}) {
+  const { fileName, strict = false, targetChars } = opts;
+  const lengthLine = targetChars
+    ? `\n- LENGTH (mandatory): the main prompt must be approximately ${targetChars} characters long (between ${Math.round(targetChars * 0.9)} and ${Math.round(targetChars * 1.1)} characters). Fit the full checklist below into that length — be dense with specifics, not brief and not padded.`
+    : '';
   return `Analyze this image and create an exceptionally detailed, professional-grade prompt that would recreate it with maximum fidelity.
 
+DETAIL CHECKLIST — every item must be covered in the prompt, at whatever length is requested:
+- Subject: exactly what is depicted, its action/pose, and its most distinctive features
+- Setting and environment: place, background, foreground, time of day, weather if visible
+- Colors, materials, textures: exact color names (like "burnt sienna", "ultramarine blue"), surface qualities, fabrics, finishes
+- Lighting: direction, intensity, color temperature (warm/cool), shadows, reflections, ambient conditions
+- Camera and composition: angle, focal-length character, depth of field, framing, perspective, viewpoint
+- Style and medium: photography/illustration/3D, technique, artistic movement, rendering and quality descriptors
+- Mood and atmosphere: the emotional register and environmental cues that create it
+
 REQUIREMENTS FOR HIGH-QUALITY PROMPTS:
-- Be extremely specific about visual elements: exact colors (use specific color names like "burnt sienna", "ultramarine blue"), materials, textures, and surface qualities
-- Describe lighting in technical detail: direction, intensity, color temperature (warm/cool), shadow characteristics, reflections, and ambient conditions
-- Specify exact composition elements: camera angle, focal length characteristics, depth of field, framing, perspective, and viewpoint
-- Include artistic style markers: medium, technique, artistic movement, rendering style, and quality descriptors
-- Capture mood and atmosphere through specific environmental and emotional cues
+- Be extremely specific about visual elements — generic words ("beautiful", "nice") are worthless; name the concrete detail instead
 - Use industry-standard terminology for photography, art, and design
-- Ensure the prompt is 150-300 words for comprehensive detail
-- Make it paste-ready for AI image generators like Midjourney, DALL-E, or Stable Diffusion
+- Make it paste-ready for AI image generators like Midjourney, DALL-E, or Stable Diffusion${lengthLine}
 
 Focus on creating a prompt that captures not just what is shown, but HOW it's shown - the technical and artistic execution that makes the image distinctive.
 ${
