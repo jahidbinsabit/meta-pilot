@@ -107,12 +107,19 @@ CRON_SECRET="$(grep -E '^CRON_SECRET=' .env | cut -d= -f2 || true)"
 ) | crontab -
 echo "crons installed (daily-credits 00:00, cleanup-uploads every 30 min)"
 
-echo "=== [7/7] Image cleanup ==="
+echo "=== [7/7] Image + build-cache cleanup ==="
 # Every --build leaves the previous app image behind as a dangling layer
 # set; without this they pile up until the VPS disk fills. Dangling ONLY —
 # never `prune -a`: tagged images (db, redis, caddy) must stay.
 docker image prune -f >/dev/null 2>&1 || true
 echo "dangling docker images pruned"
+# Build cache grows by several GB per deploy (superseded layers stay
+# behind — 9.1GB accumulated by Oct 2026, 7.7GB of it dead). Cap it at
+# 2GB: the newest layers survive so rebuilds stay fast, but the cache
+# can never eat the disk again. Non-fatal — a cleanup failure must
+# never fail the deploy itself.
+docker builder prune -f --keep-storage 2GB >/dev/null 2>&1 || true
+echo "docker build cache capped (newest 2GB kept for fast rebuilds)"
 
 echo ""
 echo "================= DONE ================="
