@@ -126,6 +126,42 @@ async function pollImagePromptJob(
     await new Promise((r) => setTimeout(r, 2500));
   }
 }
+
+/**
+ * Turn a failed start-route response into clean toast text. The route
+ * reports machine error codes as a JSON body; surfacing that raw body
+ * in a toast was T2-01's visible symptom. Only the DISPLAYED text goes
+ * through here — the catch blocks still run isApiKeyError() on the raw
+ * message, which parses the JSON itself.
+ */
+function friendlyApiError(raw: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    switch (parsed?.error) {
+      case 'too_many_images':
+        return `You can generate prompts for up to ${parsed.max ?? 100} images at a time.`;
+      case 'images_required':
+        return 'No images were provided.';
+      case 'style_required':
+        return 'Select a prompt style first.';
+      case 'unknown_style':
+        return 'That prompt style is no longer available — please pick another style.';
+      case 'insufficient_credits':
+        return 'Insufficient credits for this run.';
+      case 'rate_limited':
+        return 'Too many generation requests — please wait a moment and try again.';
+      case 'forbidden':
+        return 'One of those images does not belong to your account.';
+      case 'invalid_image_reference':
+        return 'One of the images could not be read.';
+      default:
+        return fallback;
+    }
+  } catch {
+    // Not JSON — plain-text errors (e.g. 'Generation failed') pass through.
+    return raw && raw.length <= 120 ? raw : fallback;
+  }
+}
 export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onTabChange, user }: Props) {
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
   const [style, setStyle] = React.useState('');
@@ -214,13 +250,15 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   }, []);
 
   async function startStreamingGeneration() {
-    // Only send images that don't already have results — prevents double-charging
-    // when user clicks Generate multiple times.
+    // Only send images that don't already have a COMPLETE result —
+    // prevents double-charging when user clicks Generate multiple
+    // times, while still retrying images whose previous run FAILED
+    // (they used to be excluded forever, short of Clear All — T2-02).
     const ready = files.filter(
       (f) =>
         f.status === 'done' &&
         (f.previewUrl || f.dataUrl) &&
-        !results.find((r) => r.id === f.id)
+        !results.find((r) => r.id === f.id && r.status === 'complete')
     );
     if (ready.length === 0) {
       toast({ title: 'No new images to process', description: 'All uploaded images already have prompts. Upload new images or remove existing results to regenerate.', variant: 'info' });
@@ -339,7 +377,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         } else {
           toast({
             title: 'Generation failed',
-            description: error.message || 'Unknown error',
+            description: friendlyApiError(error.message || '', 'Generation failed. Please try again.'),
             variant: 'error'
           });
         }
@@ -399,7 +437,12 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
           if (stopRequestedRef.current) return;
           for (const result of jobResults) {
             if (result.status !== 'complete' && result.status !== 'failed') continue;
-            setResults((prev) => prev.map(r => r.id === result.id ? result : r));
+            // Only a COMPLETE entry may replace the current result: a
+            // failed regeneration must keep the previous good prompt
+            // instead of overwriting it with the failed entry (T2-05).
+            if (result.status === 'complete') {
+              setResults((prev) => prev.map(r => r.id === result.id ? result : r));
+            }
             setRegeneratingIds(prev => {
               const next = new Set(prev);
               next.delete(result.id);
@@ -414,18 +457,34 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
       // clears the regenerating state.
       if (!data) return;
 
-      // Same finish logic as the old SSE 'done' handler.
       setRegeneratingIds(prev => {
         const next = new Set(prev);
         next.delete(id);
         return next;
       });
       queryClient.invalidateQueries({ queryKey: ['credits'] });
-      toast({ title: 'Prompt regenerated', variant: 'success' });
+      // Success only when THIS image's entry actually completed — like
+      // the metadata tab, which checks the result status before
+      // toasting success. A failed entry used to toast "Prompt
+      // regenerated" here (T2-05).
+      const entry = (Array.isArray(data.results) ? data.results : []).find(
+        (r: any) => r.id === id,
+      );
+      if (entry?.status === 'complete') {
+        toast({ title: 'Prompt regenerated', variant: 'success' });
+      } else {
+        toast({
+          title: 'Regeneration failed',
+          description: data.refundError
+            ? 'Some credits could not be refunded automatically — please contact support.'
+            : 'The previous prompt was kept.',
+          variant: 'error',
+        });
+      }
     } catch (error: any) {
       toast({
         title: 'Regeneration failed',
-        description: error.message || 'Unknown error',
+        description: friendlyApiError(error.message || '', 'Regeneration failed. Please try again.'),
         variant: 'error'
       });
     } finally {
@@ -443,7 +502,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     (f) =>
       f.status === 'done' &&
       (f.previewUrl || f.dataUrl) &&
-      !results.find((r) => r.id === f.id)
+      !results.find((r) => r.id === f.id && r.status === 'complete')
   );
   const totalCost = readyFiles.length * costPerImage;
   const canGenerate =
@@ -794,11 +853,36 @@ function PromptCard({
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span className="truncate">{row.fileName}</span>
           </span>
-          {!unlimited && (
-            <Badge variant="muted" className="shrink-0 text-[10px]">
-              refunded
-            </Badge>
-          )}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {!unlimited && (
+              <Badge variant="muted" className="text-[10px]">
+                refunded
+              </Badge>
+            )}
+            {/* A failed card used to be a dead end — no retry, no
+                remove, and Generate skipped it (T2-02). */}
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => onRegenerate(row.id)}
+              disabled={isRegenerating}
+              aria-label={`Retry prompt generation for ${row.fileName}`}
+              className="h-7 gap-1 text-xs"
+            >
+              {isRegenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              Retry
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onRemove(row.id)}
+              aria-label={`Remove ${row.fileName}`}
+              title="Remove file"
+              className="h-7 w-7"
+            >
+              <Trash2 className="h-3.5 w-3.5 text-destructive" />
+            </Button>
+          </div>
         </div>
         <p className="mt-1.5 text-xs text-muted-foreground">
           {unlimited

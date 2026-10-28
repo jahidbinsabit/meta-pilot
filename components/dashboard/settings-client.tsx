@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -12,11 +12,26 @@ import { UserApiKeysForm } from '@/components/dashboard/user-api-keys-dialog';
 import { Key, Copy, Check, Trash2, Plus, Sparkles } from 'lucide-react';
 
 export function SettingsClient({ siteName = 'MetaCSV' }: { siteName?: string }) {
-  const [keys, setKeys] = React.useState<any[]>([]);
   const [name, setName] = React.useState('');
   const [createdKey, setCreatedKey] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const toast = useToast();
+  const queryClient = useQueryClient();
+
+  // Load the user's existing keys on mount (T1-02): without this the
+  // list only ever showed keys created in the current page session, so
+  // after any reload previously created keys were invisible and could
+  // not be revoked from the UI.
+  const { data: keysData } = useQuery({
+    queryKey: ['api-keys'],
+    queryFn: async () => {
+      const res = await fetch('/api/keys');
+      if (!res.ok) throw new Error('failed');
+      return res.json();
+    },
+  });
+  // The GET route returns revoked rows too; this list is the active keys.
+  const keys: any[] = (Array.isArray(keysData) ? keysData : []).filter((k) => !k.revoked);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -30,7 +45,18 @@ export function SettingsClient({ siteName = 'MetaCSV' }: { siteName?: string }) 
     },
     onSuccess: (data) => {
       setCreatedKey(data.key);
-      setKeys((prev) => [...prev, data.record]);
+      // The POST record carries the display mask as `keyPrefix`, not
+      // the `keyPreview` field the list renders, and its `key` is null
+      // (hashed at rest) — rendering it verbatim printed the literal
+      // "undefined…undefined" (T1-04). Normalize the mask here.
+      const record = {
+        ...data.record,
+        keyPreview: data.record.keyPreview ?? data.record.keyPrefix ?? 'sk_...',
+      };
+      queryClient.setQueryData(['api-keys'], (prev: any[] | undefined) => [
+        ...(Array.isArray(prev) ? prev : []),
+        record,
+      ]);
       setName('');
       toast({ title: 'API key created', variant: 'success' });
     },
@@ -43,8 +69,13 @@ export function SettingsClient({ siteName = 'MetaCSV' }: { siteName?: string }) 
       if (!res.ok) throw new Error('failed');
       return res.json();
     },
-    onSuccess: () => {
-      setKeys((prev) => prev.filter((k) => !k.revoked));
+    onSuccess: (_data, id) => {
+      // Remove the revoked row by its id (T1-03) — the old cleanup
+      // filtered on a `revoked` flag that was never set in local state,
+      // so every row (including the just-revoked one) stayed visible.
+      queryClient.setQueryData(['api-keys'], (prev: any[] | undefined) =>
+        (Array.isArray(prev) ? prev : []).filter((k) => k.id !== id),
+      );
       toast({ title: 'Key revoked', variant: 'success' });
     },
   });
@@ -146,7 +177,7 @@ export function SettingsClient({ siteName = 'MetaCSV' }: { siteName?: string }) 
                     <div>
                       <p className="text-sm font-medium">{k.name}</p>
                       <p className="font-mono text-xs text-muted-foreground">
-                        {k.keyPreview || `${k.key?.slice(0, 8)}…${k.key?.slice(-4)}`}
+                        {k.keyPreview || k.keyPrefix || 'sk_...'}
                       </p>
                     </div>
                   </div>

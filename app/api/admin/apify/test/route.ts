@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireApiAdmin } from '@/lib/api/auth';
 import { ApifyClient } from 'apify-client';
+import { getApifyConfig } from '@/lib/adobe-analytics/apify-stock';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,8 +9,19 @@ export async function POST(req: Request) {
   try {
     await requireApiAdmin(req);
     const body = await req.json().catch(() => ({}));
-    const token = body.token?.trim();
-    const actorId = body.actorId?.trim() || 'Ea82wcTpNYzTRV7A3';
+    let token: string = body.token?.trim() || '';
+    let actorId: string = body.actorId?.trim() || '';
+
+    // M4: the settings form only ever holds the masked preview (••••last4),
+    // never the raw token. A masked or empty token means "test the saved
+    // configuration" — resolve the real token server-side with the same
+    // SiteSettings/env precedence the runtime uses.
+    if (!token || token.startsWith('••••')) {
+      const config = await getApifyConfig().catch(() => null);
+      token = config?.token?.trim() || '';
+      if (!actorId && config?.actorId) actorId = config.actorId;
+    }
+    if (!actorId) actorId = 'Ea82wcTpNYzTRV7A3';
 
     if (!token) {
       return NextResponse.json({ ok: false, error: 'Apify API token is required' }, { status: 400 });

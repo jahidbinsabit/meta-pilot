@@ -97,9 +97,18 @@ async function reserveSearchAttempt(
     try {
       return await prisma.$transaction(
         async (tx) => {
-          const searchesToday = await tx.adobeAnalyticsQuery.count({
+          // Continuation-usage rows (resultData.continuation === true,
+          // written by recordContinuationUse) live in the same table
+          // but are NOT search attempts — exclude them so progressive-
+          // loading chunks don't eat the daily cap they ride along on.
+          const rowsToday = await tx.adobeAnalyticsQuery.findMany({
             where: { userId, createdAt: { gte: startOfUtcDay } },
+            select: { resultData: true },
           });
+          const searchesToday = rowsToday.filter((r) => {
+            const d = r.resultData as any;
+            return !(d && typeof d === 'object' && d.continuation === true);
+          }).length;
           if (searchesToday >= limit) return null;
           const row = await tx.adobeAnalyticsQuery.create({
             data: { userId, queryType, queryValue, resultData: undefined },
@@ -128,6 +137,70 @@ async function completeSearchAttempt(attemptId: string | null, resultData: unkno
     });
   } catch {
     // History is best-effort; never fail a search because logging failed.
+  }
+}
+
+/**
+ * Continuation budget (T4-02 fix). Progressive-loading chunks ride
+ * along free on the search that opened a contributor today, but every
+ * chunk is a fresh PAID actor run and its `want` is the cumulative
+ * fetch depth it bills for — so the day's continuation wants are
+ * summed per (user, contributor): while serving another chunk keeps
+ * that sum within this budget the chunk stays free; past it, the
+ * request must consume a normal daily attempt (reserveSearchAttempt),
+ * restoring the daily cap's purpose. A normal first chain stays free
+ * for its early chunks and degrades into counted attempts instead of
+ * hard-failing; outright repetition (e.g. re-running want=1000 all
+ * day) is bounded to one free run plus the 30/day attempt cap.
+ */
+const CONTINUATION_DAILY_WANT_BUDGET = 1000;
+
+/** Sum of today's recorded continuation wants for one contributor. */
+async function continuationWantServedToday(
+  userId: string,
+  contributorId: number,
+): Promise<number> {
+  const startOfUtcDay = new Date();
+  startOfUtcDay.setUTCHours(0, 0, 0, 0);
+  const rows = await prisma.adobeAnalyticsQuery.findMany({
+    where: {
+      userId,
+      queryType: 'contributor_id',
+      queryValue: String(contributorId),
+      createdAt: { gte: startOfUtcDay },
+    },
+    select: { resultData: true },
+  });
+  let served = 0;
+  for (const r of rows) {
+    const d = r.resultData as any;
+    if (d && typeof d === 'object' && d.continuation === true && typeof d.want === 'number') {
+      served += d.want;
+    }
+  }
+  return served;
+}
+
+/**
+ * Record one continuation chunk's usage BEFORE the search runs (like
+ * attempt reservations, usage counts even if the run then fails — the
+ * actor may already have billed). The row carries queryType/queryValue
+ * of the search it extends and is flagged via `resultData.continuation`
+ * so the daily-cap count can exclude it and any future recent-searches
+ * UI can ignore it. Best-effort: never fails the search.
+ */
+async function recordContinuationUse(userId: string, contributorId: number, want: number) {
+  try {
+    await prisma.adobeAnalyticsQuery.create({
+      data: {
+        userId,
+        queryType: 'contributor_id',
+        queryValue: String(contributorId),
+        resultData: { continuation: true, want } as any,
+      },
+    });
+  } catch {
+    // Accounting is best-effort; never fail a search because logging failed.
   }
 }
 
@@ -176,11 +249,16 @@ export async function POST(req: Request) {
       // Progressive loading: the UI fetches a small first chunk (25)
       // and then deeper pools chunk by chunk. Any request past the
       // first chunk is a CONTINUATION of a search the user already ran
-      // today, not a new search — it neither consumes another daily
-      // attempt nor adds a history row. A non-admin continuation only
-      // rides along when a counted attempt for this same contributor
-      // exists today, so the cap cannot be dodged by asking deep first.
-      const isContinuation = (parsed.data.want ?? 25) > 25;
+      // today, not a new search — within budget it neither consumes
+      // another daily attempt nor adds a history row. A non-admin
+      // continuation only rides along when a counted attempt for this
+      // same contributor exists today, so the cap cannot be dodged by
+      // asking deep first; and the ride-along is BOUNDED (T4-02): once
+      // the day's cumulative continuation depth for this contributor
+      // would exceed CONTINUATION_DAILY_WANT_BUDGET, the request falls
+      // through to a normal capped attempt below.
+      const want = parsed.data.want ?? 25;
+      const isContinuation = want > 25;
       let ridesAlong = false;
       if (isContinuation && !isAdmin) {
         const startOfUtcDay = new Date();
@@ -193,7 +271,14 @@ export async function POST(req: Request) {
             createdAt: { gte: startOfUtcDay },
           },
         });
-        ridesAlong = priorAttempts > 0;
+        if (priorAttempts > 0) {
+          const served = await continuationWantServedToday(user.id, contributorId);
+          ridesAlong = served + want <= CONTINUATION_DAILY_WANT_BUDGET;
+        }
+      }
+      if (ridesAlong) {
+        // Account for the chunk before running it, like a reservation.
+        await recordContinuationUse(user.id, contributorId, want);
       }
 
       // Reserve BEFORE searching so the attempt counts even if the

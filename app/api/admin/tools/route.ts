@@ -38,6 +38,17 @@ export async function POST(req: Request) {
         enabledForTiers: t.enabledForTiers,
         sortOrder: t.sortOrder,
       });
+
+      // Charging reads the separate ToolCreditCost table (lib/credits/cost.ts
+      // getToolCost, TOOL_META fallback) — the registry row alone never
+      // changed what users are charged. Mirror the editor's cost (and the
+      // enabled toggle) into ToolCreditCost so admin edits take effect.
+      const cost = Math.max(0, Math.trunc(Number(t.creditCost) || 0));
+      await prisma.toolCreditCost.upsert({
+        where: { toolSlug: t.slug },
+        create: { toolSlug: t.slug, cost, isActive: t.isEnabled !== false },
+        update: { cost, isActive: t.isEnabled !== false },
+      });
     }
 
     await writeAudit({

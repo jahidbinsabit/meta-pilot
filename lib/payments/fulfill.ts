@@ -55,12 +55,18 @@ async function activatePlan(userId: string, planId: string, paymentId: string) {
   }
 }
 
-async function grantPackageCredits(userId: string, payment: Payment, payload: Payload) {
+/** Single source of truth for how many credits a credits-type payment grants. */
+async function resolvePackageCredits(payload: Payload): Promise<number> {
   let credits = Number(payload.credits || 0);
   if (!credits && payload.packageId) {
     const pkg = await prisma.creditPackage.findUnique({ where: { id: payload.packageId } });
     credits = pkg?.credits ?? 0;
   }
+  return credits;
+}
+
+async function grantPackageCredits(userId: string, payment: Payment, payload: Payload) {
+  const credits = await resolvePackageCredits(payload);
   if (credits <= 0) return;
 
   // M-B4: reason folded into metadata — no cosmetic second write (see above).
@@ -83,6 +89,31 @@ export async function fulfillPayment(paymentId: string) {
   const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
   if (!payment) return { ok: false as const, error: 'payment_not_found' };
   if (payment.status === 'COMPLETED') return { ok: true as const, already: true };
+  if (payment.status !== 'PENDING') {
+    // T4-33: only a PENDING payment can be approved. Previously a REJECTED
+    // or VERIFIED payment fell through the failed atomic claim into
+    // { ok: true } — the caller believed it was fulfilled when nothing was
+    // granted and no status changed. Report the conflict instead.
+    return { ok: false as const, error: 'payment_not_pending' };
+  }
+
+  const payload = readPayload(payment);
+  const planId = payload.planId || (payload.type === 'plan' ? payment.planIdOrCreditPackageId : null);
+  const isPlan = payload.type === 'plan' || Boolean(planId && payload.type !== 'credits');
+  const effectivePayload: Payload = {
+    ...payload,
+    packageId: payload.packageId || payment.planIdOrCreditPackageId || undefined,
+  };
+
+  if (!(planId && isPlan)) {
+    // T4-34: the credits path is the fulfillment — if it resolves to zero
+    // credits there is nothing to grant, so refuse BEFORE claiming. The
+    // payment stays PENDING instead of ending COMPLETED with no grant.
+    const creditsToGrant = await resolvePackageCredits(effectivePayload);
+    if (creditsToGrant <= 0) {
+      return { ok: false as const, error: 'nothing_to_fulfill' };
+    }
+  }
 
   // Atomic claim: only one caller can transition this payment out of PENDING.
   const claimed = await prisma.payment.updateMany({
@@ -92,17 +123,10 @@ export async function fulfillPayment(paymentId: string) {
   if (claimed.count === 0) return { ok: true as const, already: true };
 
   try {
-    const payload = readPayload(payment);
-    const planId = payload.planId || (payload.type === 'plan' ? payment.planIdOrCreditPackageId : null);
-    const isPlan = payload.type === 'plan' || Boolean(planId && payload.type !== 'credits');
-
     if (planId && isPlan) {
       await activatePlan(payment.userId, planId, payment.id);
     } else {
-      await grantPackageCredits(payment.userId, payment, {
-        ...payload,
-        packageId: payload.packageId || payment.planIdOrCreditPackageId || undefined,
-      });
+      await grantPackageCredits(payment.userId, payment, effectivePayload);
     }
   } catch (e) {
     // Grant failed after the claim: revert to PENDING so a retry can pick it

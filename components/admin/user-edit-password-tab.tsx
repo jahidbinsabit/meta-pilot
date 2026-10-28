@@ -47,6 +47,11 @@ export function UserEditPasswordTab({ form, setForm }: UserEditPasswordTabProps)
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
+        {form.newPassword.trim().length > 0 && form.newPassword.trim().length < 6 && (
+          <p className="text-xs text-red-400">
+            Password is too short — at least 6 characters are required, otherwise it will not be saved.
+          </p>
+        )}
       </div>
     </div>
   );

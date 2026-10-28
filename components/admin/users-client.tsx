@@ -67,7 +67,10 @@ export function UsersClient({
       if (roleFilter !== 'ALL') params.set('role', roleFilter);
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
       if (membershipFilter !== 'ALL') params.set('plan', membershipFilter);
-      if (deletedFilter !== 'ACTIVE_ONLY') params.set('deleted', deletedFilter);
+      // Map UI states to the API's `deleted` contract ('active'|'deleted'|'all');
+      // ACTIVE_ONLY omits the param — the server defaults to 'active'.
+      if (deletedFilter === 'DELETED_ONLY') params.set('deleted', 'deleted');
+      else if (deletedFilter === 'ALL') params.set('deleted', 'all');
       params.set('page', String(page));
       params.set('pageSize', String(pageSize));
 

@@ -52,7 +52,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, payment });
   } catch (error: any) {
     console.error('Admin create manual payment error:', error);
-    const status = error.message === 'FORBIDDEN' ? 403 : error.message === 'UNAUTHORIZED' ? 401 : 500;
+    // Validation failures from createManualPaymentAdmin are the caller's
+    // error (400), not a server fault.
+    const CLIENT_ERRORS = [
+      'user_not_found',
+      'plan_not_found',
+      'plan_id_required',
+      'package_not_found',
+      'nothing_to_fulfill',
+    ];
+    const status =
+      error.message === 'FORBIDDEN'
+        ? 403
+        : error.message === 'UNAUTHORIZED'
+          ? 401
+          : CLIENT_ERRORS.includes(error.message)
+            ? 400
+            : 500;
     return NextResponse.json({ error: error.message || 'internal_error' }, { status });
   }
 }

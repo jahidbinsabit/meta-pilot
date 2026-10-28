@@ -49,6 +49,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
     }
 
+    // T1-05: a zero-price plan/package (e.g. the FREE plan) has nothing to
+    // check out — Stripe rejects a unit_amount of 0 (surfacing as a raw
+    // 500) and the manual path would record a phantom ৳0 PENDING payment
+    // that activates nothing. Refuse before any gateway call or DB record.
+    if (amountUSD <= 0 && amountBDT <= 0) {
+      return NextResponse.json(
+        { error: 'This plan is free — no checkout required' },
+        { status: 400 },
+      );
+    }
+
     const providerKey = String(provider || 'stripe').toLowerCase();
     const baseKey = providerKey.split('_')[0];
     const dbGateway = await prisma.paymentGatewayConfig.findFirst({
@@ -71,6 +82,13 @@ export async function POST(req: Request) {
         providerKey.includes('manual'));
 
     if (currency === 'USD' && isStripe) {
+      // Same zero-amount guard for a plan priced 0 in USD only.
+      if (amountUSD <= 0) {
+        return NextResponse.json(
+          { error: 'This plan is free — no checkout required' },
+          { status: 400 },
+        );
+      }
       const stripe = await getStripe();
       const appUrl =
         process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000';
@@ -126,6 +144,15 @@ export async function POST(req: Request) {
       const publicGw = dbGateway ? toPublicGateway(dbGateway) : null;
       const finalAmountBDT = currency === 'BDT' ? Math.round(amountBDT) : 0;
       const finalAmountUSD = currency === 'USD' ? amountUSD : 0;
+
+      // Zero-amount guard for the selected currency — never record a
+      // phantom ৳0/$0 manual payment (see the check above).
+      if (finalAmountBDT <= 0 && finalAmountUSD <= 0) {
+        return NextResponse.json(
+          { error: 'This plan is free — no checkout required' },
+          { status: 400 },
+        );
+      }
 
       // H4: duplicate check + insert run inside ONE Serializable
       // transaction, so two concurrent submissions carrying the same

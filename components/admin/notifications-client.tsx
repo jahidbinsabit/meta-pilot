@@ -29,7 +29,7 @@ export type AdminNotification = {
   updatedAt: string;
 };
 
-const audienceOptions = ['ALL', 'FREE', 'PRO', 'PLUS', 'AGENCY'];
+const audienceOptions = ['ALL', 'FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'];
 
 const defaultForm = {
   title: '',

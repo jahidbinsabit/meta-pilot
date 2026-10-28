@@ -36,6 +36,36 @@ export function maskCredentials(creds: Record<string, any>): Record<string, any>
   return out;
 }
 
+const MASK_PREFIX = '••••';
+
+function isMaskedCredentialValue(v: unknown): v is string {
+  return typeof v === 'string' && v.startsWith(MASK_PREFIX);
+}
+
+/**
+ * T4-31: the admin UI only ever holds MASKED credential values (••••last4),
+ * and the gateway form submits the whole credentials object. A masked value
+ * in a save therefore means "unchanged" — substitute the currently stored
+ * value for that key. If nothing is stored for the key, drop it rather than
+ * persisting the mask itself as the secret (which silently destroyed live
+ * Stripe/bKash credentials on the second save of a session).
+ */
+function resolveMaskedCredentials(
+  incoming: Record<string, any>,
+  stored: Record<string, any>,
+): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(incoming)) {
+    if (isMaskedCredentialValue(v)) {
+      if (stored[k] !== undefined) out[k] = stored[k];
+      // No stored value → drop the key instead of storing the mask.
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 export function parseGatewayCredentials(raw: unknown): Record<string, any> {
   if (!raw) return {};
   try {
@@ -128,7 +158,20 @@ export async function saveGatewayConfig(input: SaveGatewayInput, adminId: string
     where: { gatewayKey },
   });
 
-  const credentialsJson = credentials ? encryptSecret(JSON.stringify(credentials)) : undefined;
+  // The client submits the whole credentials object and only ever holds
+  // masked values — resolve any masked entry back to the stored secret
+  // before encrypting, so a re-save can never overwrite a real credential
+  // with its ••••last4 placeholder.
+  const resolvedCredentials = credentials
+    ? resolveMaskedCredentials(
+        credentials,
+        before ? parseGatewayCredentials(before.credentialsJson) : {},
+      )
+    : undefined;
+
+  const credentialsJson = resolvedCredentials
+    ? encryptSecret(JSON.stringify(resolvedCredentials))
+    : undefined;
 
   const result = await prisma.paymentGatewayConfig.upsert({
     where: { gatewayKey },
@@ -246,7 +289,13 @@ export async function createManualPaymentAdmin(input: AdminManualPaymentInput, a
     createdByAdminId: adminId,
   };
 
-  if (type === 'plan' && planId) {
+  // T4-34: validate that this payment will actually fulfill something
+  // BEFORE the row is created. Previously a plan payment with no planId
+  // (or a credits payment resolving to 0 credits) fell through to a
+  // credits: 0 payload and — with autoApprove — ended COMPLETED with
+  // nothing granted and no warning.
+  if (type === 'plan') {
+    if (!planId) throw new Error('plan_id_required');
     const plan = await prisma.plan.findUnique({ where: { id: planId } });
     if (!plan) throw new Error('plan_not_found');
     payload = {
@@ -257,16 +306,21 @@ export async function createManualPaymentAdmin(input: AdminManualPaymentInput, a
     };
   } else if (packageId) {
     const pkg = await prisma.creditPackage.findUnique({ where: { id: packageId } });
+    if (!pkg) throw new Error('package_not_found');
+    const resolvedCredits = pkg.credits || credits || 0;
+    if (resolvedCredits <= 0) throw new Error('nothing_to_fulfill');
     payload = {
       ...payload,
       packageId,
-      packageName: pkg?.name,
-      credits: pkg?.credits || credits || 0,
+      packageName: pkg.name,
+      credits: resolvedCredits,
     };
   } else {
+    const resolvedCredits = credits || 0;
+    if (resolvedCredits <= 0) throw new Error('nothing_to_fulfill');
     payload = {
       ...payload,
-      credits: credits || 0,
+      credits: resolvedCredits,
     };
   }
 
@@ -287,7 +341,12 @@ export async function createManualPaymentAdmin(input: AdminManualPaymentInput, a
   });
 
   if (autoApprove) {
-    await fulfillPayment(payment.id);
+    const fulfillment = await fulfillPayment(payment.id);
+    if (!fulfillment.ok) {
+      // Never report success for a payment that granted nothing — the row
+      // stays PENDING and the admin sees the reason.
+      throw new Error(fulfillment.error);
+    }
   }
 
   try {

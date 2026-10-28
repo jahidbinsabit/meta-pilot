@@ -105,6 +105,21 @@ export function UserEditDialog({ user, plans, onClose }: UserEditDialogProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Never silently drop a typed password: 1–5 chars used to be omitted
+    // from the payload while the rest saved behind a success toast. Block
+    // the save and say so (the server minimum is 6 characters).
+    const trimmedPassword = form.newPassword?.trim() ?? '';
+    if (trimmedPassword.length > 0 && trimmedPassword.length < 6) {
+      toast({
+        title: 'Password too short',
+        description: 'The new password needs at least 6 characters. Nothing was saved.',
+        variant: 'error',
+      });
+      setTab('password');
+      return;
+    }
+
     const payload: any = {
       action: 'edit_user',
       userId: user.id,
@@ -120,8 +135,8 @@ export function UserEditDialog({ user, plans, onClose }: UserEditDialogProps) {
       preferredAiProvider: form.preferredAiProvider,
     };
 
-    if (form.newPassword && form.newPassword.trim().length >= 6) {
-      payload.password = form.newPassword.trim();
+    if (trimmedPassword.length >= 6) {
+      payload.password = trimmedPassword;
     }
     if (form.geminiApiKey && form.geminiApiKey.trim()) {
       payload.geminiApiKey = form.geminiApiKey.trim();

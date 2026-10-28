@@ -194,6 +194,12 @@ export async function searchByKeyword(input: KeywordSearchInput): Promise<Keywor
       });
 
       const total = res.totalResults;
+      // The actor exposes no true Adobe match count — totalResults is
+      // only the fetched count. When the fetch hit its cap, the real
+      // total is larger, so the count is a floor, not an exact total
+      // (T4-03); the UI renders it with a "+" like the contributor tab.
+      // Same convention as the contributor Apify branch (!hitCap).
+      const hitCap = res.assets.length >= allowed;
       const { visible, hidden } = applyRowGate(total, gate.limit);
       const assets = res.assets.slice(0, visible);
 
@@ -205,7 +211,7 @@ export async function searchByKeyword(input: KeywordSearchInput): Promise<Keywor
         contentType: input.contentType,
         generativeAi: input.generativeAi,
         totalResults: total,
-        totalIsExact: true,
+        totalIsExact: !hitCap,
         assets,
         hiddenCount: hidden,
         limit: gate.limit,
@@ -439,18 +445,34 @@ export async function searchByContributor(
   let files: AdobeFile[] = [];
   let nbResults: number | null = null;
   let warning: string | undefined;
+  // Whether the fetched pool provably covers the contributor's whole
+  // portfolio on this path — the ONLY case where totalIsExact may be
+  // true. It used to be `typeof nbResults === 'number'`, i.e. true
+  // whenever Adobe reported a total (e.g. 2,037) even though only the
+  // first chunk had been fetched; the client chain reads totalIsExact
+  // as "pool exhausted" and stopped paging there (T4-01).
+  let poolExhausted = false;
 
   if (!isAdobeConfigured()) {
     warning =
       'The Stock Scraper Engine is not configured yet. Please configure your Apify API Token in Admin Settings (/admin/settings) to fetch live contributor portfolios.';
   } else {
-    const wanted = isUnlimited(gate.limit)
-      ? Math.min(input.want ?? 500, 1000)
-      : Math.min(gate.limit, PAGE_SIZE * 3);
+    // Honour the client's paging depth up to the tier's row limit, so
+    // deeper pages genuinely fetch more on this path (previously the
+    // depth was capped at 300 rows regardless of `want` or plan).
+    const want = Math.min(1000, Math.max(10, input.want ?? 500));
+    const wanted = isUnlimited(gate.limit) ? want : Math.min(gate.limit, want);
     try {
       const res = await fetchAssets({ creatorId: input.contributorId, order: 'creation' }, wanted);
       files = res.files;
       nbResults = res.nbResults;
+      // Exhausted when we hold everything Adobe reports, or — when
+      // Adobe reports no total — when the fetch came back short of
+      // what was requested (fetchAssets stops early only at the last
+      // page). Holding exactly `wanted` with no reported total proves
+      // nothing, so the chain may ask once more and confirm.
+      poolExhausted =
+        nbResults != null ? files.length >= nbResults : files.length < wanted;
     } catch (e) {
       warning = eMessage(e);
     }
@@ -473,7 +495,7 @@ export async function searchByContributor(
     contributorId: input.contributorId,
     contributorName: assets.find((a) => a.contributorName)?.contributorName || null,
     totalAssets: total,
-    totalIsExact: typeof nbResults === 'number',
+    totalIsExact: poolExhausted,
     assets,
     hiddenCount: hidden,
     limit: gate.limit,

@@ -403,8 +403,13 @@ export function BillingCheckout({
 
             <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {plans.map((plan) => {
-                const isCurrent = currentMembership?.planId === plan.id;
                 const isFree = plan.monthlyPriceUSD <= 0 && plan.monthlyPriceBDT <= 0;
+                // T1-05: a user with no (paid) membership IS on the free
+                // plan — render its card as the current plan (disabled
+                // "Active Plan") instead of a "Select Free" button that
+                // opened a checkout which can never complete.
+                const isCurrent =
+                  currentMembership?.planId === plan.id || (isFree && !currentMembership);
                 const price = currency === 'USD' ? plan.monthlyPriceUSD : plan.monthlyPriceBDT;
                 const formattedPrice = isFree ? (currency === 'USD' ? '$0' : '৳0') : formatCheckoutAmount(currency, price);
                 const features = PLAN_FEATURES[plan.tier] || [

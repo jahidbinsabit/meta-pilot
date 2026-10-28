@@ -17,6 +17,7 @@ import {
 } from '@/lib/prompt-styles/prompt';
 
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
+import { UNIVERSAL_BATCH_LIMIT } from '@/lib/generator/limits';
 import {
   decodeDataImageUrl,
   fetchImageGuarded,
@@ -106,8 +107,12 @@ export async function POST(req: Request) {
     if (!Array.isArray(images) || images.length === 0) {
       return NextResponse.json({ error: 'images_required' }, { status: 400 });
     }
-    if (images.length > 20) {
-      return NextResponse.json({ error: 'too_many_images', max: 20 }, { status: 400 });
+    // Shared product policy ceiling (100), same as the start route (T2-01).
+    if (images.length > UNIVERSAL_BATCH_LIMIT) {
+      return NextResponse.json(
+        { error: 'too_many_images', max: UNIVERSAL_BATCH_LIMIT },
+        { status: 400 },
+      );
     }
     if (!style) {
       return NextResponse.json({ error: 'style_required' }, { status: 400 });

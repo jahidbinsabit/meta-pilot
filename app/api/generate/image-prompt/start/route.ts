@@ -15,6 +15,7 @@ import {
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 import { rateLimit } from '@/lib/rate-limit';
 import { normalizeOwnedImageRef } from '@/lib/net/safe-fetch';
+import { UNIVERSAL_BATCH_LIMIT } from '@/lib/generator/limits';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -97,8 +98,14 @@ export async function POST(req: Request) {
   if (!Array.isArray(images) || images.length === 0) {
     return NextResponse.json({ error: 'images_required' }, { status: 400 });
   }
-  if (images.length > 20) {
-    return NextResponse.json({ error: 'too_many_images', max: 20 }, { status: 400 });
+  // Same ceiling as the metadata batch route and the uploader: the
+  // shared product policy (UNIVERSAL_BATCH_LIMIT = 100). A private 20
+  // cap here hard-failed every Generate click with 21–100 images (T2-01).
+  if (images.length > UNIVERSAL_BATCH_LIMIT) {
+    return NextResponse.json(
+      { error: 'too_many_images', max: UNIVERSAL_BATCH_LIMIT },
+      { status: 400 },
+    );
   }
   if (!style) {
     return NextResponse.json({ error: 'style_required' }, { status: 400 });

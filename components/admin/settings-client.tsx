@@ -27,6 +27,7 @@ type SiteSettings = {
   signupCredits?: number | null;
   unlimitedMode?: boolean;
   apifyApiToken?: string | null;
+  apifyTokenSet?: boolean;
   apifyActorId?: string | null;
 };
 
@@ -255,9 +256,16 @@ export function SettingsClient({
                 {showApifyToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Personal Apify API token. Saved in database or via <code className="font-mono text-xs">APIFY_API_TOKEN</code> in <code className="font-mono text-xs">.env</code>.
-            </p>
+            {settings.apifyApiToken?.startsWith('••••') ? (
+              <p className="text-xs text-muted-foreground">
+                A token is saved (shown masked). Leave it as-is to keep it, paste a new token to replace it, and use{' '}
+                <strong>Test Connection</strong> to verify the saved token.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Personal Apify API token. Saved in database or via <code className="font-mono text-xs">APIFY_API_TOKEN</code> in <code className="font-mono text-xs">.env</code>.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

@@ -15,34 +15,97 @@ import type { ToolEntry } from '@/lib/tools/registry';
 import { ToolShell } from '@/components/dashboard/tool-shell';
 import { downloadBlob } from '@/lib/tools/client-image';
 
+/** Per-file processing outcome, keyed by UploadedFile.id. */
+type FileOutcome =
+  | { status: 'processing' }
+  | { status: 'done'; url: string }
+  | { status: 'error'; error: string };
+
+function psdName(name: string): string {
+  return `${name.replace(/\.[^.]+$/, '')}.psd`;
+}
+
 export function ImageToPsdClient({ tool }: { tool: ToolEntry }) {
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
-  const [resultUrl, setResultUrl] = React.useState<string | null>(null);
+  const [outcomes, setOutcomes] = React.useState<Record<string, FileOutcome>>({});
   const toast = useToast();
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = React.useState(false);
-  const { readyFiles, totalCost, canProcess, credits, unlimited } = useToolGating(files, tool);
+  const { readyFiles, credits, unlimited } = useToolGating(files, tool);
   const queryClient = useQueryClient();
 
+  // Only files without a completed result are (re)processed: a second click
+  // retries failed/pending files and never re-charges finished ones, and the
+  // gate/price below covers exactly the files that will actually be charged.
+  const pendingFiles = readyFiles.filter((f) => outcomes[f.id]?.status !== 'done');
+  const pendingCost = pendingFiles.length * tool.creditCost;
+  const canRun =
+    pendingFiles.length > 0 &&
+    !files.some((f) => f.status === 'analyzing') &&
+    (tool.isFree || unlimited || credits >= pendingCost);
+  const processedFiles = files.filter((f) => outcomes[f.id]);
+
+  const buildOne = async (file: UploadedFile): Promise<string> => {
+    const res = await fetch('/api/tools/image-to-psd', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key: file.key,
+        fileName: file.name,
+      }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || 'psd_failed');
+    }
+    const data = await res.json();
+    return data.psdUrl as string;
+  };
+
   const mutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/tools/image-to-psd', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          key: readyFiles[0].key,
-          fileName: readyFiles[0].name,
-        }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'psd_failed');
+    mutationFn: async (targets: UploadedFile[]) => {
+      let done = 0;
+      let failed = 0;
+      for (const file of targets) {
+        setOutcomes((prev) => ({ ...prev, [file.id]: { status: 'processing' } }));
+        try {
+          const url = await buildOne(file);
+          setOutcomes((prev) => ({ ...prev, [file.id]: { status: 'done', url } }));
+          done++;
+        } catch (e: any) {
+          // API key required → abort the batch; the dialog explains why.
+          // The in-flight file goes back to pending so it isn't stranded.
+          if (isApiKeyError(e?.message)) {
+            setOutcomes((prev) => {
+              const next = { ...prev };
+              delete next[file.id];
+              return next;
+            });
+            throw e;
+          }
+          setOutcomes((prev) => ({
+            ...prev,
+            [file.id]: { status: 'error', error: e?.message || 'psd_failed' },
+          }));
+          failed++;
+        }
       }
-      return res.json();
+      return { done, failed, total: targets.length };
     },
-    onSuccess: (data: any) => {
-      setResultUrl(data.psdUrl);
+    onSuccess: (summary) => {
       queryClient.invalidateQueries({ queryKey: ['credits'] });
-      toast({ title: 'Layered PSD created', variant: 'success' });
+      if (summary.failed === 0) {
+        toast({
+          title:
+            summary.total > 1 ? `Layered PSDs created (${summary.done})` : 'Layered PSD created',
+          variant: 'success',
+        });
+      } else {
+        toast({
+          title: `${summary.done} done, ${summary.failed} failed`,
+          description: 'Failed files stay queued — click again to retry only those.',
+          variant: 'error',
+        });
+      }
     },
     onError: (e: any) => {
       // API key required → show the add-key popup instead of a generic toast.
@@ -58,11 +121,10 @@ export function ImageToPsdClient({ tool }: { tool: ToolEntry }) {
     },
   });
 
-  const download = async () => {
-    if (!resultUrl) return;
-    const res = await fetch(resultUrl);
+  const downloadOne = async (url: string, label: string) => {
+    const res = await fetch(url);
     const blob = await res.blob();
-    downloadBlob(blob, 'layered.psd');
+    downloadBlob(blob, label);
   };
 
   return (
@@ -74,7 +136,7 @@ export function ImageToPsdClient({ tool }: { tool: ToolEntry }) {
             <CardDescription>
               {tool.isFree
                 ? 'Free'
-                : `${tool.creditCost} credit${tool.creditCost === 1 ? '' : 's'}`}
+                : `${tool.creditCost} credit${tool.creditCost === 1 ? '' : 's'} per image`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -84,13 +146,13 @@ export function ImageToPsdClient({ tool }: { tool: ToolEntry }) {
               batchLimit={10}
               disabled={mutation.isPending}
             />
-            <Button onClick={() => mutation.mutate()} disabled={!canProcess || mutation.isPending}>
+            <Button onClick={() => mutation.mutate(pendingFiles)} disabled={!canRun || mutation.isPending}>
               {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create PSD'}
             </Button>
-            {!tool.isFree && !unlimited && credits < totalCost && readyFiles.length > 0 && (
+            {!tool.isFree && !unlimited && credits < pendingCost && pendingFiles.length > 0 && (
               <p className="flex items-center gap-1.5 text-xs text-amber-400">
                 <AlertCircle className="h-3.5 w-3.5" />
-                You need {totalCost} credits but have {credits}.
+                You need {pendingCost} credits but have {credits}.
               </p>
             )}
           </CardContent>
@@ -98,42 +160,75 @@ export function ImageToPsdClient({ tool }: { tool: ToolEntry }) {
 
         <Card>
           <CardHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle>Layered PSD</CardTitle>
-                <CardDescription>Background + subject layers.</CardDescription>
-              </div>
-              {resultUrl && (
-                <Button variant="outline" size="sm" onClick={download}>
-                  <Download className="h-4 w-4" />
-                  PSD
-                </Button>
-              )}
-            </div>
+            <CardTitle>Layered PSD</CardTitle>
+            <CardDescription>Background + subject layers, one PSD per image.</CardDescription>
           </CardHeader>
           <CardContent>
-            {!resultUrl ? (
+            {processedFiles.length === 0 ? (
               <div className="flex min-h-[220px] flex-col items-center justify-center text-center text-muted-foreground">
                 <Layers className="h-10 w-10 opacity-40" />
-                <p className="mt-2 text-sm">PSD will appear here.</p>
+                <p className="mt-2 text-sm">PSDs will appear here.</p>
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="rounded-lg border border-border bg-card-2 p-3">
-                  <p className="text-sm font-medium text-foreground">Layers</p>
-                  <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-                    <li className="flex items-center gap-2">
-                      <Layers className="h-4 w-4 text-accent" />
-                      Background — full image
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Layers className="h-4 w-4 text-accent" />
-                      Subject — separated foreground
-                    </li>
-                  </ul>
-                </div>
+                {processedFiles.map((f) => {
+                  const o = outcomes[f.id];
+                  if (!o) return null;
+                  return (
+                    <div
+                      key={f.id}
+                      className="rounded-lg border border-border bg-card-2 p-3"
+                    >
+                      {o.status === 'done' ? (
+                        <>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium text-foreground">
+                              {psdName(f.name)}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              onClick={() => downloadOne(o.url, psdName(f.name))}
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              PSD
+                            </Button>
+                          </div>
+                          <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
+                            <li className="flex items-center gap-2">
+                              <Layers className="h-4 w-4 text-accent" />
+                              Background — full image
+                            </li>
+                            <li className="flex items-center gap-2">
+                              <Layers className="h-4 w-4 text-accent" />
+                              Subject — separated foreground
+                            </li>
+                          </ul>
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-2 text-sm">
+                          {o.status === 'processing' ? (
+                            <>
+                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                              <span className="truncate text-muted-foreground">
+                                {f.name} — processing…
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <AlertCircle className="h-4 w-4 shrink-0 text-red-400" />
+                              <span className="truncate text-muted-foreground">
+                                {f.name} — failed: {o.error}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 <p className="text-xs text-muted-foreground">
-                  Open the downloaded .psd in Photoshop to inspect or edit the layers.
+                  Open a downloaded .psd in Photoshop to inspect or edit the layers.
                 </p>
               </div>
             )}

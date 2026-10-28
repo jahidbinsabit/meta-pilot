@@ -395,8 +395,18 @@ function KeywordTab({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Matching assets"
-              value={result.totalResults === null ? '—' : result.totalResults.toLocaleString()}
-              hint={result.totalIsExact ? 'Reported by Adobe' : 'Not reported'}
+              value={
+                result.totalResults === null
+                  ? '—'
+                  : `${result.totalResults.toLocaleString()}${result.totalIsExact ? '' : '+'}`
+              }
+              hint={
+                result.totalIsExact
+                  ? 'Reported by Adobe'
+                  : result.totalResults === null
+                    ? 'Not reported'
+                    : 'Fetched pool — may be more'
+              }
               exact={result.totalIsExact}
             />
             <StatTile

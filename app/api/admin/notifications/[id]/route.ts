@@ -6,8 +6,10 @@ export const runtime = 'nodejs';
 
 function normalizeAudience(value: unknown) {
   const normalized = typeof value === 'string' ? value.toUpperCase() : 'ALL';
-  if (['ALL', 'FREE', 'PRO', 'PLUS', 'AGENCY'].includes(normalized)) {
-    return normalized as 'ALL' | 'FREE' | 'PRO' | 'PLUS' | 'AGENCY';
+  // ENTERPRISE included: it is a valid NotificationAudience — without it an
+  // ENTERPRISE-targeted edit silently widened the audience to ALL.
+  if (['ALL', 'FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'].includes(normalized)) {
+    return normalized as 'ALL' | 'FREE' | 'PRO' | 'PLUS' | 'AGENCY' | 'ENTERPRISE';
   }
   return 'ALL';
 }

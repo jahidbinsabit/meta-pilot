@@ -106,9 +106,9 @@ export interface KeywordSearchResult {
   sort: SortValue;
   contentType: ContentTypeValue;
   generativeAi: GenerativeAiValue;
-  /** Exact total Adobe reported, or null when Adobe gave none. */
+  /** Adobe's reported total, the fetched count on the scraper path, or null when no source gave one. */
   totalResults: number | null;
-  /** True when totalResults came from Adobe rather than being estimated. */
+  /** True only when totalResults is the complete total; false means it is a fetched floor (the UI shows a "+"). */
   totalIsExact: boolean;
   assets: AssetRow[];
   /** Rows withheld by the tier cap. */

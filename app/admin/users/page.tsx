@@ -25,7 +25,25 @@ export default async function UsersPage() {
       prisma.user.findMany({
         take: 25,
         orderBy: { createdAt: 'desc' },
-        include: {
+        // Explicit select (mirrors GET /api/admin/users): never load
+        // passwordHash / stripeId into the RSC payload.
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          emailVerified: true,
+          image: true,
+          role: true,
+          membership: true,
+          credits: true,
+          status: true,
+          geminiApiKey: true,
+          openaiApiKey: true,
+          grokApiKey: true,
+          preferredAiProvider: true,
+          deletedAt: true,
+          createdAt: true,
+          updatedAt: true,
           creditWallet: true,
           memberships: {
             where: { status: 'ACTIVE' },

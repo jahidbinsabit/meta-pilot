@@ -320,17 +320,33 @@ export async function POST(req: Request) {
   switch (action) {
     case 'edit_user':
     case 'update_user': {
-      // Block role/status/password edits through the bulk edit path too.
+      // Block guarded-field edits through the bulk edit path too — but test
+      // for actual CHANGES, not mere presence: the edit dialog always
+      // submits role/status/membership/credits with their current values,
+      // so a presence test 403'd every save on an admin/self row, even a
+      // name-only fix. The change-based blocks mirror guardAdminTarget's
+      // policy for the dedicated actions.
       const b: any = body;
-      if (isOtherAdmin && (b.role !== undefined || b.status !== undefined || (typeof b.password === 'string' && b.password.trim().length > 0))) {
+      const roleChanged = b.role !== undefined && String(b.role).toUpperCase() !== user.role;
+      const statusChanged = b.status !== undefined && String(b.status).toUpperCase() !== user.status;
+      const membershipChanged =
+        b.membership !== undefined && String(b.membership).toUpperCase() !== user.membership;
+      const currentBalance = user.creditWallet?.balance ?? user.credits;
+      const creditsChanged =
+        typeof b.credits === 'number' &&
+        Number.isInteger(b.credits) &&
+        Math.max(0, b.credits) !== currentBalance;
+      const passwordChange = typeof b.password === 'string' && b.password.trim().length > 0;
+
+      if (isOtherAdmin && (roleChanged || statusChanged || membershipChanged || creditsChanged || passwordChange)) {
         return NextResponse.json(
-          { error: 'cannot_modify_admin', message: 'You cannot change the role, status, or password of another admin account.' },
+          { error: 'cannot_modify_admin', message: 'You cannot change the role, status, password, credits, or membership of another admin account.' },
           { status: 403 },
         );
       }
-      if (isSelf && (b.role !== undefined || b.status !== undefined)) {
+      if (isSelf && (roleChanged || statusChanged || membershipChanged || creditsChanged)) {
         return NextResponse.json(
-          { error: 'cannot_modify_self', message: 'You cannot change your own role or status.' },
+          { error: 'cannot_modify_self', message: 'You cannot change your own role, status, credits, or membership.' },
           { status: 403 },
         );
       }

@@ -6,8 +6,11 @@ export const runtime = 'nodejs';
 
 function normalizeAudience(value: unknown) {
   const normalized = String(value || 'ALL').toUpperCase();
-  if (['ALL', 'FREE', 'PRO', 'PLUS', 'AGENCY'].includes(normalized)) {
-    return normalized as 'ALL' | 'FREE' | 'PRO' | 'PLUS' | 'AGENCY';
+  // ENTERPRISE is a real NotificationAudience (schema + dashboard consumer
+  // support it) — omitting it here silently widened those notifications
+  // to ALL users.
+  if (['ALL', 'FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'].includes(normalized)) {
+    return normalized as 'ALL' | 'FREE' | 'PRO' | 'PLUS' | 'AGENCY' | 'ENTERPRISE';
   }
   return 'ALL';
 }

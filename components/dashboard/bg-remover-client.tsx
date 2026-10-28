@@ -9,44 +9,100 @@ import { ApiKeyRequiredDialog } from '@/components/dashboard/api-key-required-di
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { AlertCircle, Loader2, Trash2, Download } from 'lucide-react';
+import { AlertCircle, Loader2, Download } from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import type { ToolEntry } from '@/lib/tools/registry';
 import { ToolShell } from '@/components/dashboard/tool-shell';
 import { downloadBlob } from '@/lib/tools/client-image';
 
+/** Per-file processing outcome, keyed by UploadedFile.id. */
+type FileOutcome =
+  | { status: 'processing' }
+  | { status: 'done'; url: string }
+  | { status: 'error'; error: string };
+
+function resultName(name: string): string {
+  return `${name.replace(/\.[^.]+$/, '')}-no-bg.png`;
+}
+
 export function BgRemoverClient({ tool }: { tool: ToolEntry }) {
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
-  const [results, setResults] = React.useState<
-    { id: string; label: string; url: string; dataUrl: string }[]
-  >([]);
+  const [outcomes, setOutcomes] = React.useState<Record<string, FileOutcome>>({});
   const toast = useToast();
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = React.useState(false);
-  const { readyFiles, totalCost, canProcess, credits, unlimited } = useToolGating(files, tool);
+  const { readyFiles, credits, unlimited } = useToolGating(files, tool);
   const queryClient = useQueryClient();
 
+  // Only files without a completed result are (re)processed: a second click
+  // retries failed/pending files and never re-charges finished ones, and the
+  // gate/price below covers exactly the files that will actually be charged.
+  const pendingFiles = readyFiles.filter((f) => outcomes[f.id]?.status !== 'done');
+  const pendingCost = pendingFiles.length * tool.creditCost;
+  const canRun =
+    pendingFiles.length > 0 &&
+    !files.some((f) => f.status === 'analyzing') &&
+    (tool.isFree || unlimited || credits >= pendingCost);
+  const processedFiles = files.filter((f) => outcomes[f.id]);
+
+  const removeOne = async (file: UploadedFile): Promise<string> => {
+    const res = await fetch('/api/tools/bg-remover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: file.key, fileName: file.name }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || 'bg_removal_failed');
+    }
+    const data = await res.json();
+    return data.pngUrl as string;
+  };
+
   const mutation = useMutation({
-    mutationFn: async () => {
-      const ready = readyFiles;
-      const res = await fetch('/api/tools/bg-remover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: ready[0].key, fileName: ready[0].name }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || 'bg_removal_failed');
+    mutationFn: async (targets: UploadedFile[]) => {
+      let done = 0;
+      let failed = 0;
+      for (const file of targets) {
+        setOutcomes((prev) => ({ ...prev, [file.id]: { status: 'processing' } }));
+        try {
+          const url = await removeOne(file);
+          setOutcomes((prev) => ({ ...prev, [file.id]: { status: 'done', url } }));
+          done++;
+        } catch (e: any) {
+          // API key required → abort the batch; the dialog explains why.
+          // The in-flight file goes back to pending so it isn't stranded.
+          if (isApiKeyError(e?.message)) {
+            setOutcomes((prev) => {
+              const next = { ...prev };
+              delete next[file.id];
+              return next;
+            });
+            throw e;
+          }
+          setOutcomes((prev) => ({
+            ...prev,
+            [file.id]: { status: 'error', error: e?.message || 'bg_removal_failed' },
+          }));
+          failed++;
+        }
       }
-      return res.json();
+      return { done, failed, total: targets.length };
     },
-    onSuccess: async (data: any) => {
-      const pngUrl: string = data.pngUrl;
-      setResults((prev) => [
-        ...prev,
-        { id: pngUrl, label: 'background-removed.png', url: pngUrl, dataUrl: pngUrl },
-      ]);
+    onSuccess: (summary) => {
       queryClient.invalidateQueries({ queryKey: ['credits'] });
-      toast({ title: 'Background removed', variant: 'success' });
+      if (summary.failed === 0) {
+        toast({
+          title:
+            summary.total > 1 ? `Backgrounds removed (${summary.done})` : 'Background removed',
+          variant: 'success',
+        });
+      } else {
+        toast({
+          title: `${summary.done} done, ${summary.failed} failed`,
+          description: 'Failed files stay queued — click again to retry only those.',
+          variant: 'error',
+        });
+      }
     },
     onError: (e: any) => {
       // API key required → show the add-key popup instead of a generic toast.
@@ -87,17 +143,17 @@ export function BgRemoverClient({ tool }: { tool: ToolEntry }) {
               batchLimit={10}
               disabled={mutation.isPending}
             />
-            <Button onClick={() => mutation.mutate()} disabled={!canProcess || mutation.isPending}>
+            <Button onClick={() => mutation.mutate(pendingFiles)} disabled={!canRun || mutation.isPending}>
               {mutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 'Remove background'
               )}
             </Button>
-            {!tool.isFree && !unlimited && credits < totalCost && readyFiles.length > 0 && (
+            {!tool.isFree && !unlimited && credits < pendingCost && pendingFiles.length > 0 && (
               <p className="flex items-center gap-1.5 text-xs text-amber-400">
                 <AlertCircle className="h-3.5 w-3.5" />
-                You need {totalCost} credits but have {credits}.
+                You need {pendingCost} credits but have {credits}.
               </p>
             )}
           </CardContent>
@@ -109,43 +165,72 @@ export function BgRemoverClient({ tool }: { tool: ToolEntry }) {
             <CardDescription>Transparent PNG with the background removed.</CardDescription>
           </CardHeader>
           <CardContent>
-            {results.length === 0 ? (
+            {processedFiles.length === 0 ? (
               <div className="flex min-h-[220px] flex-col items-center justify-center text-center text-muted-foreground">
                 <p className="text-sm">No result yet.</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {results.map((r) => (
-                  <div
-                    key={r.id}
-                    className="overflow-hidden rounded-lg border border-border bg-card-2"
-                  >
+                {processedFiles.map((f) => {
+                  const o = outcomes[f.id];
+                  if (!o) return null;
+                  return (
                     <div
-                      className="aspect-square grid place-items-center"
-                      style={{
-                        backgroundImage: 'repeating-conic-gradient(#555 0% 25%, #333 0% 50%)',
-                        backgroundSize: '16px 16px',
-                      }}
+                      key={f.id}
+                      className="overflow-hidden rounded-lg border border-border bg-card-2"
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={r.dataUrl}
-                        alt={r.label}
-                        className="max-h-full max-w-full object-contain"
-                      />
+                      {o.status === 'done' ? (
+                        <>
+                          <div
+                            className="aspect-square grid place-items-center"
+                            style={{
+                              backgroundImage:
+                                'repeating-conic-gradient(#555 0% 25%, #333 0% 50%)',
+                              backgroundSize: '16px 16px',
+                            }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={o.url}
+                              alt={resultName(f.name)}
+                              className="max-h-full max-w-full object-contain"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-2 p-2">
+                            <span className="truncate text-xs text-muted-foreground">
+                              {resultName(f.name)}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => downloadOne(o.url, resultName(f.name))}
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-2 p-3 text-sm">
+                          {o.status === 'processing' ? (
+                            <>
+                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                              <span className="truncate text-muted-foreground">
+                                {f.name} — processing…
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <AlertCircle className="h-4 w-4 shrink-0 text-red-400" />
+                              <span className="truncate text-muted-foreground">
+                                {f.name} — failed: {o.error}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between gap-2 p-2">
-                      <span className="truncate text-xs text-muted-foreground">{r.label}</span>
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => downloadOne(r.dataUrl, r.label)}
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

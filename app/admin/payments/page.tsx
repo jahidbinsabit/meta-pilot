@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { listGatewayConfigsAdmin } from '@/lib/payments/config';
+import { listGatewayConfigsAdmin, maskCredentials } from '@/lib/payments/config';
 import { PaymentsClient } from '@/components/admin/payments-client';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +13,14 @@ export default async function PaymentsPage() {
       orderBy: { createdAt: 'desc' },
       take: 200,
     }),
-    listGatewayConfigsAdmin().catch(() => []),
+    // T4-30: listGatewayConfigsAdmin returns DECRYPTED credentials — mask
+    // them before they are serialised into the client props, exactly like
+    // the gateways API does. The browser must only ever hold ••••last4.
+    listGatewayConfigsAdmin()
+      .then((gateways) =>
+        gateways.map((g) => ({ ...g, credentials: maskCredentials(g.credentials) })),
+      )
+      .catch(() => []),
     prisma.plan.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: 'asc' },
