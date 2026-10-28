@@ -66,7 +66,7 @@ const CONTRIBUTOR_PRESETS = [
 ];
 
 /** How many top results the free tier sees; mirrors FREE_TIER_RESULT_LIMIT. */
-const FREE_LIMIT = 20;
+const FREE_LIMIT = 100;
 
 /** Assets shown per results page (both tabs). */
 const PAGE_SIZE = 100;
@@ -405,7 +405,7 @@ function KeywordTab({
               hint={
                 result.limit === -1
                   ? `${result.planName} · unlimited`
-                  : `${result.planName} · limit ${result.limit}`
+                  : `${result.planName} · ${result.limit / PAGE_SIZE} page${result.limit === PAGE_SIZE ? '' : 's'} (${result.limit.toLocaleString()} results)`
               }
             />
             <StatTile
@@ -602,7 +602,11 @@ function ContributorTab({
   const pageAssets = result
     ? result.assets.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
     : [];
-  const exhausted = result ? result.totalIsExact : true;
+  // The pool is also exhausted, for paging purposes, when it reaches
+  // the plan's row cap — the server will never serve past it, so Next
+  // must stop there instead of fetching the same pool forever.
+  const atCap = result ? result.limit > 0 && result.assets.length >= result.limit : false;
+  const exhausted = result ? result.totalIsExact || atCap : true;
   const goToPage = (n: number) => {
     if (n < 1) return;
     setPage(n);
@@ -794,7 +798,7 @@ function ContributorTab({
               hint={
                 result.limit === -1
                   ? `${result.planName} · unlimited`
-                  : `${result.planName} · limit ${result.limit}`
+                  : `${result.planName} · ${result.limit / PAGE_SIZE} page${result.limit === PAGE_SIZE ? '' : 's'} (${result.limit.toLocaleString()} results)`
               }
             />
           </div>
@@ -836,6 +840,9 @@ function ContributorTab({
                           {result.assets.length.toLocaleString()}
                           {exhausted ? '' : '+'} assets
                           {filling ? ' · loading more in the background…' : ''}
+                          {atCap && !result.totalIsExact
+                            ? ` · ${result.planName} plan limit reached`
+                            : ''}
                         </>
                       ) : (
                         <>Loading page {safePage}&hellip;</>

@@ -18,8 +18,11 @@ import { prisma } from '@/lib/db';
 
 export type AdobeTier = 'FREE' | 'PRO' | 'PLUS' | 'AGENCY' | 'ENTERPRISE';
 
-/** Free tier sees this many rows; the rest render blurred behind the CTA. */
-export const FREE_TIER_RESULT_LIMIT = 20;
+/** Free tier sees one full page of results (100 rows). Admins steer
+ *  every plan by PAGES from the admin panel (stored as rows = pages x
+ *  100 on the Plan row); this constant is only the fallback for a FREE
+ *  plan whose stored limit was never configured. */
+export const FREE_TIER_RESULT_LIMIT = 100;
 
 export interface AnalyticsGate {
   tier: AdobeTier;
@@ -86,8 +89,8 @@ export async function getAnalyticsGate(userId: string): Promise<AnalyticsGate> {
 
 /**
  * A FREE plan row seeded with `adobeAnalyticsResultLimit: 0` means "free
- * tier, show the standard 20" — 0 is the "not configured" sentinel in the
- * seed, not a real "show nothing" cap.
+ * tier, show the standard first page (100)" — 0 is the "not configured"
+ * sentinel in the seed, not a real "show nothing" cap.
  */
 function normalizeLimit(raw: number | null | undefined, tier: string): number {
   if (raw === -1) return -1;

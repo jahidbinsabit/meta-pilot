@@ -21,10 +21,10 @@ function asset(id: number): AssetRow {
 }
 
 describe('tier gating (PROMPT 6.3)', () => {
-  it('caps the free tier at exactly 20 rows', () => {
+  it('caps the free tier at exactly one page (100 rows)', () => {
     const g = applyRowGate(12_043, FREE_TIER_RESULT_LIMIT);
-    expect(g.visible).toBe(20);
-    expect(g.hidden).toBe(12_023);
+    expect(g.visible).toBe(100);
+    expect(g.hidden).toBe(11_943);
   });
 
   it('returns every row when the total is under the cap', () => {

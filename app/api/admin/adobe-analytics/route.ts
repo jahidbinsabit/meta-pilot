@@ -5,23 +5,25 @@ import { prisma } from '@/lib/db';
 
 /**
  * GET  -> all plans with their Adobe Analytics row limit
- * PUT  -> update one plan's `adobeAnalyticsResultLimit`
+ * PUT  -> update one plan's Adobe Analytics PAGE limit
  *
- * This is the "limit per tier configurable from the admin panel" hook
- * (PROMPT 6.3). Editing it takes effect on the next search — no redeploy,
- * because the cap is read from the Plan row at request time.
+ * Admins steer the gate in PAGES (100 results per page); storage stays
+ * the Plan row's `adobeAnalyticsResultLimit` in rows (pages x 100, -1
+ * for unlimited). Editing takes effect on the next search — no
+ * redeploy, because the cap is read from the Plan row at request time.
  */
 
-const MAX_LIMIT = 100_000;
+const PAGE_SIZE = 100;
+const MAX_PAGES = 1000;
 
 const updateSchema = z.object({
   tier: z.enum(['FREE', 'PRO', 'PLUS', 'AGENCY']),
-  // -1 = unlimited, 0 = "not configured" (falls back to 20 on free), >0 = cap
-  adobeAnalyticsResultLimit: z
+  // -1 = unlimited pages, otherwise 1..1000 pages
+  pages: z
     .number()
     .int()
     .min(-1, 'Use -1 for unlimited')
-    .max(MAX_LIMIT, `Maximum ${MAX_LIMIT.toLocaleString()}`),
+    .max(MAX_PAGES, `Maximum ${MAX_PAGES} pages`),
 });
 
 export async function GET() {
@@ -75,7 +77,8 @@ export async function PUT(req: Request) {
     );
   }
 
-  const { tier, adobeAnalyticsResultLimit } = parsed.data;
+  const { tier, pages } = parsed.data;
+  const adobeAnalyticsResultLimit = pages === -1 ? -1 : pages * PAGE_SIZE;
 
   const before = await prisma.plan.findUnique({ where: { tier } });
   if (!before) {
@@ -94,7 +97,7 @@ export async function PUT(req: Request) {
       targetType: 'Plan',
       targetId: plan.id,
       before: { adobeAnalyticsResultLimit: before.adobeAnalyticsResultLimit } as any,
-      after: { adobeAnalyticsResultLimit } as any,
+      after: { adobeAnalyticsResultLimit, pages } as any,
     },
   });
 
@@ -102,6 +105,7 @@ export async function PUT(req: Request) {
     id: plan.id,
     name: plan.name,
     tier: plan.tier,
+    pages,
     adobeAnalyticsResultLimit: plan.adobeAnalyticsResultLimit,
   });
 }

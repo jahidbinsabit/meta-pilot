@@ -161,7 +161,7 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                   <th className="pb-3 pr-4 text-right">BDT</th>
                   <th className="pb-3 pr-4 text-right">Credits</th>
                   <th className="pb-3 pr-4 text-right">Daily Free</th>
-                  <th className="pb-3 pr-4 text-right">AA Limit</th>
+                  <th className="pb-3 pr-4 text-right">AA Pages</th>
                   <th className="pb-3 pr-4 text-center">Active</th>
                   <th className="pb-3 text-right">Actions</th>
                 </tr>
@@ -247,20 +247,28 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                         {isEditing && ep ? (
                           <Input
                             type="number"
-                            value={ep.adobeAnalyticsResultLimit}
+                            value={
+                              ep.adobeAnalyticsResultLimit === -1
+                                ? ''
+                                : ep.adobeAnalyticsResultLimit / 100
+                            }
+                            placeholder="∞"
                             onChange={(e) => {
                               const raw = e.target.value;
                               setEditing({
                                 ...ep,
-                                adobeAnalyticsResultLimit: raw === '' ? 0 : parseInt(raw, 10),
+                                adobeAnalyticsResultLimit:
+                                  raw === '' ? -1 : (parseInt(raw, 10) || 0) * 100,
                               });
                             }}
                             className="h-8 w-20 text-right"
                           />
+                        ) : plan.adobeAnalyticsResultLimit === -1 ? (
+                          'Unlimited'
+                        ) : plan.adobeAnalyticsResultLimit % 100 === 0 ? (
+                          `${plan.adobeAnalyticsResultLimit / 100} pg`
                         ) : (
-                          plan.adobeAnalyticsResultLimit === -1
-                            ? 'Unlimited'
-                            : plan.adobeAnalyticsResultLimit.toLocaleString()
+                          plan.adobeAnalyticsResultLimit.toLocaleString()
                         )}
                       </td>
                       <td className="py-3 pr-4 text-center">
@@ -409,16 +417,22 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="aalimit">AA Limit (-1 for unlimited)</Label>
+                <Label htmlFor="aalimit">AA Pages (blank = unlimited, 1 page = 100 results)</Label>
                 <Input
                   id="aalimit"
                   type="number"
-                  value={draft.adobeAnalyticsResultLimit}
+                  value={
+                    draft.adobeAnalyticsResultLimit === -1
+                      ? ''
+                      : draft.adobeAnalyticsResultLimit / 100
+                  }
+                  placeholder="unlimited"
                   onChange={(e) => {
                     const raw = e.target.value;
                     setDraft({
                       ...draft,
-                      adobeAnalyticsResultLimit: raw === '' ? 0 : parseInt(raw, 10),
+                      adobeAnalyticsResultLimit:
+                        raw === '' ? -1 : (parseInt(raw, 10) || 0) * 100,
                     });
                   }}
                 />
