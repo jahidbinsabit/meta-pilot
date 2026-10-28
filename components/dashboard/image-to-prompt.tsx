@@ -526,6 +526,50 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     return items;
   }, [files, results, generatingIds]);
 
+  // Action bar — handed to ImageUploader's actionBar slot so the
+  // Generate button sits directly under the dropzone (top), exactly
+  // like the metadata generator, instead of below the thumbnail list.
+  const actionBar = files.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card-2 p-3">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                    <span>{readyFiles.length} image{readyFiles.length === 1 ? '' : 's'} ready</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-muted-foreground">{totalCost} credit{totalCost === 1 ? '' : 's'} total</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {costPerImage} credit per image
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 rounded-lg text-xs border-destructive/40 bg-destructive/5 text-destructive hover:bg-destructive/15 hover:text-destructive"
+                    onClick={() => {
+                      stopRequestedRef.current = true;
+                      setFiles([]);
+                      setResults([]);
+                      setDropzoneExpanded(true);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Clear All
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-9 rounded-lg text-xs"
+                    onClick={() => startStreamingGeneration()}
+                    disabled={!canGenerate}
+                  >
+                    {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    {isGenerating ? 'Generating…' : `Generate ${readyFiles.length > 1 ? `${readyFiles.length} prompts` : 'prompt'}`}
+                  </Button>
+                </div>
+              </div>
+            ) : undefined;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
       {/* Left: Control Rail */}
@@ -579,49 +623,8 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
                 onFilesChange={setFiles}
                 batchLimit={batchLimit}
                 disabled={isGenerating}
+                actionBar={actionBar}
               />
-            )}
-
-            {/* Action bar / status banner */}
-            {files.length > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card-2 p-3">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-                    <span>{readyFiles.length} image{readyFiles.length === 1 ? '' : 's'} ready</span>
-                    <span className="text-muted-foreground">·</span>
-                    <span className="text-muted-foreground">{totalCost} credit{totalCost === 1 ? '' : 's'} total</span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    {costPerImage} credit per image
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 rounded-lg text-xs border-destructive/40 bg-destructive/5 text-destructive hover:bg-destructive/15 hover:text-destructive"
-                    onClick={() => {
-                      stopRequestedRef.current = true;
-                      setFiles([]);
-                      setResults([]);
-                      setDropzoneExpanded(true);
-                    }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Clear All
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-9 rounded-lg text-xs"
-                    onClick={() => startStreamingGeneration()}
-                    disabled={!canGenerate}
-                  >
-                    {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    {isGenerating ? 'Generating…' : `Generate ${readyFiles.length > 1 ? `${readyFiles.length} prompts` : 'prompt'}`}
-                  </Button>
-                </div>
-              </div>
             )}
 
             {files.length > 0 && !unlimited && credits < totalCost && (
