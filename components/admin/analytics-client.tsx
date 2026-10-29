@@ -62,7 +62,7 @@ export function AnalyticsClient({
         <CardHeader>
           <CardTitle>Daily generations</CardTitle>
           <CardDescription>
-            ToolJob generations per day — last {days} days (total {totalGens}).
+            Images generated per day (Asia/Dhaka days) — last {days} days (total {totalGens}).
           </CardDescription>
         </CardHeader>
         <CardContent>
