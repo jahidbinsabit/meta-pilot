@@ -140,6 +140,7 @@ async function handleUserEdit(admin: any, user: any, body: any) {
     grokApiKey,
     preferredAiProvider,
     planId,
+    creditReason,
   } = body;
   const userId = user.id;
   const updateData: any = {};
@@ -239,6 +240,27 @@ async function handleUserEdit(admin: any, user: any, body: any) {
     }
   }
 
+  // T4-21: a plan-only change (same tier, different planId) must also take
+  // effect — planId used to be read only inside the tier-change branch
+  // above, so picking another plan of the same tier silently did nothing.
+  if (planId && targetTier === user.membership && targetTier !== 'FREE') {
+    const currentMembership = await prisma.membership.findFirst({
+      where: { userId, status: 'ACTIVE' },
+      select: { planId: true },
+    });
+    if (currentMembership?.planId !== planId) {
+      const targetPlan = await prisma.plan.findUnique({ where: { id: planId } });
+      if (targetPlan) {
+        await prisma.membership.updateMany({ where: { userId, status: 'ACTIVE' }, data: { status: 'CANCELED' } });
+        const renewsAt = new Date();
+        renewsAt.setMonth(renewsAt.getMonth() + 1);
+        await prisma.membership.create({
+          data: { id: createId(), userId, planId: targetPlan.id, status: 'ACTIVE', renewsAt },
+        });
+      }
+    }
+  }
+
   let finalBalance = user.credits;
   if (credits !== undefined && typeof credits === 'number' && Number.isInteger(credits)) {
     const targetCredits = Math.max(0, credits);
@@ -248,7 +270,7 @@ async function handleUserEdit(admin: any, user: any, body: any) {
       await prisma.$transaction(async (tx) => {
         await tx.creditWallet.upsert({ where: { userId }, update: { balance: targetCredits }, create: { userId, balance: targetCredits } });
         await tx.user.update({ where: { id: userId }, data: { credits: targetCredits } });
-        await tx.creditTransaction.create({ data: { userId, amount: diff, type: 'ADMIN_ADJUSTMENT', reason: `Admin set balance to ${targetCredits}` } });
+        await tx.creditTransaction.create({ data: { userId, amount: diff, type: 'ADMIN_ADJUSTMENT', reason: typeof creditReason === 'string' && creditReason.trim() ? creditReason.trim() : `Admin set balance to ${targetCredits}` } });
       });
       finalBalance = targetCredits;
       updateData.credits = targetCredits;
@@ -449,6 +471,14 @@ export async function POST(req: Request) {
     case 'set_status': {
       const guard = guardAdminTarget('set_status');
       if (guard) return guard;
+      // T4-25: a soft-deleted user's status is owned by delete/restore —
+      // toggling it here would flip status underneath the deleted flag.
+      if (user.deletedAt) {
+        return NextResponse.json(
+          { error: 'user_deleted', message: 'Restore this user before changing their status.' },
+          { status: 400 },
+        );
+      }
       const { status } = body;
       const normalized = String(status).toUpperCase();
       if (normalized !== 'ACTIVE' && normalized !== 'SUSPENDED') {
@@ -544,6 +574,14 @@ export async function POST(req: Request) {
   }
   if (err?.message === 'FORBIDDEN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
+  // T4-24: a quick-credits overdraft threw InsufficientCreditsError out of
+  // deductCredits and surfaced as an opaque 500 — map it to a 400.
+  if (err?.name === 'InsufficientCreditsError') {
+    return NextResponse.json(
+      { error: 'insufficient_credits', message: err.message || 'Insufficient credits for that deduction.' },
+      { status: 400 },
+    );
   }
   return NextResponse.json({ error: 'internal_error', message: err?.message || 'Server error' }, { status: 500 });
 }

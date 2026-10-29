@@ -1,22 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import {
-  Calendar as CalendarIcon,
-  Plus,
-  Trash2,
-  Clock,
-  Bell,
-  Download,
-  FileJson,
-} from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, Trash2, FileJson } from 'lucide-react';
 import type { ToolEntry } from '@/lib/tools/registry';
 import { ToolShell } from '@/components/dashboard/tool-shell';
 
@@ -57,7 +48,6 @@ export function EventsClient({ tool }: { tool: ToolEntry }) {
   const [type, setType] = React.useState<Event['type']>('reminder');
   const [note, setNote] = React.useState('');
   const toast = useToast();
-  const queryClient = useQueryClient();
 
   // Persist events in localStorage so they survive reloads.
   React.useEffect(() => {

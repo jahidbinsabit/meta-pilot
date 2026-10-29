@@ -18,6 +18,7 @@ export {
   generateWithAI,
   generateAi,
   getAdapterForTool,
+  getAdapterForProvider,
   getActiveProviderForTool,
   getProviderConfigForTool,
   getToolProviderMap,

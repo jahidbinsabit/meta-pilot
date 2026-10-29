@@ -12,6 +12,21 @@ export const runtime = 'nodejs';
  * results into the ToolJob's outputData after each group of 5 images,
  * so a poll returns finished entries plus 'processing' placeholders
  * for the rest.
+ *
+ * `?known=<n>` (R9 H3): the client reports how many FINISHED entries
+ * (status complete/failed) it has already incorporated from earlier
+ * polls. Result entries are monotonic — a finished entry never
+ * changes again, and unfinished entries carry nothing the client
+ * renders — so when the job's finished count still equals `known`,
+ * nothing the client displays can have changed, and the response is
+ * a compact payload (status + counts, `unchanged: true`) WITHOUT the
+ * results array. That breaks the old O(n²) pattern of re-shipping the
+ * whole cumulative results array (~125 KB+ on a 100-image job) every
+ * 2.5 s per tab. Any finished-count change — including the terminal
+ * write — returns the full payload exactly as before, so failed
+ * entries and final results always arrive intact. For append-only
+ * image-prompt jobs every entry is finished on arrival, so `known`
+ * there is simply the results length the client already holds.
  */
 export async function GET(
   req: Request,
@@ -45,9 +60,8 @@ export async function GET(
       ? output.failed
       : results.filter((r) => r.status === 'failed').length;
 
-  return NextResponse.json({
+  const scalars = {
     status: job.status,
-    results,
     partial: typeof output.partial === 'boolean' ? output.partial : !finished,
     succeeded,
     failed,
@@ -58,5 +72,16 @@ export async function GET(
         ? output.balance
         : await getBalance(user.id),
     errorMessage: job.errorMessage ?? null,
+  };
+
+  const knownRaw = Number.parseInt(new URL(req.url).searchParams.get('known') ?? '', 10);
+  const known = Number.isFinite(knownRaw) && knownRaw >= 0 ? knownRaw : null;
+  if (known !== null && known === succeeded + failed) {
+    return NextResponse.json({ id: job.id, ...scalars, unchanged: true });
+  }
+
+  return NextResponse.json({
+    ...scalars,
+    results,
   });
 }

@@ -75,7 +75,10 @@ export function ProfileClient({ initialProfile }: { initialProfile: ProfileData 
         throw new Error(err.message || err.error || 'Update failed');
       }
       const updated: ProfileData = await res.json();
-      setProfile(updated);
+      // Merge over the previous state so a field the PATCH response
+      // doesn't carry (e.g. createdAt on older deployments) can't blank
+      // out the card (T1-13).
+      setProfile((prev) => ({ ...prev, ...updated }));
       setAvatarFile(null);
       setAvatarPreview(null);
       await updateSession({ name: updated.name, image: updated.image });
@@ -193,12 +196,20 @@ export function ProfileClient({ initialProfile }: { initialProfile: ProfileData 
               </div>
             </div>
           </div>
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            Member since{' '}
-            {new Date(profile.createdAt).toLocaleDateString('en-US', {
-              year: 'numeric', month: 'long', day: 'numeric',
-            })}
-          </p>
+          {(() => {
+            // Legacy rows can carry a null/unparseable createdAt — never
+            // render the literal "Invalid Date" (T1-13).
+            const since = profile.createdAt ? new Date(profile.createdAt) : null;
+            if (!since || Number.isNaN(since.getTime())) return null;
+            return (
+              <p className="mt-3 text-[11px] text-muted-foreground">
+                Member since{' '}
+                {since.toLocaleDateString('en-US', {
+                  year: 'numeric', month: 'long', day: 'numeric',
+                })}
+              </p>
+            );
+          })()}
         </CardContent>
       </Card>
     </div>

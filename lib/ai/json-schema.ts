@@ -11,7 +11,7 @@
  * the adapter still works — the Zod parse at the end is the real gate.
  */
 
-import type { ZodType, ZodEffects, ZodOptional, ZodDefault, ZodNullable } from 'zod';
+import type { ZodType, ZodEffects } from 'zod';
 
 type JsonSchema = Record<string, unknown>;
 

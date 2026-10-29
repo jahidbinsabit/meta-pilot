@@ -73,14 +73,18 @@ export function CreditPackagesClient({ initialPackages }: { initialPackages: Cre
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/admin/credit-packages/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete package');
+      if (!res.ok) {
+        // T4-39: surface the server's reason instead of a generic failure.
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.message || j.error || 'Failed to delete package');
+      }
       return res.json();
     },
     onSuccess: (_, id) => {
       setPackages((prev) => prev.filter((p) => p.id !== id));
       toast({ title: 'Package deleted', variant: 'success' });
     },
-    onError: () => toast({ title: 'Failed to delete package', variant: 'error' }),
+    onError: (e: Error) => toast({ title: e.message || 'Failed to delete package', variant: 'error' }),
   });
 
   const createMutation = useMutation({
@@ -92,7 +96,7 @@ export function CreditPackagesClient({ initialPackages }: { initialPackages: Cre
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || 'Failed to create package');
+        throw new Error(err.message || err.error || 'Failed to create package');
       }
       return res.json() as Promise<CreditPackage>;
     },
@@ -244,7 +248,11 @@ export function CreditPackagesClient({ initialPackages }: { initialPackages: Cre
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => deleteMutation.mutate(pkg.id)}
+                              onClick={() => {
+                                // T4-39: deletes fired with no confirmation.
+                                if (!confirm(`Delete the "${pkg.name}" credit package? This cannot be undone.`)) return;
+                                deleteMutation.mutate(pkg.id);
+                              }}
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
@@ -306,6 +314,31 @@ export function CreditPackagesClient({ initialPackages }: { initialPackages: Cre
                   value={draft.priceBDT}
                   onChange={(e) => setDraft({ ...draft, priceBDT: parseInt(e.target.value) || 0 })}
                 />
+              </div>
+            </div>
+            {/* T4-40: sortOrder / isActive were in the create payload but
+                had no controls — dead fields in the editor. */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="pkg-sort">Sort Order</Label>
+                <Input
+                  id="pkg-sort"
+                  type="number"
+                  value={draft.sortOrder}
+                  onChange={(e) => setDraft({ ...draft, sortOrder: parseInt(e.target.value, 10) || 0 })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="pkg-active">Active</Label>
+                <div className="flex h-10 items-center">
+                  <input
+                    id="pkg-active"
+                    type="checkbox"
+                    checked={draft.isActive}
+                    onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })}
+                    className="h-4 w-4 rounded border-input"
+                  />
+                </div>
               </div>
             </div>
           </div>

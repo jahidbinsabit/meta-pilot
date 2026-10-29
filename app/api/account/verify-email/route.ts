@@ -4,11 +4,6 @@ import { prisma } from '@/lib/db';
 import { verifyEmail, verifyEmailOtp, resendEmailOtp } from '@/lib/email/verification';
 import { rateLimitResponse } from '@/lib/rate-limit';
 
-const VerifySchema = z.object({
-  token: z.string(),
-  email: z.string().trim().toLowerCase().email(),
-});
-
 const OtpSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   otp: z.string().min(4).max(8),

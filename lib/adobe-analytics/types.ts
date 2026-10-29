@@ -143,4 +143,11 @@ export interface ContributorResult {
     totalKeywords: number;
   };
   warning?: string;
+  /**
+   * True when the pool came from the server-side pool cache (R9 H1/H2)
+   * and NO paid actor run happened for this request. The route uses it
+   * for cap accounting (a cache hit is not a daily attempt and fetches
+   * zero rows); it doubles as a harmless hint to the client.
+   */
+  cacheHit?: boolean;
 }

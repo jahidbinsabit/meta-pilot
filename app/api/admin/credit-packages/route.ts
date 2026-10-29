@@ -12,16 +12,6 @@ const createSchema = z.object({
   sortOrder: z.number().int().default(0),
 });
 
-export async function GET() {
-  await requireApiAdmin();
-
-  const packages = await prisma.creditPackage.findMany({
-    orderBy: { sortOrder: 'asc' },
-  });
-
-  return NextResponse.json(packages);
-}
-
 export async function POST(req: Request) {
   const admin = await requireApiAdmin();
 
@@ -34,9 +24,22 @@ export async function POST(req: Request) {
     );
   }
 
-  const pkg = await prisma.creditPackage.create({
-    data: parsed.data,
-  });
+  // T4-36: duplicate package name hit the @unique constraint as an
+  // unhandled 500 — map P2002 to a 409 the client can explain.
+  let pkg;
+  try {
+    pkg = await prisma.creditPackage.create({
+      data: parsed.data,
+    });
+  } catch (e: any) {
+    if (e?.code === 'P2002') {
+      return NextResponse.json(
+        { error: 'package_exists', message: `A credit package named "${parsed.data.name}" already exists.` },
+        { status: 409 },
+      );
+    }
+    throw e;
+  }
 
   await prisma.auditLog.create({
     data: {

@@ -2,28 +2,34 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Zap } from 'lucide-react';
 
-export function LoginHeader({ siteName }: { siteName?: string }) {
+/**
+ * Auth-page brand header. Uses the SAME brand block as the public site
+ * header (components/marketing/navbar.tsx): the site-settings logo in an
+ * accent tile (Zap mark as fallback) next to the site name — no separate
+ * auth-only logo, so the brand is identical on every surface.
+ */
+export function LoginHeader({
+  siteName,
+  logoUrl,
+}: {
+  siteName?: string;
+  logoUrl?: string | null;
+}) {
   const name = siteName || 'MetaCSV';
-  // Keep the accent styling for the default brand; render custom names plainly.
-  const isDefault = name === 'MetaCSV';
   return (
     <div className="flex items-center justify-between">
-      <Link href="/" className="group flex items-center gap-3 hover:opacity-90">
-        <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-accent via-indigo-600 to-blue-500 text-white shadow-lg shadow-accent/25 group-hover:scale-105 transition-transform">
-          <Zap className="h-5 w-5 fill-white text-white" />
+      <Link href="/" className="flex items-center gap-2.5">
+        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="" className="absolute inset-0 h-full w-full rounded-lg object-contain" />
+          ) : (
+            <Zap className="h-5 w-5" />
+          )}
         </div>
-        <div className="flex flex-col">
-          <span className="font-display text-lg font-bold tracking-tight text-foreground">
-            {isDefault ? (
-              <>MetaCSV</>
-            ) : (
-              name
-            )}
-          </span>
-          <span className="text-2xs font-medium text-muted-foreground uppercase tracking-widest">
-            Metadata Studio
-          </span>
-        </div>
+        <span className="font-display text-lg font-bold tracking-tight text-foreground">
+          {name}
+        </span>
       </Link>
       <div className="hidden sm:flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-2xs font-medium text-emerald-400">
         <span className="relative flex h-2 w-2">

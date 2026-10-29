@@ -6,6 +6,8 @@ import { Check, ArrowRight, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatCheckoutAmount, type PublicGateway, type CheckoutCurrency } from '@/lib/payments/public';
 import { CurrencyCheckoutDialog, type CheckoutPlan } from './currency-checkout-dialog';
+import { takePendingCheckout } from './checkout-helpers';
+import { useToast } from '@/components/ui/toast';
 
 type PricingPlan = {
   id: string;
@@ -31,6 +33,36 @@ export function PricingPlans({
 }) {
   const [selected, setSelected] = React.useState<CheckoutPlan | null>(null);
   const [currency, setCurrency] = React.useState<CheckoutCurrency>('BDT');
+  const toast = useToast();
+
+  // T1-17: Stripe's cancel_url lands back here with ?canceled=1 — the
+  // page used to ignore it, so a cancelled checkout looked like nothing
+  // happened. Acknowledge it once and strip the param.
+  // T1-18: restore a plan chosen before the login redirect.
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('canceled') === '1') {
+      toast({
+        title: 'Payment canceled',
+        description: 'No charge was made. Pick a plan whenever you are ready.',
+        variant: 'info',
+      });
+      params.delete('canceled');
+      const qs = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+    }
+
+    const pending = takePendingCheckout();
+    if (pending && pending.type === 'plan') {
+      const plan = plans.find((p) => p.id === pending.id);
+      if (plan) {
+        setCurrency(pending.currency);
+        setSelected({ ...plan, preSelectedCurrency: pending.currency });
+      }
+    }
+    // Mount-only: `plans` is the server-rendered list for this page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <>
@@ -93,7 +125,9 @@ export function PricingPlans({
                           currency === 'USD' ? plan.monthlyPriceUSD : plan.monthlyPriceBDT,
                         )}
                   </span>
-                  {!isFree && <span className="text-sm text-muted-foreground">/mo</span>}
+                  {!isFree && (
+                    <span className="text-sm text-muted-foreground">one-time · 30 days of access</span>
+                  )}
                 </div>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">{plan.description}</p>
@@ -101,7 +135,7 @@ export function PricingPlans({
                 <Zap className="h-4 w-4 text-accent" />
                 <span className="font-medium">
                   {plan.creditsIncluded > 0
-                    ? `${plan.creditsIncluded.toLocaleString()} credits / month`
+                    ? `${plan.creditsIncluded.toLocaleString()} credits included`
                     : `${plan.dailyFreeCredits} free credits / day`}
                 </span>
               </div>

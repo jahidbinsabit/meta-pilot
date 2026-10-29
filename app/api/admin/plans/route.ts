@@ -5,27 +5,19 @@ import { z } from 'zod';
 import { PlanTier } from '@prisma/client';
 
 const createSchema = z.object({
-  tier: z.enum(['FREE', 'PRO', 'PLUS', 'AGENCY']),
+  tier: z.enum(['FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE']),
   name: z.string().min(1),
   monthlyPriceUSD: z.number().min(0),
   monthlyPriceBDT: z.number().int().min(0),
   creditsIncluded: z.number().int().min(0),
   dailyFreeCredits: z.number().int().min(0),
   adobeAnalyticsResultLimit: z.number().int().min(-1),
+  // null = fall back to the global daily search cap (env / 30).
+  adobeAnalyticsDailyCap: z.number().int().min(0).nullable().optional(),
   features: z.record(z.any()).optional(),
   isActive: z.boolean().default(true),
   sortOrder: z.number().int().default(0),
 });
-
-export async function GET() {
-  await requireApiAdmin();
-
-  const plans = await prisma.plan.findMany({
-    orderBy: { sortOrder: 'asc' },
-  });
-
-  return NextResponse.json(plans);
-}
 
 export async function POST(req: Request) {
   const admin = await requireApiAdmin();
@@ -41,15 +33,28 @@ export async function POST(req: Request) {
 
   const data = parsed.data;
 
-  const plan = await prisma.$transaction(async (tx) => {
-    // Check if tier already exists
-    const existing = await tx.plan.findUnique({ where: { tier: data.tier as PlanTier } });
-    if (existing) {
-      throw new Error('PLAN_EXISTS');
-    }
+  // T4-36: a duplicate tier used to escape as an unhandled 500 (opaque
+  // toast in the UI) — map it to a 409 the client can explain.
+  let plan;
+  try {
+    plan = await prisma.$transaction(async (tx) => {
+      // Check if tier already exists
+      const existing = await tx.plan.findUnique({ where: { tier: data.tier as PlanTier } });
+      if (existing) {
+        throw new Error('PLAN_EXISTS');
+      }
 
-    return tx.plan.create({ data });
-  });
+      return tx.plan.create({ data });
+    });
+  } catch (e: any) {
+    if (e?.message === 'PLAN_EXISTS' || e?.code === 'P2002') {
+      return NextResponse.json(
+        { error: 'plan_exists', message: `A plan with tier ${data.tier} already exists.` },
+        { status: 409 },
+      );
+    }
+    throw e;
+  }
 
   await prisma.auditLog.create({
     data: {

@@ -1,38 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireApiAdmin } from '@/lib/api/auth';
+import { normalizeAudience } from '@/lib/notifications';
 
 export const runtime = 'nodejs';
-
-function normalizeAudience(value: unknown) {
-  const normalized = String(value || 'ALL').toUpperCase();
-  // ENTERPRISE is a real NotificationAudience (schema + dashboard consumer
-  // support it) — omitting it here silently widened those notifications
-  // to ALL users.
-  if (['ALL', 'FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'].includes(normalized)) {
-    return normalized as 'ALL' | 'FREE' | 'PRO' | 'PLUS' | 'AGENCY' | 'ENTERPRISE';
-  }
-  return 'ALL';
-}
-
-export async function GET() {
-  try {
-    await requireApiAdmin();
-    const notifications = await prisma.notification.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return NextResponse.json(notifications);
-  } catch (error: any) {
-    if (error?.message === 'UNAUTHORIZED') {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
-    if (error?.message === 'FORBIDDEN') {
-      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-    }
-    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
-  }
-}
 
 export async function POST(req: Request) {
   try {

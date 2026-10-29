@@ -4,9 +4,14 @@ import { HomepageClient } from '@/components/admin/homepage-client';
 // Authenticated page: never prerender at build time (needs session + DB).
 export const dynamic = 'force-dynamic';
 
+// T4-52: the marketing homepage renders SEVEN sections; howItWorks,
+// stats and beforeAfter were missing here, so they could never be edited.
 const SECTIONS = [
   { key: 'hero', label: 'Hero Section', icon: 'Layout' },
   { key: 'features', label: 'Features Grid', icon: 'Grid' },
+  { key: 'howItWorks', label: 'How It Works', icon: 'ListOrdered' },
+  { key: 'stats', label: 'Stats Strip', icon: 'BarChart3' },
+  { key: 'beforeAfter', label: 'Before / After', icon: 'Columns2' },
   { key: 'testimonials', label: 'Testimonials', icon: 'MessageSquare' },
   { key: 'faq', label: 'FAQ', icon: 'HelpCircle' },
 ];

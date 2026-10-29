@@ -29,9 +29,11 @@ type Step = "register" | "verify";
 export function SignupClient({
   siteName,
   signupCredits,
+  logoUrl,
 }: {
   siteName?: string;
   signupCredits?: number;
+  logoUrl?: string | null;
 }) {
   const credits = typeof signupCredits === 'number' ? signupCredits : 20;
   const router = useRouter();
@@ -60,9 +62,16 @@ export function SignupClient({
         toast({ title: "Sign up failed", description: j.error || "Please try again.", variant: "error" });
         return;
       }
+      // T1-21: the register route deliberately returns the same success
+      // for an already-registered email (anti-enumeration), so this copy
+      // must be true in BOTH cases — never claim "Account created!".
+      // If the address was already registered, no code arrives and the
+      // verify step simply won't complete; the wording below says
+      // exactly that without revealing which case occurred.
       toast({
-        title: "Account created!",
-        description: "We sent a 6-digit verification code to your email.",
+        title: "Check your email",
+        description:
+          "If this email can be registered, a 6-digit verification code is on its way. Already have an account? Sign in instead.",
         variant: "success",
       });
       setStep("verify");
@@ -145,7 +154,7 @@ export function SignupClient({
 
       <div className="relative z-10 grid min-h-screen w-full lg:grid-cols-12">
         <div className="flex flex-col justify-between px-6 py-8 sm:px-12 lg:col-span-6 xl:col-span-5 lg:px-14 xl:px-16">
-          <LoginHeader siteName={siteName} />
+          <LoginHeader siteName={siteName} logoUrl={logoUrl} />
 
           <div className="my-auto py-8">
             <div className="max-w-md">
@@ -231,7 +240,7 @@ export function SignupClient({
                           type={showPassword ? "text" : "password"}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          placeholder="••••••••"
+                          placeholder="Create a password (min. 8 characters)"
                           minLength={8}
                           required
                           disabled={busy || googleBusy}

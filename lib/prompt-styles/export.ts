@@ -1,8 +1,11 @@
 /**
  * CSV / TXT export for Image → Prompt results (PROMPT 5).
- * Mirrors the escaping and BOM conventions in lib/generator/csv.ts so the
- * output opens cleanly in Excel and the Adobe uploader.
+ * Uses the shared csvEscape from lib/generator/csv.ts so the output
+ * opens cleanly in Excel and the Adobe uploader.
  */
+import { csvEscape } from '@/lib/generator/csv';
+
+export { csvEscape };
 
 export interface PromptExportRow {
   fileName: string;
@@ -11,14 +14,6 @@ export interface PromptExportRow {
 }
 
 const CSV_HEADERS = ['File Name', 'Prompt Style', 'Prompt'];
-
-function csvEscape(v: unknown): string {
-  const s = v == null ? '' : String(v);
-  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-    return '"' + s.replace(/"/g, '""') + '"';
-  }
-  return s;
-}
 
 export function buildPromptCsv(rows: PromptExportRow[]): string {
   const lines: string[] = [CSV_HEADERS.join(',')];

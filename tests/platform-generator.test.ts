@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildMetadataPrompt, buildRetrySystemPrompt } from '@/lib/generator/prompt';
 import { buildCsv, csvFilename, formatLabel } from '@/lib/generator/csv';
-import { PLATFORMS, type TargetPlatform, type GeneratorSettings } from '@/lib/generator/types';
+import { type TargetPlatform, type GeneratorSettings } from '@/lib/generator/types';
 
 const mockSettings: GeneratorSettings = {
   titleLength: 70,

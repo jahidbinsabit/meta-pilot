@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server';
+import { timingSafeEqual } from 'node:crypto';
 import { prisma } from '@/lib/db';
 import { grantBonus } from '@/lib/credits/engine';
+
+/** Constant-time secret comparison (mirrors cleanup-uploads; T5-09 —
+ * this route used plain === while its sibling cron used timingSafeEqual). */
+function secretMatches(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 /**
  * Daily free-credits cron.
@@ -22,8 +33,9 @@ export async function GET(req: Request) {
       headers: { 'Content-Type': 'application/json' },
     });
   }
-  const validBearer = authHeader === `Bearer ${expectedSecret}`;
-  const validHeader = cronSecret === expectedSecret;
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
+  const validBearer = secretMatches(bearerToken, expectedSecret);
+  const validHeader = secretMatches(cronSecret, expectedSecret);
   if (!validBearer && !validHeader) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,

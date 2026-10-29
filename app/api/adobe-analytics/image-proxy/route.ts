@@ -16,6 +16,16 @@ const ALLOWED_HOSTS = [
   'commons.wikimedia.org',
 ];
 
+/** Raster types safe to render inline (R9 S9-05). SVG is deliberately
+ * absent — it can carry <script> and would execute in our origin. */
+const RASTER_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+]);
+
 function isAllowedHost(urlStr: string): boolean {
   try {
     const parsed = new URL(urlStr);
@@ -65,19 +75,73 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'upstream_error' }, { status: 502 });
     }
 
-    // 10MB cap — refuse to buffer huge responses into memory.
+    // 10MB cap — the declared Content-Length is only a fast-path hint
+    // (R9 S9-05): a chunked or lying response used to bypass it and be
+    // buffered wholesale via arrayBuffer(). Stream the body and count
+    // real bytes, aborting as soon as the cap is crossed.
+    const MAX_BYTES = 10 * 1024 * 1024;
     const len = Number(res.headers.get('content-length') || 0);
-    if (len > 10 * 1024 * 1024) {
+    if (len > MAX_BYTES) {
       return NextResponse.json({ error: 'image_too_large' }, { status: 413 });
     }
+    if (!res.body) {
+      return NextResponse.json({ error: 'upstream_error' }, { status: 502 });
+    }
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.byteLength;
+        if (total > MAX_BYTES) {
+          try {
+            await reader.cancel();
+          } catch {
+            // ignore
+          }
+          return NextResponse.json({ error: 'image_too_large' }, { status: 413 });
+        }
+        chunks.push(value);
+      }
+    }
+    const buffer = Buffer.concat(chunks);
 
-    const contentType = res.headers.get('content-type') || 'image/jpeg';
-    const buffer = await res.arrayBuffer();
+    // Only raster image types are served inline. Anything else — notably
+    // script-bearing image/svg+xml — is forced to download as an opaque
+    // blob with nosniff, mirroring app/api/s3, so it can never execute
+    // in this origin when navigated to directly.
+    const contentType = (res.headers.get('content-type') || 'image/jpeg')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (RASTER_TYPES.has(contentType)) {
+      return new NextResponse(buffer, {
+        status: 200,
+        headers: {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400',
+          'Access-Control-Allow-Origin': '*',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      });
+    }
 
+    const rawName = (() => {
+      try {
+        return new URL(targetUrl).pathname.split('/').pop() || 'image';
+      } catch {
+        return 'image';
+      }
+    })();
+    const safeName = rawName.replace(/["\r\n]/g, '') || 'image';
     return new NextResponse(buffer, {
       status: 200,
       headers: {
-        'Content-Type': contentType,
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${safeName}"`,
+        'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400',
         'Access-Control-Allow-Origin': '*',
       },

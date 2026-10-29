@@ -3,7 +3,7 @@ export type UserRecord = {
   name: string | null;
   email: string;
   role: 'USER' | 'ADMIN';
-  status: 'ACTIVE' | 'SUSPENDED' | 'PENDING';
+  status: 'ACTIVE' | 'SUSPENDED';
   membership: 'FREE' | 'PRO' | 'PLUS' | 'AGENCY' | 'ENTERPRISE';
   credits: number;
   emailVerified: string | Date | null;
@@ -51,7 +51,7 @@ export type EditUserFormState = {
   name: string;
   email: string;
   role: 'USER' | 'ADMIN';
-  status: 'ACTIVE' | 'SUSPENDED' | 'PENDING';
+  status: 'ACTIVE' | 'SUSPENDED';
   membership: 'FREE' | 'PRO' | 'PLUS' | 'AGENCY' | 'ENTERPRISE';
   planId: string;
   emailVerified: boolean;

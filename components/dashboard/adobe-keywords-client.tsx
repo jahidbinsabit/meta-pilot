@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Copy, Check, Download, FileText, Hash } from 'lucide-react';
+import { Loader2, Copy, Check, FileText, Hash } from 'lucide-react';
 import type { ToolEntry } from '@/lib/tools/registry';
 import { ToolShell } from '@/components/dashboard/tool-shell';
 
@@ -63,7 +63,14 @@ export function AdobeKeywordsClient({ tool }: { tool: ToolEntry }) {
 
   const exportCsv = () => {
     if (!result) return;
-    const rows = result.keywords.map((k) => `Keyword,${k}`);
+    // T3-11: the CSV used to contain ONLY the short-tail keywords —
+    // Copy included the long-tail, the CSV silently dropped it. Both
+    // sets are exported now, labelled by type, with CSV escaping.
+    const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    const rows = [
+      ...result.keywords.map((k) => `Keyword,${esc(k)}`),
+      ...result.longTail.map((k) => `Long-tail,${esc(k)}`),
+    ];
     const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

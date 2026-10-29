@@ -87,8 +87,11 @@ export const TOOL_META: Record<ToolSlug, { title: string; desc: string; cost: nu
     desc: 'Group overlapping keywords into themes.',
     cost: 1,
   },
-  'title-ab': { title: 'Title A/B', desc: 'Generate title variants and compare SEO fit.', cost: 1 },
-  'alt-text': { title: 'Alt Text', desc: 'Write accessible alt text for your images.', cost: 1 },
+  // T3-06: copy aligned to what the tools actually do — title-ab scores
+  // nothing (it returns variants + character counts), and alt-text works
+  // from a typed subject/description, never from an uploaded image.
+  'title-ab': { title: 'Title A/B', desc: 'Generate title variants and compare their length and structure.', cost: 1 },
+  'alt-text': { title: 'Alt Text', desc: 'Write accessible alt text from a short image description.', cost: 1 },
   'keyword-density': {
     title: 'Keyword Density',
     desc: 'Check keyword usage across a listing.',
@@ -99,7 +102,9 @@ export const TOOL_META: Record<ToolSlug, { title: string; desc: string; cost: nu
     desc: 'Verify text/background contrast.',
     cost: 1,
   },
-  'batch-export': { title: 'Batch Export', desc: 'Export metadata in CSV / JSON.', cost: 0 },
+  // T3-04: the tool emits CSV only — the old "CSV / JSON" copy promised
+  // a JSON export that doesn't exist.
+  'batch-export': { title: 'Batch Export', desc: 'Convert pasted metadata rows into a clean, downloadable CSV.', cost: 0 },
   'adobe-analytics': {
     title: 'Adobe Analytics',
     desc: 'Query Adobe Stock performance data.',

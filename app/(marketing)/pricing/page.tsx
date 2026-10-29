@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { prisma } from '@/lib/db';
 import { buildCheckoutGateways } from '@/lib/payments/public';
 import { PricingPlans } from '@/components/marketing/pricing-plans';
+import { FaqAccordion } from '@/components/marketing/faq-accordion';
+import { HOMEPAGE_DEFAULTS } from '@/lib/homepage-defaults';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,7 +81,7 @@ const PLAN_COPY: Record<
     description: 'For growing studios.',
     features: [
       'Everything in Pro',
-      'Higher monthly credits',
+      'More credits included',
       'Expanded analytics limits',
       'Team-ready workflows',
       'Faster support',
@@ -119,7 +121,7 @@ async function getPricingData() {
           description: plan.name,
           features: [
             plan.creditsIncluded > 0
-              ? `${plan.creditsIncluded.toLocaleString()} credits / month`
+              ? `${plan.creditsIncluded.toLocaleString()} credits included`
               : `${plan.dailyFreeCredits} free credits / day`,
           ],
           cta: `Choose ${plan.name}`,
@@ -168,6 +170,18 @@ export default async function PricingPage() {
           Plans will appear here once they are published.
         </p>
       )}
+
+      {/* Close the page with the shared FAQ (same defaults the homepage
+          renders) instead of a blank gap above the footer. */}
+      <section className="mx-auto mt-20 max-w-3xl border-t border-border pt-16">
+        <div className="mb-10 text-center">
+          <p className="text-xs font-medium uppercase tracking-widest text-accent">FAQ</p>
+          <h2 className="mt-2 font-display text-3xl font-bold tracking-tight">
+            Common questions
+          </h2>
+        </div>
+        <FaqAccordion items={(HOMEPAGE_DEFAULTS.faq.items as Array<{ question: string; answer: string }>).slice(0, 4)} />
+      </section>
     </div>
   );
 }

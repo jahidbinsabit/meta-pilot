@@ -1,12 +1,14 @@
 'use client';
 
 import * as React from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ticket, Loader2, CheckCircle2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 export function RedeemCoupon() {
+  const queryClient = useQueryClient();
   const [code, setCode] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState<{ ok: boolean; text: string } | null>(null);
@@ -25,8 +27,11 @@ export function RedeemCoupon() {
       if (res.ok) {
         setMessage({ ok: true, text: `+${json.credits} credits added! New balance: ${json.balance}` });
         setCode('');
-        // Refresh credit displays
-        window.dispatchEvent(new CustomEvent('credits-updated'));
+        // Refresh the sidebar/topbar balance. This used to dispatch a
+        // 'credits-updated' window event that nothing listened to
+        // (T1-16) — the credits displays all read the ['credits']
+        // react-query, so invalidating it is the working refresh.
+        queryClient.invalidateQueries({ queryKey: ['credits'] });
       } else {
         const friendly: Record<string, string> = {
           invalid_code: 'This code is not valid.',

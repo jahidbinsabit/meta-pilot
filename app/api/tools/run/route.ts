@@ -16,6 +16,7 @@ import {
   titleAb,
   batchExport,
 } from '@/lib/tools/text-tools';
+import { assertToolRunnable, toolGateErrorResponse } from '@/lib/tools/gate';
 
 /**
  * Generic tool runner (PROMPT 10).
@@ -134,6 +135,19 @@ export async function POST(req: Request) {
     const { slug, input, metadata } = body ?? {};
     if (!slug) {
       return NextResponse.json({ error: 'slug_required' }, { status: 400 });
+    }
+
+    // R9 B9-06/S9-01: registry gate BEFORE any compute or charge — a
+    // tool the admin disabled, or one restricted to other plan tiers,
+    // must not execute just because the caller knows the API shape.
+    // Unknown slugs return null here and keep the existing
+    // "Unknown tool" 400 from computeToolResult below.
+    try {
+      await assertToolRunnable(slug, user);
+    } catch (e) {
+      const gateRes = toolGateErrorResponse(e);
+      if (gateRes) return gateRes;
+      throw e;
     }
 
     // M-B7 + R7-02: the BYOK gate fires BEFORE compute/charge so the

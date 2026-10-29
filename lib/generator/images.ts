@@ -1,7 +1,6 @@
 import sharp from 'sharp';
 import { randomBytes } from 'crypto';
 import { uploadImage, publicUrl } from '@/lib/s3/client';
-import { prisma } from '@/lib/db';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';

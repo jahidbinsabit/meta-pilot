@@ -1,4 +1,3 @@
-import type { ImagePromptResult } from '@/lib/prompt-styles/types';
 
 /**
  * Builds the prompts for the Image → Prompt tool (PROMPT 5).
@@ -40,7 +39,7 @@ export function buildImagePromptUserPrompt(opts: {
   strict?: boolean;
   targetChars?: number;
 }) {
-  const { fileName, strict = false, targetChars } = opts;
+  const { strict = false, targetChars } = opts;
   const lengthLine = targetChars
     ? `\n- LENGTH (mandatory): the main prompt must be approximately ${targetChars} characters long (between ${Math.round(targetChars * 0.9)} and ${Math.round(targetChars * 1.1)} characters). Fit the full checklist below into that length — be dense with specifics, not brief and not padded.`
     : '';

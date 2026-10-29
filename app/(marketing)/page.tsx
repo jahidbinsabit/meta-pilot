@@ -1,27 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import {
-  Sparkles,
-  Image,
-  BarChart3,
-  Wrench,
-  Zap,
-  ArrowRight,
-  Star,
-  CheckCircle,
-  Upload,
-  Wand2,
-  Edit3,
-  Download,
-  ChevronRight,
-  Quote,
-  Play,
-  Shield,
-  Clock,
-  Layers,
-  FileText,
-  Key,
-} from 'lucide-react';
+import { Sparkles, Image, BarChart3, Wrench, Zap, ArrowRight, Star, CheckCircle, Upload, Wand2, Edit3, Download, Shield, Clock, Layers, FileText, Key } from 'lucide-react';
 import { prisma } from '@/lib/db';
 import { getSiteSettings } from '@/lib/site-settings';
 import { Hero3DVisual } from '@/components/marketing/hero-3d-visual';
@@ -245,7 +224,7 @@ export default async function HomePage() {
 
       {/* ====== HOW IT WORKS ====== */}
       {howItWorks.steps && howItWorks.steps.length > 0 && (
-        <section className="border-b border-border">
+        <section id="how-it-works" className="scroll-mt-20 border-b border-border">
           <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
             <div className="text-center mb-16">
               <p className="text-xs font-medium uppercase tracking-widest text-accent">
@@ -292,7 +271,7 @@ export default async function HomePage() {
       )}
 
       {/* ====== FEATURES ====== */}
-      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+      <section id="features" className="mx-auto max-w-7xl scroll-mt-20 px-4 py-20 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <p className="text-xs font-medium uppercase tracking-widest text-accent">Features</p>
           <h2 className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">
@@ -446,7 +425,7 @@ export default async function HomePage() {
 
       {/* ====== FAQ ====== */}
       {faq.items && faq.items.length > 0 && (
-        <section className="border-t border-border">
+        <section id="faq" className="scroll-mt-20 border-t border-border">
           <div className="mx-auto max-w-3xl px-4 py-20 sm:px-6 lg:px-8">
             <div className="text-center mb-12">
               <p className="text-xs font-medium uppercase tracking-widest text-accent">FAQ</p>

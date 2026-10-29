@@ -93,6 +93,9 @@ function downloadText(filename: string, text: string, mime: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+type ToolFilter = 'all' | 'metadata-generator' | 'image-to-prompt';
+type StatusFilter = 'all' | JobSummary['status'];
+
 export function HistoryClient() {
   const [jobs, setJobs] = React.useState<JobSummary[] | null>(null);
   const [page, setPage] = React.useState(1);
@@ -102,21 +105,32 @@ export function HistoryClient() {
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [details, setDetails] = React.useState<Record<string, JobDetail>>({});
   const [downloadingId, setDownloadingId] = React.useState<string | null>(null);
+  // T2-12: tool/status filters — applied server-side (the jobs route
+  // accepts ?tool= / ?status=), so pagination stays truthful.
+  const [toolFilter, setToolFilter] = React.useState<ToolFilter>('all');
+  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>('all');
+  const filtersActive = toolFilter !== 'all' || statusFilter !== 'all';
 
-  const loadPage = React.useCallback(async (p: number) => {
-    try {
-      const res = await fetch(`/api/generate/jobs?page=${p}`);
-      if (!res.ok) throw new Error('load_failed');
-      const data = (await res.json()) as JobsResponse;
-      setJobs(data.jobs);
-      setPage(data.page);
-      setTotalPages(data.totalPages);
-      setTotal(data.total);
-      setLoadError(null);
-    } catch {
-      setLoadError('Could not load your generation history.');
-    }
-  }, []);
+  const loadPage = React.useCallback(
+    async (p: number) => {
+      try {
+        const params = new URLSearchParams({ page: String(p) });
+        if (toolFilter !== 'all') params.set('tool', toolFilter);
+        if (statusFilter !== 'all') params.set('status', statusFilter);
+        const res = await fetch(`/api/generate/jobs?${params.toString()}`);
+        if (!res.ok) throw new Error('load_failed');
+        const data = (await res.json()) as JobsResponse;
+        setJobs(data.jobs);
+        setPage(data.page);
+        setTotalPages(data.totalPages);
+        setTotal(data.total);
+        setLoadError(null);
+      } catch {
+        setLoadError('Could not load your generation history.');
+      }
+    },
+    [toolFilter, statusFilter],
+  );
 
   React.useEffect(() => {
     void loadPage(1);
@@ -202,6 +216,45 @@ export function HistoryClient() {
     }
   };
 
+  const filterBar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        value={toolFilter}
+        onChange={(e) => setToolFilter(e.target.value as ToolFilter)}
+        aria-label="Filter by tool"
+        className="rounded-lg border border-input bg-background/60 px-2 py-1.5 text-xs"
+      >
+        <option value="all">All tools</option>
+        <option value="metadata-generator">Metadata</option>
+        <option value="image-to-prompt">Image to Prompt</option>
+      </select>
+      <select
+        value={statusFilter}
+        onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+        aria-label="Filter by status"
+        className="rounded-lg border border-input bg-background/60 px-2 py-1.5 text-xs"
+      >
+        <option value="all">All statuses</option>
+        <option value="COMPLETE">Completed</option>
+        <option value="FAILED">Failed</option>
+        <option value="PROCESSING">Processing</option>
+        <option value="QUEUED">Queued</option>
+      </select>
+      {filtersActive && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setToolFilter('all');
+            setStatusFilter('all');
+          }}
+        >
+          Clear filters
+        </Button>
+      )}
+    </div>
+  );
+
   if (jobs === null && !loadError) {
     return (
       <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
@@ -225,6 +278,21 @@ export function HistoryClient() {
   }
 
   if (jobs && jobs.length === 0 && total === 0) {
+    // A filtered view with no matches is NOT the first-run state —
+    // keep the filters visible and say what happened (T2-12).
+    if (filtersActive) {
+      return (
+        <div className="space-y-4">
+          {filterBar}
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 py-12 text-center">
+            <h3 className="font-semibold">No batches match these filters</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Try a different tool or status — or clear the filters to see everything.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 py-12 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-accent">
@@ -246,6 +314,7 @@ export function HistoryClient() {
 
   return (
     <div className="space-y-4">
+      {filterBar}
       <div className="space-y-2">
         {(jobs ?? []).map((job) => {
           const badge = statusBadge(job.status);

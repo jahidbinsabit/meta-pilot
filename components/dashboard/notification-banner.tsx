@@ -71,8 +71,10 @@ export function NotificationBanner({ notifications }: { notifications: Dashboard
   };
 
   const visibleCount = visibleNotifications.length;
-  const canPrev = visibleCount > 1 && index > 0;
-  const canNext = visibleCount > 1 && index < visibleCount - 1;
+  // The prev/next handlers WRAP around the ends — the buttons must not
+  // also be disabled at the ends (T1-15: the two behaviours contradicted
+  // each other, so the wrap was unreachable). Enabled whenever there is
+  // more than one banner to move between.
 
   // CSS enter animation keyed by notification id (replaces framer-motion).
   // Exit animations are dropped — the banner simply unmounts on dismiss.
@@ -104,9 +106,16 @@ export function NotificationBanner({ notifications }: { notifications: Dashboard
                     size="sm"
                     className="h-8 bg-violet-600 text-violet-50 hover:bg-violet-500"
                   >
-                    <a href={current.ctaUrl} target="_blank" rel="noreferrer">
-                      {current.ctaLabel}
-                    </a>
+                    {/* T1-15: only external links open a new tab — an
+                        internal CTA (e.g. /dashboard/billing) used to
+                        eject the user into a fresh tab unconditionally. */}
+                    {/^https?:\/\//i.test(current.ctaUrl) ? (
+                      <a href={current.ctaUrl} target="_blank" rel="noreferrer">
+                        {current.ctaLabel}
+                      </a>
+                    ) : (
+                      <a href={current.ctaUrl}>{current.ctaLabel}</a>
+                    )}
                   </Button>
                 ) : null}
                 {visibleCount > 1 && (
@@ -114,8 +123,7 @@ export function NotificationBanner({ notifications }: { notifications: Dashboard
                     <button
                       type="button"
                       onClick={() => setIndex((prev) => (prev > 0 ? prev - 1 : visibleCount - 1))}
-                      disabled={!canPrev}
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent/10 hover:text-foreground"
                       aria-label="Previous notification"
                     >
                       <ChevronLeft className="h-4 w-4" />
@@ -123,8 +131,7 @@ export function NotificationBanner({ notifications }: { notifications: Dashboard
                     <button
                       type="button"
                       onClick={() => setIndex((prev) => (prev < visibleCount - 1 ? prev + 1 : 0))}
-                      disabled={!canNext}
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent/10 hover:text-foreground"
                       aria-label="Next notification"
                     >
                       <ChevronRight className="h-4 w-4" />

@@ -32,6 +32,9 @@ export function PromptStylesClient() {
   const qc = useQueryClient();
   const toast = useToast();
   const [draft, setDraft] = React.useState<Omit<Preset, 'id'> | null>(null);
+  // T4-57: the id of the preset being edited — sent back on save so a
+  // slug rename updates the row instead of duplicating it.
+  const [editingId, setEditingId] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState<string | null>(null);
 
   const { data: presets, isLoading } = useQuery({
@@ -44,7 +47,7 @@ export function PromptStylesClient() {
   });
 
   const save = useMutation({
-    mutationFn: async (p: Omit<Preset, 'id'>) => {
+    mutationFn: async (p: Omit<Preset, 'id'> & { id?: string }) => {
       const res = await fetch('/api/admin/prompt-styles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,6 +63,7 @@ export function PromptStylesClient() {
       qc.invalidateQueries({ queryKey: ['admin', 'prompt-styles'] });
       qc.invalidateQueries({ queryKey: ['prompt-styles'] });
       setDraft(null);
+      setEditingId(null);
       toast({ title: 'Preset saved', variant: 'success' });
     },
     onError: (e: any) => toast({ title: 'Save failed', description: e.message, variant: 'error' }),
@@ -86,6 +90,7 @@ export function PromptStylesClient() {
   });
 
   function edit(p: Preset) {
+    setEditingId(p.id);
     setDraft({
       slug: p.slug,
       label: p.label,
@@ -115,9 +120,9 @@ export function PromptStylesClient() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>
-                {presets?.some((p: Preset) => p.slug === draft.slug) ? 'Edit preset' : 'New preset'}
+                {editingId ? 'Edit preset' : 'New preset'}
               </CardTitle>
-              <Button variant="ghost" size="xs" onClick={() => setDraft(null)} aria-label="Cancel">
+              <Button variant="ghost" size="xs" onClick={() => { setDraft(null); setEditingId(null); }} aria-label="Cancel">
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -180,12 +185,13 @@ export function PromptStylesClient() {
               <Toggle
                 label="Active"
                 checked={draft.isActive}
-                onCheckedChange={(v) => setDraft({ ...draft, isActive: v })}
+                onChange={(v) => setDraft({ ...draft, isActive: v })}
               />
               <Button
                 onClick={() =>
                   save.mutate({
                     ...draft,
+                    id: editingId ?? undefined,
                     slug: draft.slug || draft.label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
                   })
                 }
@@ -206,7 +212,7 @@ export function PromptStylesClient() {
       <div className="flex justify-end">
         <Button
           variant="subtle"
-          onClick={() => setDraft({ ...BLANK, sortOrder: presets?.length || 0 })}
+          onClick={() => { setEditingId(null); setDraft({ ...BLANK, sortOrder: presets?.length || 0 }); }}
         >
           <Plus className="h-4 w-4" />
           New preset
