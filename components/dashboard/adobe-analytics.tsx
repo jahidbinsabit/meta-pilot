@@ -574,21 +574,6 @@ function KeywordTab({
   );
 }
 
-/** Search signature in the same key order runChain builds it (T4-06). */
-function sigOf(v: {
-  contributorId: string;
-  sort: SortValue;
-  contentType: ContentTypeValue;
-  generativeAi: GenerativeAiValue;
-}): string {
-  return JSON.stringify({
-    contributorId: v.contributorId,
-    sort: v.sort,
-    contentType: v.contentType,
-    generativeAi: v.generativeAi,
-  });
-}
-
 function ContributorTab({
   toast,
 }: {
@@ -615,13 +600,6 @@ function ContributorTab({
   const silentRef = React.useRef(false);
   const chainRef = React.useRef({ sig: '', target: 0 });
   const wantRef = React.useRef(0);
-  // T4-06: generation token + locally-owned result. A superseded chain's
-  // in-flight step used to write wantRef and paint its (stale) result over
-  // the new search; now only the current generation may write either.
-  const chainGenRef = React.useRef(0);
-  const [result, setResult] = React.useState<ContributorResult | undefined>(undefined);
-
-  const [gateHit, setGateHit] = React.useState<GateInfo | null>(null);
 
   const mutation = useMutation({
     mutationFn: (payload: {
@@ -631,21 +609,12 @@ function ContributorTab({
       generativeAi: GenerativeAiValue;
       want?: number;
     }) => postSearch({ type: 'contributor', ...payload }),
-    onSuccess: (_data, variables) => {
-      // T4-06: ignore completions from a superseded search.
-      if (sigOf(variables) !== chainRef.current.sig) return;
-      setError(null);
-      setGateHit(null);
-    },
-    onError: (e: Error, variables) => {
-      // T4-06: a superseded search's failure must not surface over the
-      // search that replaced it.
-      if (sigOf(variables) !== chainRef.current.sig) return;
+    onSuccess: () => setError(null),
+    onError: (e: Error) => {
       // Background chunk failures stay quiet — what is loaded stays on
       // screen and paging again retries.
       if (silentRef.current) return;
       setError(e.message);
-      if (e instanceof SearchGateError) setGateHit(e.gate);
       toast({ title: 'Lookup failed', description: e.message, variant: 'error' });
     },
   });
@@ -671,9 +640,6 @@ function ContributorTab({
     chainRef.current = { sig, target: targetWant };
     fillingRef.current = true;
     setFilling(true);
-    // T4-06: this loop is the new current generation; any older loop's
-    // in-flight step must not write wantRef/result when it resolves.
-    const gen = ++chainGenRef.current;
     void (async () => {
       let firstStep = wantRef.current === 0;
       try {
@@ -681,11 +647,9 @@ function ContributorTab({
           const next = nextChunk(wantRef.current, chainRef.current.target);
           silentRef.current = !firstStep;
           const data = await mutation.mutateAsync({ ...payload, want: next });
-          if (gen !== chainGenRef.current) return;
           wantRef.current = next;
           firstStep = false;
           const res = (data as { result?: ContributorResult } | undefined)?.result;
-          if (res) setResult(res);
           if (!res || res.totalIsExact) break;
         }
       } catch {
@@ -699,6 +663,7 @@ function ContributorTab({
     })();
   };
 
+  const result = mutation.data?.result as ContributorResult | undefined;
   const locked = result ? isLocked(result) : false;
 
   // Lazy paging: the pool grows by 100 per page turn. Pages inside the
@@ -736,7 +701,6 @@ function ContributorTab({
     setLastSearch(payload);
     setPage(1);
     wantRef.current = 0;
-    setResult(undefined);
     runChain(payload, PAGE_SIZE);
   };
 
@@ -855,7 +819,6 @@ function ContributorTab({
                     setLastSearch(payload);
                     setPage(1);
                     wantRef.current = 0;
-                    setResult(undefined);
                     runChain(payload, PAGE_SIZE);
                   }}
                   className="h-7 text-xs font-normal"
@@ -868,8 +831,6 @@ function ContributorTab({
           </form>
         </CardContent>
       </Card>
-
-      {gateHit && <DailyCapGate gate={gateHit} />}
 
       {(mutation.isPending || filling) && !result && (
         <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">

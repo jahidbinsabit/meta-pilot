@@ -15,7 +15,6 @@ import {
 } from './apify-stock';
 import { estimateInterestTrend } from './trend';
 import { applyRowGate, getAnalyticsGate, isUnlimited } from './tiers';
-import { readUsablePoolCache, writePoolCache } from './pool-cache';
 import {
   formatPublishedAgo,
   type AssetRow,
@@ -367,50 +366,20 @@ export async function searchByContributor(
       // caps what lower plans can fetch or see.
       const want = Math.min(1000, Math.max(10, input.want ?? 100));
       const allowed = isUnlimited(gate.limit) ? want : Math.min(gate.limit, want);
-
-      // Pool cache (R9 H1/H2): a fresh, deep-enough stored pool serves
-      // this request with NO paid actor run — this is what stops the
-      // progressive-loading ladder (25 → 50 → … → 1000, each step a
-      // fresh run billed at its full cumulative depth) and repeat
-      // searches from re-billing the actor for rows the server already
-      // paid for once. The stored pool is unfiltered and ungated, so
-      // the local filters/sort and the tier gate below apply to it
-      // exactly as they do to a fresh run.
-      const dims = {
+      const res = await runApifyAdobeStockScraper({
+        creatorId: input.contributorId,
         contentType: input.contentType,
         generativeAi: input.generativeAi,
         sort: input.sort,
-      };
-      let fetchedAssets = await readUsablePoolCache(input.contributorId, allowed, dims);
-      const cacheHit = fetchedAssets !== null;
-      if (!fetchedAssets) {
-        const res = await runApifyAdobeStockScraper({
-          creatorId: input.contributorId,
-          contentType: input.contentType,
-          generativeAi: input.generativeAi,
-          sort: input.sort,
-          maxItems: allowed,
-          timeoutSecs: 300,
-        });
-        fetchedAssets = res.assets;
-        // Refresh the cache with the pool this run produced —
-        // contributor-verified (as below) but before local filters
-        // and the tier gate, so later requests at any tier can slice
-        // it. Best-effort: a failed store never fails the search.
-        await writePoolCache(
-          input.contributorId,
-          fetchedAssets.filter(
-            (a) => a.contributorId == null || a.contributorId === input.contributorId,
-          ),
-          dims,
-        );
-      }
+        maxItems: allowed,
+        timeoutSecs: 300,
+      });
 
       // The actor is TOLD the creator, but nothing guarantees it honors
       // it — never present another contributor's assets as this one's.
       // Rows carrying a DIFFERENT contributor id are dropped; rows with
       // no id at all are kept (nothing to verify against).
-      const pool = fetchedAssets.filter(
+      const pool = res.assets.filter(
         (a) => a.contributorId == null || a.contributorId === input.contributorId,
       );
 
@@ -419,11 +388,7 @@ export async function searchByContributor(
       // When the fetch hit the item cap the contributor may have more,
       // so the count is a floor, not an exact total (shown with a "+").
       const anyFilterActive = input.contentType !== 'all' || input.generativeAi !== 'all';
-      // On a cache hit `fetchedAssets` is the whole stored pool (at
-      // least `allowed` deep), so this stays conservatively true and
-      // totals render as a floor — same ambiguity as an actor run
-      // that returned exactly maxItems.
-      const hitCap = fetchedAssets.length >= allowed;
+      const hitCap = res.assets.length >= allowed;
       const total = anyFilterActive ? filteredAssets.length : pool.length;
       const totalIsExact = !hitCap;
       const { visible, hidden } = applyRowGate(total, gate.limit);
@@ -455,7 +420,6 @@ export async function searchByContributor(
             .sort((a, b) => b.count - a.count),
           totalKeywords,
         },
-        ...(cacheHit ? { cacheHit: true } : {}),
       };
     } catch (err: any) {
       console.error('[adobe-analytics] Apify contributor scraper failed:', err.message);
@@ -499,18 +463,7 @@ export async function searchByContributor(
     const want = Math.min(1000, Math.max(10, input.want ?? 500));
     const wanted = isUnlimited(gate.limit) ? want : Math.min(gate.limit, want);
     try {
-      // Honour the requested sort at fetch time via the same mapOrder
-      // mapping the keyword fallback uses (T4-07): the order decides
-      // WHICH rows the `wanted` window contains, and the local
-      // sortAssetRows pass cannot recover rows outside it — with
-      // 'creation' hardcoded, Downloads/Relevance silently rendered
-      // newest-first (downloads is always null on this path, so the
-      // local comparator was all-zeros). mapOrder covers every
-      // SortValue, defaulting to 'relevance'.
-      const res = await fetchAssets(
-        { creatorId: input.contributorId, order: mapOrder(input.sort) },
-        wanted,
-      );
+      const res = await fetchAssets({ creatorId: input.contributorId, order: 'creation' }, wanted);
       files = res.files;
       nbResults = res.nbResults;
       // Exhausted when we hold everything Adobe reports, or — when
@@ -527,20 +480,7 @@ export async function searchByContributor(
 
   const filteredAssets = applyContributorFilters(files.map(toAssetRow), input);
   const anyFilterActive = input.contentType !== 'all' || input.generativeAi !== 'all';
-  // Totals mirror the Apify branch (T4-08): describe the pool actually
-  // held, never Adobe's reported grand total. `nbResults` (e.g. 2,037)
-  // is the contributor's true portfolio size, but this path fetched
-  // only `wanted` rows — reporting 2,037 presented a fetched/capped
-  // pool as the total the user can page through (and inflated the
-  // hidden/upsell count). The fetched count is the floor, rendered
-  // with a "+" via totalIsExact below; it becomes the true total only
-  // when the pool is exhausted, when files.length >= nbResults and
-  // the reported count is used (it never exceeds what was fetched).
-  const total = anyFilterActive
-    ? filteredAssets.length
-    : poolExhausted
-      ? (nbResults ?? files.length)
-      : files.length;
+  const total = anyFilterActive ? filteredAssets.length : (nbResults ?? null);
   const { visible, hidden } = applyRowGate(total ?? filteredAssets.length, gate.limit);
   const assets = filteredAssets.slice(0, visible);
 
