@@ -442,6 +442,7 @@ export async function POST(req: Request) {
       // Record the outcome; result payload is trimmed to counts, not assets.
       const resultData = {
         totalAssets: result.totalAssets,
+        reportedTotal: result.reportedTotal ?? null,
         assetCount: result.assets.length,
         tier: result.tier,
         // R9 H2/B9-07 accounting: a cache hit fetched zero rows (and

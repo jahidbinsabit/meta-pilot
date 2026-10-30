@@ -1,6 +1,6 @@
 /**
  * Apify Adobe Stock Scraper Integration.
- * Runs Actor `Ea82wcTpNYzTRV7A3` (Adobe Stock Scraper)
+ * Runs the configured actor (default `NkJXb8hz0J4IIueVA`, kawsar/adobe-stock-scraper)
  * to retrieve real Adobe Stock assets, creator portfolios, exact download counts,
  * views, tags, dimensions, and creation dates.
  */
@@ -242,7 +242,7 @@ export async function runApifyAdobeStockScraper(params: {
   maxItems?: number;
   /** Actor run timeout; large contributor pools need longer than 120s. */
   timeoutSecs?: number;
-}): Promise<{ assets: AssetRow[]; totalResults: number }> {
+}): Promise<{ assets: AssetRow[]; totalResults: number; reportedTotal: number | null }> {
   const config = await getApifyConfig();
   if (!config) {
     throw new Error('Apify API token is not configured. Please set your Apify API Token in Admin Settings (/admin/settings).');
@@ -263,6 +263,28 @@ export async function runApifyAdobeStockScraper(params: {
 
   if (!run || !run.defaultDatasetId) {
     throw new Error('Apify run finished without a dataset. Please verify the Actor ID and API Token.');
+  }
+
+  // The actor logs Adobe's own match count ("Adobe reports
+  // nb_results=2050") but its dataset carries no total field —
+  // recover the reported total from the run log. Fail-silent: a
+  // missing or unparsable log leaves the total unreported and the
+  // caller falls back to the fetched pool size.
+  let reportedTotal: number | null = null;
+  try {
+    const logText = await client.run(run.id).log().get();
+    // kawsar logs "Adobe reports nb_results=2050"; another actor
+    // logs "creator: 213263686: 2,050 assets available, saved 14".
+    const m =
+      typeof logText === 'string'
+        ? logText.match(/nb_results=([\d,]+)/) || logText.match(/([\d,]+)\s+assets available/)
+        : null;
+    if (m) {
+      const n = parseInt(m[1].replace(/,/g, ''), 10);
+      if (Number.isFinite(n) && n >= 0) reportedTotal = n;
+    }
+  } catch {
+    // Log unavailable — totals fall back to the fetched pool size.
   }
 
   // Fetch results from the dataset
@@ -439,6 +461,7 @@ export async function runApifyAdobeStockScraper(params: {
   return {
     assets,
     totalResults: assets.length,
+    reportedTotal,
   };
 }
 

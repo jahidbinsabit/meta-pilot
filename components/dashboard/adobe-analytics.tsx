@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Search, Loader2, Info, Lock, ArrowRight } from 'lucide-react';
+import { Search, Loader2, Lock, ArrowRight } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +21,7 @@ import { useToast } from '@/components/ui/toast';
 
 import { relativeTime } from '@/lib/utils';
 import { InterestChart } from './interest-chart';
-import { AssetGrid, AssetList, StatTile, WarningNote } from './asset-grid';
+import { AssetGrid, StatTile, WarningNote } from './asset-grid';
 import type { ContentTypeValue, ContributorResult, GenerativeAiValue, KeywordSearchResult, SortValue } from '@/lib/adobe-analytics/types';
 
 const SORT_LABELS: Record<SortValue, string> = {
@@ -333,6 +333,15 @@ function KeywordTab({
   const result = mutation.data?.result as KeywordSearchResult | undefined;
   const locked = result ? isLocked(result) : false;
 
+  // Same paged results layout as the contributor tab: 100 per page,
+  // sliced client-side from the fetched pool.
+  const [page, setPage] = React.useState(1);
+  const displayPages = result ? Math.max(1, Math.ceil(result.assets.length / PAGE_SIZE)) : 1;
+  const safePage = Math.min(page, displayPages);
+  const pageAssets = result
+    ? result.assets.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+    : [];
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = query.trim();
@@ -340,6 +349,7 @@ function KeywordTab({
       setError('Enter a keyword');
       return;
     }
+    setPage(1);
     mutation.mutate({ query: q, sort, contentType, generativeAi });
   };
 
@@ -507,67 +517,43 @@ function KeywordTab({
             query={result.query}
           />
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <CardTitle className="text-base">Assets</CardTitle>
-                <CardDescription>
-                  {result.totalIsExact
-                    ? `${result.totalResults!.toLocaleString()} assets match "${result.query}"`
-                    : `Results for "${result.query}"`}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {result.assets.length ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Assets</CardTitle>
+              <CardDescription>
+                {result.totalIsExact
+                  ? `${result.totalResults!.toLocaleString()} assets match "${result.query}"`
+                  : `Results for "${result.query}" · shown 100 per page`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {result.assets.length ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Showing {(safePage - 1) * PAGE_SIZE + 1}&ndash;
+                      {(safePage - 1) * PAGE_SIZE + pageAssets.length} of{' '}
+                      {result.assets.length.toLocaleString()} assets
+                    </p>
+                    <ResultsPager page={safePage} pageCount={displayPages} onChange={setPage} />
+                  </div>
                   <AssetGrid
-                    assets={result.assets}
-                    hiddenCount={result.hiddenCount}
+                    assets={pageAssets}
+                    hiddenCount={safePage === displayPages ? result.hiddenCount : 0}
                     limit={result.limit}
                     planName={result.planName}
                     tier={result.tier}
-                    locked={locked}
+                    locked={locked && safePage === displayPages}
                   />
-                ) : (
-                  <p className="py-10 text-center text-sm text-muted-foreground">
-                    No assets matched those filters.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Top performing assets</CardTitle>
-                  <CardDescription>
-                    {result.sort === 'downloads'
-                      ? 'Ordered by all-time downloads'
-                      : 'Highest-ranked matches'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <AssetList assets={result.assets.slice(0, 6)} />
-                  <p className="mt-3 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                    <Info className="mt-px h-3 w-3 shrink-0" />
-                    {result.downloadsAvailable
-                      ? 'Ranked by downloads and market demand retrieved live from Adobe Stock.'
-                      : 'Ranked by search relevance and platform popularity.'}
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Applied filters</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm">
-                  <Row label="Sort by" value={SORT_LABELS[result.sort]} />
-                  <Row label="Content type" value={CONTENT_TYPE_LABELS[result.contentType]} />
-                  <Row label="Generative AI" value={GENAI_LABELS[result.generativeAi]} />
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+                  <ResultsPager page={safePage} pageCount={displayPages} onChange={setPage} />
+                </div>
+              ) : (
+                <p className="py-10 text-center text-sm text-muted-foreground">
+                  No assets matched those filters.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
     </div>
@@ -847,12 +833,18 @@ function ContributorTab({
             <StatTile
               label="Total assets"
               value={
-                result.totalAssets === null
-                  ? '—'
-                  : `${result.totalAssets.toLocaleString()}${result.totalIsExact ? '' : '+'}`
+                result.reportedTotal != null
+                  ? result.reportedTotal.toLocaleString()
+                  : result.totalAssets === null
+                    ? '—'
+                    : `${result.totalAssets.toLocaleString()}${result.totalIsExact ? '' : '+'}`
               }
-              hint={result.totalIsExact ? 'Reported by Adobe' : 'Fetched pool — may be more'}
-              exact={result.totalIsExact}
+              hint={
+                result.reportedTotal != null || result.totalIsExact
+                  ? 'Reported by Adobe'
+                  : 'Fetched pool — may be more'
+              }
+              exact={result.reportedTotal != null || result.totalIsExact}
             />
             <StatTile
               label="Contributor"
@@ -895,9 +887,11 @@ function ContributorTab({
             <CardHeader>
               <CardTitle className="text-base">Portfolio</CardTitle>
               <CardDescription>
-                {result.totalIsExact
-                  ? `${result.totalAssets!.toLocaleString()} public assets`
-                  : `${(result.totalAssets ?? result.assets.length).toLocaleString()}+ public assets · shown 100 per page`}
+                {result.reportedTotal != null
+                  ? `${result.reportedTotal.toLocaleString()} public assets · shown 100 per page`
+                  : result.totalIsExact
+                    ? `${result.totalAssets!.toLocaleString()} public assets`
+                    : `${(result.totalAssets ?? result.assets.length).toLocaleString()}+ public assets · shown 100 per page`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -967,17 +961,6 @@ function ContributorTab({
           </Card>
         </>
       )}
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <Badge variant="secondary" className="text-[10px]">
-        {value}
-      </Badge>
     </div>
   );
 }

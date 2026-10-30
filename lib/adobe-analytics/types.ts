@@ -132,6 +132,13 @@ export interface ContributorResult {
   contributorName: string | null;
   totalAssets: number | null;
   totalIsExact: boolean;
+  /**
+   * Adobe's own reported total for this contributor search (the actor
+   * logs it as nb_results), or null when no source reported one.
+   * Display-only: the paging chain keys off totalIsExact, which keeps
+   * its pool-exhaustion meaning.
+   */
+  reportedTotal?: number | null;
   assets: AssetRow[];
   hiddenCount: number;
   limit: number;
