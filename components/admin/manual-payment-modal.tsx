@@ -56,30 +56,18 @@ export function ManualPaymentModal({
   const [notes, setNotes] = React.useState('');
   const [autoApprove, setAutoApprove] = React.useState(true);
 
-  // T4-37/T4-47: this effect used to run on EVERY user/plan/currency
-  // change and unconditionally regenerated the TrxID — overwriting a real
-  // TrxID the admin had typed — while sender/notes/type from the previous
-  // record leaked into the next. Now the form resets exactly once per
-  // open transition, and the TrxID is generated only there.
-  const wasOpenRef = React.useRef(false);
   React.useEffect(() => {
-    if (open && !wasOpenRef.current) {
-      setSelectedUserId(users.length > 0 ? users[0].id : '');
-      setUserSearch('');
-      setType('plan');
-      setPlanId(plans.length > 0 ? plans[0].id : '');
-      setPackageId('');
-      setCustomCredits(100);
-      setCurrency('BDT');
-      setAmount(plans.length > 0 ? plans[0].monthlyPriceBDT : 0);
-      setMethod('BKASH_MANUAL');
-      setSenderNumber('');
-      setNotes('');
-      setAutoApprove(true);
+    if (open) {
+      if (users.length > 0 && !selectedUserId) {
+        setSelectedUserId(users[0].id);
+      }
+      if (plans.length > 0 && !planId) {
+        setPlanId(plans[0].id);
+        setAmount(currency === 'BDT' ? plans[0].monthlyPriceBDT : plans[0].monthlyPriceUSD);
+      }
       setTransactionRef(`ADMIN-${Math.random().toString(36).substring(2, 8).toUpperCase()}`);
     }
-    wasOpenRef.current = open;
-  }, [open, users, plans]);
+  }, [open, users, plans, selectedUserId, planId, currency]);
 
   const handlePlanChange = (id: string) => {
     setPlanId(id);
@@ -90,14 +78,7 @@ export function ManualPaymentModal({
   const handlePackageChange = (id: string) => {
     setPackageId(id);
     const pkg = packages.find((x) => x.id === id);
-    if (pkg) {
-      setAmount(currency === 'BDT' ? pkg.priceBDT : pkg.priceUSD);
-    } else {
-      // T4-47: custom credits have no package price — zero the amount so
-      // the admin enters what was actually received instead of silently
-      // inheriting the previously selected plan/package price.
-      setAmount(0);
-    }
+    if (pkg) setAmount(currency === 'BDT' ? pkg.priceBDT : pkg.priceUSD);
   };
 
   const handleCurrencyChange = (curr: 'BDT' | 'USD') => {
@@ -112,17 +93,14 @@ export function ManualPaymentModal({
   };
 
   const filteredUsers = React.useMemo(() => {
-    // T4-38: the unfiltered list used to be sliced to 50, silently hiding
-    // every user past that from the picker. Show everyone the page loaded;
-    // search matches stay capped for render sanity.
-    if (!userSearch.trim()) return users;
+    if (!userSearch.trim()) return users.slice(0, 50);
     const q = userSearch.toLowerCase();
     return users.filter(
       (u) =>
         u.email?.toLowerCase().includes(q) ||
         u.name?.toLowerCase().includes(q) ||
         u.id.toLowerCase().includes(q),
-    ).slice(0, 100);
+    ).slice(0, 50);
   }, [users, userSearch]);
 
   const handleSubmit = async (e: React.FormEvent) => {

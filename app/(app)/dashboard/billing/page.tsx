@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import getServerSession from '@/lib/server-session';
 import { buildCheckoutGateways } from '@/lib/payments/public';
-import { isMembershipExpired, flipMembershipToExpired } from '@/lib/plans/membership';
 import { getSiteSettings } from '@/lib/site-settings';
 import { BillingCheckout } from '@/components/dashboard/billing-checkout';
 import { RedeemCoupon } from '@/components/dashboard/redeem-coupon';
@@ -76,23 +75,6 @@ export default async function BillingPage() {
     }
   }
 
-  // B9-01: the row's real renewsAt already flows to the client with the
-  // membership object — surface an explicit `expired` flag alongside it
-  // (previously nothing distinguished a lapsed plan from a live one) and
-  // lazily flip a lapsed row to EXPIRED so the next load, and every gate
-  // resolver, sees the downgraded state. The virtual fallback row has no
-  // DB row to flip.
-  let membershipExpired = false;
-  if (membership && membership.id !== 'virtual') {
-    membershipExpired = isMembershipExpired(membership);
-    if (membershipExpired) {
-      await flipMembershipToExpired(membership).catch(() => false);
-    }
-  }
-  const currentMembership = membership
-    ? { ...membership, expired: membershipExpired }
-    : null;
-
   // Get recent payments
   const payments = await prisma.payment.findMany({
     where: { userId: user.id },
@@ -142,7 +124,7 @@ export default async function BillingPage() {
         plans={plans}
         packages={packages}
         gateways={gateways}
-        currentMembership={currentMembership}
+        currentMembership={membership}
         planFallbackName={planFallbackName}
         walletBalance={walletBalance}
         unlimitedMode={unlimitedMode}

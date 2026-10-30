@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { unstable_cache } from 'next/cache';
+import { revalidateTag, unstable_cache } from 'next/cache';
 import type { GeneratorSettings } from '@/lib/generator/types';
 
 const DEFAULT_ID = 'default';
@@ -43,3 +43,9 @@ export const getGeneratorSettings = unstable_cache(
   ['generator-settings-default'],
   { revalidate: 60, tags: ['generator-settings'] },
 );
+
+/** Admin-only write. Updates the global generator defaults. */
+function clampInt(v: number, min: number, max: number): number {
+  if (!Number.isFinite(v)) return min;
+  return Math.max(min, Math.min(max, Math.floor(v)));
+}

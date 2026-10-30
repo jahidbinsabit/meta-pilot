@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
-import { rateLimit } from '@/lib/rate-limit';
-import { extOf } from '@/lib/utils';
 import { makeKey, publicUrl } from '@/lib/s3/client';
 
 /**
@@ -28,22 +26,13 @@ const MIME_BY_EXT: Record<string, string> = {
   '.webp': 'image/webp',
 };
 
+function extOf(name: string): string {
+  return '.' + (name.split('.').pop() || '').toLowerCase();
+}
+
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
-
-    // R9 S9-04: per-user cap, paired with uploads/direct.
-    const rl = rateLimit(`uploads-preview:${user.id}`, {
-      max: 60,
-      windowMs: 10 * 60 * 1000,
-    });
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited', retryAfter: rl.retryAfter },
-        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
-      );
-    }
-
     const body = await req.json();
     const name = String(body?.name || '');
     const size = Number(body?.size || 0);

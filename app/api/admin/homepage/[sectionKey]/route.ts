@@ -9,6 +9,19 @@ const schema = z.object({
   sortOrder: z.number().optional(),
 });
 
+export async function GET(req: Request, { params }: { params: { sectionKey: string } }) {
+  await requireApiAdmin();
+  const { sectionKey } = params;
+
+  const row = await prisma.homepageContent.upsert({
+    where: { sectionKey },
+    create: { sectionKey, contentJson: {}, isActive: true, sortOrder: 0 },
+    update: {},
+  });
+
+  return NextResponse.json(row);
+}
+
 export async function PUT(req: Request, { params }: { params: { sectionKey: string } }) {
   const admin = await requireApiAdmin();
   const { sectionKey } = params;

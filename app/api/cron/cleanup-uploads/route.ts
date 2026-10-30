@@ -5,18 +5,14 @@ import { prisma } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { refundCreditsOnce } from '@/lib/credits/engine';
 import { purgeDeletedUsers } from '@/lib/account/purge';
-import { rollupCompletedAiCallDays } from '@/lib/ai/rollup';
 
 /**
  * Cleanup cron — deletes temporary uploads/previews older than 60 minutes,
  * reaps orphaned generation jobs, and runs the retention sweeps:
- * AiCallLog daily rollup (permanent per-day aggregates, run BEFORE the
- * purge so cost history survives it), AiCallLog purge (90d),
- * soft-deleted account purge (past their 30-day
+ * AiCallLog purge (90d), soft-deleted account purge (past their 30-day
  * deadline), ToolJob result-payload strip (90d — rows + counts stay for
- * History, the heavy per-image payload goes), ToolUsage prune (90d),
- * AuditLog prune (180d) and the membership expiry sweep (B9-01 — lapsed
- * 30-day plans flip ACTIVE → EXPIRED).
+ * History, the heavy per-image payload goes), ToolUsage prune (90d) and
+ * AuditLog prune (180d).
  *
  * Key patterns:  uploads/<userId>/<timestamp>-<filename>
  *                previews/<userId>/<timestamp>-<hex>-<filename>
@@ -277,52 +273,6 @@ async function stripExpiredJobPayloads(): Promise<number> {
   return stripped;
 }
 
-/**
- * Membership expiry sweep (B9-01): plan purchases are one-time 30-day
- * terms — flip every ACTIVE membership whose renewsAt has passed to
- * EXPIRED in one bulk update, then mirror the downgrade onto
- * `User.membership` ('FREE') for affected users left with no other live
- * membership (the lazy path in lib/plans/membership handles users who
- * hit a gate resolver first; this sweep catches everyone else). Cheap:
- * two indexed queries plus one small update per affected user.
- */
-async function expireLapsedMemberships(): Promise<number> {
-  const now = new Date();
-  const lapsed = await prisma.membership.findMany({
-    where: { status: 'ACTIVE', renewsAt: { lt: now } },
-    select: { userId: true },
-    distinct: ['userId'],
-  });
-  if (lapsed.length === 0) return 0;
-
-  const flipped = await prisma.membership.updateMany({
-    where: { status: 'ACTIVE', renewsAt: { lt: now } },
-    data: { status: 'EXPIRED' },
-  });
-
-  for (const { userId } of lapsed) {
-    const remaining = await prisma.membership.findFirst({
-      where: {
-        userId,
-        status: 'ACTIVE',
-        OR: [{ renewsAt: null }, { renewsAt: { gt: now } }],
-      },
-      select: { id: true },
-    });
-    if (!remaining) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: { membership: 'FREE' },
-      });
-    }
-  }
-
-  if (flipped.count > 0) {
-    console.log(`[cleanup-uploads] expired ${flipped.count} lapsed membership(s)`);
-  }
-  return flipped.count;
-}
-
 /** Constant-time secret comparison (length-checked; timingSafeEqual throws on length mismatch). */
 function secretMatches(provided: string | null, expected: string): boolean {
   if (!provided) return false;
@@ -372,20 +322,6 @@ export async function GET(req: Request) {
         ` | previews deleted:${previews.deleted} failed:${previews.failed} skipped:${previews.skipped}`,
     );
 
-    // AiCallLog daily rollup (audit R9, N2): aggregate every completed
-    // Dhaka day into AiCallDailyRollup BEFORE the purge below deletes the
-    // raw rows — the rollup is the only permanent AI cost history. Its
-    // failure must never block the purge or the rest of the cron.
-    let aiRollupDays = 0;
-    try {
-      aiRollupDays = await rollupCompletedAiCallDays();
-      if (aiRollupDays > 0) {
-        console.log(`[cleanup-uploads] rolled up ${aiRollupDays} AiCallLog day(s)`);
-      }
-    } catch (rollupErr) {
-      console.error('[cleanup-uploads] AiCallLog rollup failed:', rollupErr);
-    }
-
     // Retention: purge AiCallLog rows older than 90 days (write-only table,
     // one row per AI call — would grow unboundedly otherwise).
     let aiLogsPurged = 0;
@@ -431,14 +367,6 @@ export async function GET(req: Request) {
       console.error('[cleanup-uploads] ToolUsage prune failed:', usageErr);
     }
 
-    // Membership expiry sweep (B9-01): lapsed 30-day plans → EXPIRED.
-    let membershipsExpired = 0;
-    try {
-      membershipsExpired = await expireLapsedMemberships();
-    } catch (expiryErr) {
-      console.error('[cleanup-uploads] membership expiry sweep failed:', expiryErr);
-    }
-
     // AuditLog prune: admin audit trail, bounded online retention.
     let auditLogsPruned = 0;
     try {
@@ -463,7 +391,6 @@ export async function GET(req: Request) {
       reapedJobs: reaper.reaped,
       reapedRefundedCredits: reaper.refundedCredits,
       reapedRefundFailed: reaper.refundFailed,
-      aiRollupDays,
       aiLogsPurged,
       purgedUsers: accountPurge.users,
       purgeFilesDeleted: accountPurge.filesDeleted,
@@ -471,7 +398,6 @@ export async function GET(req: Request) {
       jobPayloadsStripped,
       toolUsagePruned,
       auditLogsPruned,
-      membershipsExpired,
     });
   } catch (err: any) {
     console.error('[cleanup-uploads] fatal error:', err);

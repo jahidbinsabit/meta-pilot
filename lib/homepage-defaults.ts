@@ -10,9 +10,9 @@
  */
 export const HOMEPAGE_DEFAULTS: Record<string, any> = {
   hero: {
-    headline: 'Batch AI Metadata for Stock Creators',
+    headline: 'MetaCSV',
     subheadline:
-      'Upload up to 100 images at once and get platform-ready titles, descriptions, and keywords — then export CSVs formatted for Adobe Stock, Shutterstock, and more, with Adobe Stock analytics showing what actually sells.',
+      'Generate AI metadata for your stock images, craft prompts from them, and understand the market — all in one dashboard built for stock-content creators.',
     ctaPrimary: { label: 'Start free', href: '/login' },
     ctaSecondary: { label: 'View pricing', href: '/pricing' },
     badge: 'New: Adobe Stock analytics now in beta',
@@ -47,7 +47,7 @@ export const HOMEPAGE_DEFAULTS: Record<string, any> = {
         icon: 'Zap',
         title: 'Batch Generation',
         description:
-          'Queue up to 100 images in one batch and let them process while you work on something else.',
+          'Queue hundreds of images through BullMQ workers. Process entire folders overnight.',
       },
       {
         icon: 'Star',
@@ -91,7 +91,7 @@ export const HOMEPAGE_DEFAULTS: Record<string, any> = {
   stats: {
     items: [
       { value: '50', suffix: 'keywords', label: 'SEO-ranked per asset' },
-      { value: '100', suffix: 'files', label: 'batch process in one go' },
+      { value: '500+', suffix: 'files', label: 'batch process in one go' },
       { value: '<10', suffix: 'seconds', label: 'per asset, end to end' },
       { value: '6', suffix: 'AI models', label: 'choose what you use' },
     ],

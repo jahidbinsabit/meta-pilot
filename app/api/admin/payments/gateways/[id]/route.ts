@@ -5,7 +5,7 @@ import { deleteGatewayConfig, saveGatewayConfig, maskCredentials } from '@/lib/p
 
 export const runtime = 'nodejs';
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const admin = await requireApiAdmin();
     const body = await req.json();
@@ -42,6 +42,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const status = error.message === 'FORBIDDEN' ? 403 : error.message === 'UNAUTHORIZED' ? 401 : 500;
     return NextResponse.json({ error: error.message || 'internal_error' }, { status });
   }
+}
+
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  return PUT(req, { params });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {

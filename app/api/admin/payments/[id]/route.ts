@@ -34,13 +34,7 @@ export async function PUT(
 
     return NextResponse.json({ error: 'invalid_action' }, { status: 400 });
   } catch (error: any) {
-    // T4-42: requireApiAdmin throws 'UNAUTHORIZED'/'FORBIDDEN' (uppercase);
-    // the old title-case comparison never matched, so auth failures fell
-    // through to a 500.
-    if (error?.message === 'UNAUTHORIZED') {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-    if (error?.message === 'FORBIDDEN') {
+    if (error?.message === 'Unauthorized' || error?.message === 'Forbidden') {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
     console.error('Admin payment action error:', error);

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { encryptSecret } from '@/lib/crypto';
-import { getUserAiKeysStatus } from '@/lib/ai/user-keys';
+import { getUserAiKeysStatus, isUserApiKeyRequired } from '@/lib/ai/user-keys';
 import { z } from 'zod';
 
 export const runtime = 'nodejs';

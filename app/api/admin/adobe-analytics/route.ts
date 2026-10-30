@@ -17,10 +17,8 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 1000;
 
 const updateSchema = z.object({
-  // T4-12: ENTERPRISE was missing — page-limit saves for an ENTERPRISE plan
-  // were rejected by validation before reaching the (404-guarded) lookup.
-  tier: z.enum(['FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE']),
-  // -1 = unlimited pages, 0 = fully locked, otherwise 1..1000 pages
+  tier: z.enum(['FREE', 'PRO', 'PLUS', 'AGENCY']),
+  // -1 = unlimited pages, otherwise 1..1000 pages
   pages: z
     .number()
     .int()

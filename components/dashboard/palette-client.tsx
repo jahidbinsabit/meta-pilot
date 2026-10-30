@@ -9,7 +9,7 @@ import { ApiKeyRequiredDialog } from '@/components/dashboard/api-key-required-di
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { AlertCircle, Loader2, Download } from 'lucide-react';
+import { AlertCircle, Loader2, Download, Copy, Check } from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import type { ToolEntry } from '@/lib/tools/registry';
 import { ToolShell } from '@/components/dashboard/tool-shell';

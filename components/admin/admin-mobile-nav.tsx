@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { X, Shield, ArrowLeft } from 'lucide-react';
+import { X, Shield, LogOut, ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ADMIN_NAV } from '@/components/admin/admin-shell';
 
@@ -68,8 +68,8 @@ export function AdminMobileNav({
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5 py-2">
           {ADMIN_NAV.map((item) => {
             const active =
-              item.href === '/admin/overview'
-                ? pathname === '/admin' || pathname?.startsWith('/admin/overview')
+              item.href === '/admin'
+                ? pathname === '/admin'
                 : pathname?.startsWith(item.href);
             const Icon = item.icon;
             return (

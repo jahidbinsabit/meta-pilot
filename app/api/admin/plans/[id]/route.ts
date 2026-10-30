@@ -10,8 +10,6 @@ const updateSchema = z.object({
   creditsIncluded: z.number().int().min(0).optional(),
   dailyFreeCredits: z.number().int().min(0).optional(),
   adobeAnalyticsResultLimit: z.number().int().min(-1).optional(),
-  // null = fall back to the global daily search cap (env / 30).
-  adobeAnalyticsDailyCap: z.number().int().min(0).nullable().optional(),
   features: z.record(z.any()).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),

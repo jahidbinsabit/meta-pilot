@@ -30,9 +30,7 @@ export default async function AdminOverviewPage() {
     prisma.payment.count({ where: { status: 'COMPLETED' } }),
     // "Jobs queued" — ToolJob is the canonical job entity (legacy `Job` table is write-dead).
     prisma.toolJob.count({ where: { status: 'QUEUED' } }),
-    // T4-55: only ENABLED providers count as "active" (disabled rows were
-    // included before, inflating the stat).
-    prisma.aiProviderConfig.findMany({ where: { enabled: true } }),
+    prisma.aiProviderConfig.findMany(),
     prisma.toolJob.findMany({
       where: { createdAt: { gte: chartSince } },
       select: { createdAt: true, toolSlug: true, status: true, outputData: true, inputFileUrls: true },
@@ -70,7 +68,6 @@ export default async function AdminOverviewPage() {
       orders={orders}
       jobs={jobs}
       providers={providers.length}
-      providerNames={providers.map((p) => p.provider)}
       revenue={Math.round((revenue._sum.amountUSD || 0) * 100)}
       todayGens={todayGens}
       dailyGens={daily}

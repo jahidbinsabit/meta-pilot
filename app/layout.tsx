@@ -83,14 +83,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <head>
         {siteIconUrl && <link rel="icon" href={siteIconUrl} />}
         {gscVerify && <meta name="google-site-verification" content={gscVerify} />}
-        {/* Theme: dark is the default everywhere (the :root variables in
-            globals.css are the dark theme; `.light` opts in). Apply the
-            saved choice before paint to avoid a flash — handle both
-            stored values explicitly so a stale class can never survive
-            into a page whose stored preference says dark. */}
+        {/* Theme: apply saved light/dark choice before paint to avoid flash */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('metapilot-theme');document.documentElement.classList.toggle('light',t==='light');}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('metapilot-theme');if(t==='light'){document.documentElement.classList.add('light');}}catch(e){}})();`,
           }}
         />
         {gaId && (

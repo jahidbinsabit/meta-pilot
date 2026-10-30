@@ -68,7 +68,7 @@ export function UserEditProfileTab({ form, setForm }: UserEditProfileTabProps) {
           <Label htmlFor="edit-status" className="text-xs">Account Status</Label>
           <Select
             value={form.status}
-            onValueChange={(val: 'ACTIVE' | 'SUSPENDED') =>
+            onValueChange={(val: 'ACTIVE' | 'SUSPENDED' | 'PENDING') =>
               setForm((prev) => ({ ...prev, status: val }))
             }
           >
@@ -78,6 +78,7 @@ export function UserEditProfileTab({ form, setForm }: UserEditProfileTabProps) {
             <SelectContent>
               <SelectItem value="ACTIVE">Active (Full Access)</SelectItem>
               <SelectItem value="SUSPENDED">Suspended (Blocked)</SelectItem>
+              <SelectItem value="PENDING">Pending Verification</SelectItem>
             </SelectContent>
           </Select>
         </div>

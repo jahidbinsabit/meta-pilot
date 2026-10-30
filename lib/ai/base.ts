@@ -11,10 +11,10 @@
  * text the caller asked for.
  */
 
+import { zodToJsonSchema } from '@/lib/ai/json-schema';
 import { logAiCall } from '@/lib/ai/logging';
 import { cleanImagePromptResult } from '@/lib/ai/text-clean';
 import type { AiAdapter, AiRequest, AiResponse } from '@/lib/ai/types';
-import { sleep } from '@/lib/utils';
 
 /**
  * Extracts usable fields from a truncated JSON response.
@@ -235,12 +235,13 @@ function extractFirstJson(text: string): string {
 function parseAndValidate(text: string, schema: any): { value: unknown; ok: boolean } {
   const candidates = [text, extractJson(text), extractFirstJson(text)];
   let parsed: unknown = undefined;
+  let lastErr: string | undefined;
   for (const c of candidates) {
     try {
       parsed = JSON.parse(c);
       break;
-    } catch {
-      // try the next candidate
+    } catch (e: any) {
+      lastErr = e?.message;
     }
   }
   if (parsed === undefined) return { value: null, ok: false };
@@ -261,4 +262,6 @@ function parseAndValidate(text: string, schema: any): { value: unknown; ok: bool
   return { value: null, ok: false };
 }
 
-
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}

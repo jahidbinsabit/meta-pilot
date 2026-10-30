@@ -1,5 +1,4 @@
 import { getSiteSettings } from '@/lib/site-settings';
-import getServerSession from '@/lib/server-session';
 import { Navbar } from '@/components/marketing/navbar';
 import { Footer } from '@/components/marketing/footer';
 
@@ -8,19 +7,15 @@ export default async function MarketingLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [siteSettings, session] = await Promise.all([
-    getSiteSettings(),
-    getServerSession().catch(() => null),
-  ]);
+  const siteSettings = await getSiteSettings();
   const siteName = siteSettings?.siteName || 'MetaCSV';
   const logoUrl = siteSettings?.logoUrl;
-  const tagline = siteSettings?.tagline;
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
-      <Navbar siteName={siteName} logoUrl={logoUrl} initialAuthed={!!session?.user} />
+      <Navbar siteName={siteName} logoUrl={logoUrl} />
       <main className="flex-1">{children}</main>
-      <Footer siteName={siteName} logoUrl={logoUrl} tagline={tagline} />
+      <Footer siteName={siteName} logoUrl={logoUrl} />
     </div>
   );
 }

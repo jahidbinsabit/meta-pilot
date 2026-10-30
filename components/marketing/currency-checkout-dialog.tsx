@@ -42,7 +42,7 @@ export function CurrencyCheckoutDialog({
       ? `${plan.name} · ${plan.credits?.toLocaleString() || ''} credits`
       : `${plan.name} plan · ${
           plan.creditsIncluded && plan.creditsIncluded > 0
-            ? `${plan.creditsIncluded.toLocaleString()} credits included`
+            ? `${plan.creditsIncluded.toLocaleString()} credits / month`
             : `${plan.dailyFreeCredits ?? 0} free credits / day`
         }`;
 

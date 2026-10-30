@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
-import { rateLimit } from '@/lib/rate-limit';
 import { GeminiAdapter } from '@/lib/ai/gemini';
 import { GrokAdapter } from '@/lib/ai/grok';
 import { OpenAiAdapter } from '@/lib/ai/openai';
@@ -17,19 +16,6 @@ const testSchema = z.object({
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
-
-    // R9 S9-04: every test spends a live provider request — cap per user.
-    const rl = rateLimit(`ai-keys-test:${user.id}`, {
-      max: 10,
-      windowMs: 10 * 60 * 1000,
-    });
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited', retryAfter: rl.retryAfter },
-        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
-      );
-    }
-
     const body = await req.json();
     const parsed = testSchema.safeParse(body);
 

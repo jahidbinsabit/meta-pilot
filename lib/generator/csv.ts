@@ -131,16 +131,8 @@ const HEADERS: Record<ExportFormat, string[]> = {
   generic: GENERIC_HEADERS,
 };
 
-export function csvEscape(v: unknown): string {
-  let s = v == null ? '' : String(v);
-  // Spreadsheet formula injection (R9 S9-06): a cell whose first
-  // non-whitespace character is =, +, - or @ is executed as a formula
-  // when the CSV is opened in Excel/Sheets. Prefix a single quote
-  // BEFORE the value so it is treated as text, then apply the normal
-  // quoting rules below.
-  if (/^\s*[=+\-@]/.test(s)) {
-    s = "'" + s;
-  }
+function csvEscape(v: unknown): string {
+  const s = v == null ? '' : String(v);
   if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
     return '"' + s.replace(/"/g, '""') + '"';
   }

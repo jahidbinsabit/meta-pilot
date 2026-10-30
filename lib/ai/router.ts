@@ -182,11 +182,9 @@ export async function getAdapterForTool(
 }
 
 /**
- * Create adapter instance from provider config.
- * Exported for the admin provider-test route (T4-58), which builds an
- * adapter from a draft (unsaved) config instead of the stored one.
+ * Create adapter instance from provider config
  */
-export function getAdapterForProvider(cfg: any): AiAdapter {
+function getAdapterForProvider(cfg: any): AiAdapter {
   switch (cfg.provider) {
     case 'gemini':
       return new GeminiAdapter(cfg.apiKey, cfg.modelDefault);

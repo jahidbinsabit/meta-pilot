@@ -3,14 +3,7 @@ import { Prisma } from '@prisma/client';
 import { requireApiUser } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { searchByContributor, searchByKeyword, recordQuery } from '@/lib/adobe-analytics/service';
-import {
-  getAnalyticsGate,
-  plannedContributorFetchRows,
-  plannedKeywordFetchRows,
-  MAX_DAILY_FETCH_ROWS,
-  type AnalyticsGate,
-} from '@/lib/adobe-analytics/tiers';
-import { hasUsablePoolCache } from '@/lib/adobe-analytics/pool-cache';
+import { getAnalyticsGate } from '@/lib/adobe-analytics/tiers';
 import { isAdobeConfigured } from '@/lib/adobe-analytics/adobe-stock';
 import { isApifyConfigured } from '@/lib/adobe-analytics/apify-stock';
 import { contributorSearchSchema, keywordSearchSchema } from '@/lib/adobe-analytics/types';
@@ -19,25 +12,6 @@ export const dynamic = 'force-dynamic';
 
 function err(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
-}
-
-/**
- * Daily-cap 429 with the upgrade payload (R9 N3): the same gate fields
- * a search RESULT carries (`limit` / `tier` / `planName`, plus the
- * resolved `dailyCap`) ride along so the client can render the upgrade
- * gate with a billing CTA instead of a bare error string.
- */
-function dailyCapResponse(message: string, gate: AnalyticsGate) {
-  return NextResponse.json(
-    {
-      error: message,
-      limit: gate.limit,
-      tier: gate.tier,
-      planName: gate.planName,
-      dailyCap: gate.dailyCap,
-    },
-    { status: 429 },
-  );
 }
 
 function handleAuth(e: unknown) {
@@ -85,6 +59,17 @@ export async function GET(req: Request) {
 }
 
 /**
+ * Daily-cap configuration. `ADOBE_DAILY_SEARCH_LIMIT` overrides the
+ * default of 30 — parsed explicitly so an intentional `0` ("block all
+ * non-admin searches") works; the old `Number(...) || 30` silently turned
+ * 0 back into 30 (audit R7-09). Unset/invalid/negative → 30.
+ */
+function dailySearchLimit(): number {
+  const parsed = Number.parseInt(process.env.ADOBE_DAILY_SEARCH_LIMIT ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 30;
+}
+
+/**
  * Reserve one search attempt against the daily cap (audit N1): the
  * AdobeAnalyticsQuery row is created BEFORE the search runs and counts
  * ATTEMPTS, not successes — a search that fails after the Apify actor
@@ -116,22 +101,13 @@ async function reserveSearchAttempt(
           // written by recordContinuationUse) live in the same table
           // but are NOT search attempts — exclude them so progressive-
           // loading chunks don't eat the daily cap they ride along on.
-          // Cache-hit rows (resultData.cacheHit === true, R9 H2) are
-          // excluded for the same reason: the search ran no paid actor
-          // run, so it must not consume an attempt either. (The row
-          // still transiently counts while its search is in flight —
-          // resultData is only filled in on completion.)
           const rowsToday = await tx.adobeAnalyticsQuery.findMany({
             where: { userId, createdAt: { gte: startOfUtcDay } },
             select: { resultData: true },
           });
           const searchesToday = rowsToday.filter((r) => {
             const d = r.resultData as any;
-            return !(
-              d &&
-              typeof d === 'object' &&
-              (d.continuation === true || d.cacheHit === true)
-            );
+            return !(d && typeof d === 'object' && d.continuation === true);
           }).length;
           if (searchesToday >= limit) return null;
           const row = await tx.adobeAnalyticsQuery.create({
@@ -198,15 +174,7 @@ async function continuationWantServedToday(
   let served = 0;
   for (const r of rows) {
     const d = r.resultData as any;
-    // Cache-served chunks (cacheHit) consumed no paid depth, so they
-    // don't eat the continuation budget either.
-    if (
-      d &&
-      typeof d === 'object' &&
-      d.continuation === true &&
-      d.cacheHit !== true &&
-      typeof d.want === 'number'
-    ) {
+    if (d && typeof d === 'object' && d.continuation === true && typeof d.want === 'number') {
       served += d.want;
     }
   }
@@ -219,87 +187,21 @@ async function continuationWantServedToday(
  * actor may already have billed). The row carries queryType/queryValue
  * of the search it extends and is flagged via `resultData.continuation`
  * so the daily-cap count can exclude it and any future recent-searches
- * UI can ignore it. Best-effort: never fails the search. Returns the
- * row id so a chunk that turns out to be cache-served can be re-flagged
- * afterwards (markContinuationCacheHit).
+ * UI can ignore it. Best-effort: never fails the search.
  */
-async function recordContinuationUse(
-  userId: string,
-  contributorId: number,
-  want: number,
-): Promise<string | null> {
+async function recordContinuationUse(userId: string, contributorId: number, want: number) {
   try {
-    const row = await prisma.adobeAnalyticsQuery.create({
+    await prisma.adobeAnalyticsQuery.create({
       data: {
         userId,
         queryType: 'contributor_id',
         queryValue: String(contributorId),
         resultData: { continuation: true, want } as any,
       },
-      select: { id: true },
-    });
-    return row.id;
-  } catch {
-    // Accounting is best-effort; never fail a search because logging failed.
-    return null;
-  }
-}
-
-/**
- * Re-flag a continuation row whose chunk was served from the pool
- * cache: no actor run happened, so neither the continuation budget
- * nor the daily fetched-rows budget may charge for it. Best-effort.
- */
-async function markContinuationCacheHit(rowId: string | null, want: number) {
-  if (!rowId) return;
-  try {
-    await prisma.adobeAnalyticsQuery.update({
-      where: { id: rowId },
-      data: { resultData: { continuation: true, want, cacheHit: true } as any },
     });
   } catch {
     // Accounting is best-effort; never fail a search because logging failed.
   }
-}
-
-/**
- * Rows today's REAL actor runs fetched for this user (R9 B9-07) — the
- * sum the MAX_DAILY_FETCH_ROWS budget enforces. Per AdobeAnalyticsQuery
- * row, in priority order:
- *  - cacheHit rows fetched nothing → 0;
- *  - continuation rows carry their billed cumulative depth in `want`
- *    (each chunk is its own actor run billed at that depth);
- *  - attempt/history rows recorded by current code carry the run's
- *    billed maxItems in `fetchedRows`;
- *  - legacy rows from earlier today (pre-budget deploys) fall back to
- *    their recorded visible `assetCount` — an approximation that only
- *    matters on the deploy day itself.
- * In-flight attempts (resultData not yet filled) contribute 0 here;
- * each is bounded by its own pre-run budget check.
- */
-async function fetchedRowsToday(userId: string): Promise<number> {
-  const startOfUtcDay = new Date();
-  startOfUtcDay.setUTCHours(0, 0, 0, 0);
-  const rows = await prisma.adobeAnalyticsQuery.findMany({
-    where: { userId, createdAt: { gte: startOfUtcDay } },
-    select: { resultData: true },
-  });
-  let total = 0;
-  for (const r of rows) {
-    const d = r.resultData as any;
-    if (!d || typeof d !== 'object') continue;
-    if (d.cacheHit === true) continue;
-    if (d.continuation === true) {
-      if (typeof d.want === 'number') total += d.want;
-      continue;
-    }
-    if (typeof d.fetchedRows === 'number') {
-      total += d.fetchedRows;
-    } else if (typeof d.assetCount === 'number') {
-      total += d.assetCount;
-    }
-  }
-  return total;
 }
 
 export async function POST(req: Request) {
@@ -327,16 +229,11 @@ export async function POST(req: Request) {
   try {
     // Per-user daily search cap (audit N9, hardened in R7/N1): every search
     // can trigger a paid Apify run billed to the owner's token, so cap
-    // ATTEMPTS per user per day. Admins are exempt. The cap is
-    // plan-aware (R9 N3): the user's Plan row can carry its own
-    // `adobeAnalyticsDailyCap`; otherwise the gate falls back to the
-    // ADOBE_DAILY_SEARCH_LIMIT env var (default 30). The window is
-    // the UTC calendar day: AdobeAnalyticsQuery rows with
-    // createdAt >= UTC midnight. The gate is resolved ONCE here so
-    // the cap, the fetched-rows budget and the 429 upgrade payload
-    // all read the same values.
-    const gate = await getAnalyticsGate(user.id);
-    const DAILY_SEARCH_LIMIT = gate.dailyCap;
+    // ATTEMPTS per user per day. Admins are exempt. Adjust via the
+    // ADOBE_DAILY_SEARCH_LIMIT env var (default 30) — no admin UI by
+    // design. The window is the UTC calendar day: AdobeAnalyticsQuery
+    // rows with createdAt >= UTC midnight.
+    const DAILY_SEARCH_LIMIT = dailySearchLimit();
     const isAdmin = user.role === 'ADMIN';
 
     if (queryType === 'contributor') {
@@ -348,35 +245,6 @@ export async function POST(req: Request) {
         );
       }
       const contributorId = Number(parsed.data.contributorId);
-
-      // Daily fetched-rows budget (R9 B9-07): the attempt cap counts
-      // searches, not depth — a single search can bill ~1000 actor
-      // rows, so attempts alone don't bound the owner's Apify spend.
-      // Refuse BEFORE any actor run when today's real fetches plus
-      // this run's billed depth would exceed MAX_DAILY_FETCH_ROWS. A
-      // request the pool cache can serve runs no actor, so it is
-      // never refused. The budget only tracks Apify spend: when the
-      // scraper engine isn't configured, searches take the official
-      // API path and there are no actor rows to budget.
-      let plannedFetchRows: number | null = null;
-      let continuationRowId: string | null = null;
-      if (!isAdmin && (await isApifyConfigured())) {
-        plannedFetchRows = plannedContributorFetchRows(gate.limit, parsed.data.want);
-        const cacheWillServe = await hasUsablePoolCache(contributorId, plannedFetchRows, {
-          contentType: parsed.data.contentType,
-          generativeAi: parsed.data.generativeAi,
-          sort: parsed.data.sort,
-        });
-        if (!cacheWillServe) {
-          const usedRows = await fetchedRowsToday(user.id);
-          if (usedRows + plannedFetchRows > MAX_DAILY_FETCH_ROWS) {
-            return dailyCapResponse(
-              `Daily Adobe Analytics data limit reached (${MAX_DAILY_FETCH_ROWS} rows/day). Try again tomorrow.`,
-              gate,
-            );
-          }
-        }
-      }
 
       // Progressive loading: the UI fetches a small first chunk (25)
       // and then deeper pools chunk by chunk. Any request past the
@@ -410,7 +278,7 @@ export async function POST(req: Request) {
       }
       if (ridesAlong) {
         // Account for the chunk before running it, like a reservation.
-        continuationRowId = await recordContinuationUse(user.id, contributorId, want);
+        await recordContinuationUse(user.id, contributorId, want);
       }
 
       // Reserve BEFORE searching so the attempt counts even if the
@@ -423,9 +291,9 @@ export async function POST(req: Request) {
           String(contributorId),
         );
         if (attemptId === null) {
-          return dailyCapResponse(
+          return err(
             `Daily Adobe Analytics search limit reached (${DAILY_SEARCH_LIMIT}/day). Try again tomorrow.`,
-            gate,
+            429,
           );
         }
       }
@@ -444,21 +312,7 @@ export async function POST(req: Request) {
         totalAssets: result.totalAssets,
         assetCount: result.assets.length,
         tier: result.tier,
-        // R9 H2/B9-07 accounting: a cache hit fetched zero rows (and
-        // its row is excluded from the daily attempt count); a real
-        // actor run records the rows it billed so the fetched-rows
-        // budget can sum them.
-        ...(result.cacheHit
-          ? { cacheHit: true }
-          : plannedFetchRows !== null
-            ? { fetchedRows: plannedFetchRows }
-            : {}),
       };
-      if (result.cacheHit) {
-        // A continuation chunk pre-recorded above turns out to have
-        // been free — re-flag its row so the budgets don't charge it.
-        await markContinuationCacheHit(continuationRowId, want);
-      }
       if (attemptId) {
         await completeSearchAttempt(attemptId, resultData);
       } else if (!isContinuation) {
@@ -476,21 +330,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Daily fetched-rows budget (R9 B9-07) — same rule as the
-    // contributor branch. Keyword searches have no pool cache, so a
-    // configured scraper engine always means a real actor run.
-    let plannedFetchRows: number | null = null;
-    if (!isAdmin && (await isApifyConfigured())) {
-      plannedFetchRows = plannedKeywordFetchRows(gate.limit);
-      const usedRows = await fetchedRowsToday(user.id);
-      if (usedRows + plannedFetchRows > MAX_DAILY_FETCH_ROWS) {
-        return dailyCapResponse(
-          `Daily Adobe Analytics data limit reached (${MAX_DAILY_FETCH_ROWS} rows/day). Try again tomorrow.`,
-          gate,
-        );
-      }
-    }
-
     if (!isAdmin) {
       attemptId = await reserveSearchAttempt(
         user.id,
@@ -499,9 +338,9 @@ export async function POST(req: Request) {
         parsed.data.query,
       );
       if (attemptId === null) {
-        return dailyCapResponse(
+        return err(
           `Daily Adobe Analytics search limit reached (${DAILY_SEARCH_LIMIT}/day). Try again tomorrow.`,
-          gate,
+          429,
         );
       }
     }
@@ -512,8 +351,6 @@ export async function POST(req: Request) {
       totalResults: result.totalResults,
       assetCount: result.assets.length,
       tier: result.tier,
-      // R9 B9-07 accounting: rows this search's actor run billed.
-      ...(plannedFetchRows !== null ? { fetchedRows: plannedFetchRows } : {}),
     };
     if (attemptId) {
       await completeSearchAttempt(attemptId, resultData);

@@ -40,19 +40,6 @@ export function LoginForm({ signupCredits = 20 }: { signupCredits?: number }) {
     else if (authError !== "CredentialsSignin") setError(`Sign-in failed (${authError}).`);
   }, []);
 
-  // "Remember this browser" (T1-07): persist the choice so the dashboard
-  // shell can apply it to the session cookie via /api/account/session-mode
-  // (unchecked → browser-session cookie, checked → 30-day cookie). Written
-  // for BOTH flows: credentials applies it right after sign-in, Google
-  // round-trips through the provider so it must be stored beforehand.
-  function persistRememberChoice() {
-    try {
-      localStorage.setItem("sf-remember-me", rememberMe ? "1" : "0");
-    } catch {
-      // storage unavailable — the session keeps the 30-day default
-    }
-  }
-
   async function onCredentials(e: React.FormEvent) {
     e.preventDefault();
     if (busy || googleBusy) return;
@@ -68,7 +55,6 @@ export function LoginForm({ signupCredits = 20 }: { signupCredits?: number }) {
         }
         setBusy(false);
       } else if (result?.ok) {
-        persistRememberChoice();
         const params = new URLSearchParams(window.location.search);
         window.location.href = params.get("callbackUrl") || "/dashboard";
       }
@@ -97,7 +83,6 @@ export function LoginForm({ signupCredits = 20 }: { signupCredits?: number }) {
     if (busy || googleBusy) return;
     setGoogleBusy(true);
     setError(null);
-    persistRememberChoice();
     try {
       const params = new URLSearchParams(window.location.search);
       await signIn("google", { callbackUrl: params.get("callbackUrl") || "/dashboard" });
@@ -177,7 +162,7 @@ export function LoginForm({ signupCredits = 20 }: { signupCredits?: number }) {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label htmlFor="login-password" className="text-xs font-semibold text-foreground/90">Password</label>
-              <Link href="/#faq" className="text-2xs font-medium text-accent hover:underline">
+              <Link href="/signup" className="text-2xs font-medium text-accent hover:underline">
                 Need help?
               </Link>
             </div>
@@ -190,7 +175,7 @@ export function LoginForm({ signupCredits = 20 }: { signupCredits?: number }) {
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError(null); }}
-                placeholder="Enter your password"
+                placeholder="••••••••"
                 required
                 disabled={busy || googleBusy}
                 className="h-11 rounded-xl border-border bg-card/60 pl-10 pr-10 text-sm focus:border-accent focus:bg-card focus:ring-2 focus:ring-accent/20"

@@ -17,8 +17,6 @@ interface UsersTableProps {
   onToggleStatus: (user: UserRecord) => void;
   onDelete: (user: UserRecord) => void;
   onRestore: (user: UserRecord) => void;
-  /** T4-25: user id whose status toggle is in flight (button disabled). */
-  statusPendingUserId?: string | null;
 }
 
 export function UsersTable({
@@ -32,7 +30,6 @@ export function UsersTable({
   onToggleStatus,
   onDelete,
   onRestore,
-  statusPendingUserId,
 }: UsersTableProps) {
   return (
     <div className="overflow-x-auto">
@@ -85,7 +82,6 @@ export function UsersTable({
                 onToggleStatus={onToggleStatus}
                 onDelete={onDelete}
                 onRestore={onRestore}
-                statusTogglePending={statusPendingUserId === u.id}
               />
             ))
           )}

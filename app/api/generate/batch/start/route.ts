@@ -11,7 +11,6 @@ import { getToolCost } from '@/lib/credits/cost';
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 import { rateLimit } from '@/lib/rate-limit';
 import { normalizeOwnedImageRef } from '@/lib/net/safe-fetch';
-import { assertToolRunnable, toolGateErrorResponse } from '@/lib/tools/gate';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -49,18 +48,6 @@ export async function POST(req: Request) {
       { error: 'rate_limited', retryAfter: rl.retryAfter },
       { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
     );
-  }
-
-  // R9 B9-06/S9-01: registry gate before any deduction — the metadata
-  // generator is a registry tool ('metadata-generator'), so an admin
-  // disabling it (or restricting it to higher tiers) stops this route
-  // too, not just the dashboard tile.
-  try {
-    await assertToolRunnable('metadata-generator', user);
-  } catch (e) {
-    const gateRes = toolGateErrorResponse(e);
-    if (gateRes) return gateRes;
-    throw e;
   }
 
   let body: unknown;

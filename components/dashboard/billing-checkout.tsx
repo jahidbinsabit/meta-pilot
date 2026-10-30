@@ -33,56 +33,7 @@ import {
   CurrencyCheckoutDialog,
   type CheckoutPlan,
 } from '@/components/marketing/currency-checkout-dialog';
-import { takePendingCheckout } from '@/components/marketing/checkout-helpers';
 import type { Plan, CreditPackage, Membership, Payment, CreditTransaction } from '@prisma/client';
-
-/** Machine reason codes stored on CreditTransaction rows → human labels. */
-const CREDIT_REASON_LABELS: Record<string, string> = {
-  daily_free: 'Daily free credits',
-  welcome_trial: 'Welcome bonus',
-};
-
-/** Fallback labels by transaction type when no readable reason is stored. */
-const CREDIT_TYPE_LABELS: Record<string, string> = {
-  DAILY_GRANT: 'Daily free credits',
-  PURCHASE: 'Purchase',
-  SPEND: 'Generation',
-  REFUND: 'Refund',
-  REFUND_CLAWBACK: 'Refund reversal',
-  ADMIN_ADJUSTMENT: 'Admin adjustment',
-  BONUS: 'Bonus',
-  CREDIT: 'Credit',
-};
-
-function humanizeCode(code: string): string {
-  return code
-    .replace(/[_-]+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/**
- * Credit Log "Reason" cell: known machine codes map to labels; free-text
- * reasons (plan/package names, admin notes) are already human-readable and
- * pass through; anything else falls back to the transaction type, with the
- * tool slug appended for spends.
- */
-function creditReasonLabel(tx: CreditTransaction): string {
-  const reason = tx.reason?.trim();
-  if (reason) {
-    if (CREDIT_REASON_LABELS[reason]) return CREDIT_REASON_LABELS[reason];
-    // A lone snake_case/kebab token is a machine code, not prose.
-    if (/^[a-z0-9]+([_-][a-z0-9]+)+$/.test(reason)) return humanizeCode(reason);
-    return reason;
-  }
-  const typeLabel = CREDIT_TYPE_LABELS[tx.type] ?? 'Credit movement';
-  if (tx.relatedToolSlug) {
-    return tx.type === 'SPEND'
-      ? `${typeLabel} · ${humanizeCode(tx.relatedToolSlug)}`
-      : humanizeCode(tx.relatedToolSlug);
-  }
-  return typeLabel;
-}
 
 interface BillingCheckoutProps {
   plans: Plan[];
@@ -101,52 +52,33 @@ interface BillingCheckoutProps {
   userId: string;
 }
 
-/**
- * T1-19: the plan card's feature list is DERIVED from the Plan row the
- * page already receives — credits, daily grant, the Adobe Analytics
- * result limit, the Batch C tool-access map (Plan.features) and the
- * batch limit. The old hardcoded PLAN_FEATURES copy promised things no
- * plan data backs ("Team-ready workflows", "Account manager") and could
- * drift from what the gates actually enforce; this list can only state
- * what the row itself grants.
- */
-function planFeatureList(plan: Plan): string[] {
-  const lines: string[] = [];
-  if (plan.creditsIncluded > 0) {
-    lines.push(`${plan.creditsIncluded.toLocaleString()} credits included`);
-  }
-  if (plan.dailyFreeCredits > 0) {
-    lines.push(`${plan.dailyFreeCredits} free credits every day`);
-  }
-  // tiers.ts semantics: -1 = unlimited results, >0 = rows per search,
-  // 0 = locked (no Adobe Analytics line at all).
-  if (plan.adobeAnalyticsResultLimit === -1) {
-    lines.push('Adobe Analytics: unlimited results per search');
-  } else if (plan.adobeAnalyticsResultLimit > 0) {
-    lines.push(
-      `Adobe Analytics: ${plan.adobeAnalyticsResultLimit.toLocaleString()} results per search`,
-    );
-  }
-  const features = (plan.features ?? {}) as Record<string, unknown>;
-  const toolFlags = Object.entries(features).filter(
-    ([key, value]) => key !== 'batchLimit' && typeof value === 'boolean',
-  );
-  if (toolFlags.length > 0) {
-    const enabledCount = toolFlags.filter(([, value]) => value === true).length;
-    lines.push(
-      enabledCount === toolFlags.length
-        ? `All ${toolFlags.length} tools included`
-        : `${enabledCount} of ${toolFlags.length} tools included`,
-    );
-  }
-  if (typeof features.batchLimit === 'number' && features.batchLimit > 0) {
-    lines.push(`Batches of up to ${features.batchLimit} images`);
-  }
-  if (lines.length === 0) {
-    lines.push('Core metadata generation');
-  }
-  return lines;
-}
+// NOTE: hardcoded marketing copy — the Plan model has no features field.
+// If plans gain a features column, read from there instead.
+const PLAN_FEATURES: Record<string, string[]> = {
+  FREE: ['Metadata generator', 'Image → Prompt', 'Basic analytics', 'Community support'],
+  PRO: [
+    'Everything in Free',
+    'Batch generation',
+    'Full Adobe analytics',
+    'Priority support',
+    'API access',
+    'Custom prompts',
+  ],
+  PLUS: [
+    'Everything in Pro',
+    'Higher monthly credits',
+    'Expanded analytics limits',
+    'Team-ready workflows',
+    'Faster support',
+  ],
+  AGENCY: [
+    'Everything in Plus',
+    'Highest credit volume',
+    'Unlimited analytics results',
+    'Priority onboarding',
+    'Account manager',
+  ],
+};
 
 export function BillingCheckout({
   plans,
@@ -190,46 +122,6 @@ export function BillingCheckout({
       router.replace('/dashboard/billing');
     }
   }, [searchParams, toast, router, queryClient]);
-
-  // T1-18: restore a plan/package chosen before a login round-trip
-  // (the checkout hook stores it via savePendingCheckout before
-  // redirecting to /login; landing back here re-opens the dialog).
-  React.useEffect(() => {
-    const pending = takePendingCheckout();
-    if (!pending) return;
-    setCurrency(pending.currency);
-    if (pending.type === 'plan') {
-      const plan = plans.find((p) => p.id === pending.id);
-      if (plan) {
-        setSelectedItem({
-          id: plan.id,
-          name: plan.name,
-          type: 'plan',
-          tier: plan.tier,
-          monthlyPriceUSD: plan.monthlyPriceUSD,
-          monthlyPriceBDT: plan.monthlyPriceBDT,
-          creditsIncluded: plan.creditsIncluded,
-          dailyFreeCredits: plan.dailyFreeCredits,
-          preSelectedCurrency: pending.currency,
-        });
-      }
-    } else {
-      const pkg = packages.find((p) => p.id === pending.id);
-      if (pkg) {
-        setSelectedItem({
-          id: pkg.id,
-          name: pkg.name,
-          type: 'credits',
-          priceUSD: pkg.priceUSD,
-          priceBDT: pkg.priceBDT,
-          credits: pkg.credits,
-          preSelectedCurrency: pending.currency,
-        });
-      }
-    }
-    // Mount-only restore; plans/packages are this page's server props.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const handleTopupClick = (pkg: CreditPackage) => {
     setSelectedItem({
@@ -520,7 +412,11 @@ export function BillingCheckout({
                   currentMembership?.planId === plan.id || (isFree && !currentMembership);
                 const price = currency === 'USD' ? plan.monthlyPriceUSD : plan.monthlyPriceBDT;
                 const formattedPrice = isFree ? (currency === 'USD' ? '$0' : '৳0') : formatCheckoutAmount(currency, price);
-                const features = planFeatureList(plan);
+                const features = PLAN_FEATURES[plan.tier] || [
+                  plan.creditsIncluded > 0
+                    ? `${plan.creditsIncluded.toLocaleString()} credits included`
+                    : `${plan.dailyFreeCredits} free credits / day`,
+                ];
 
                 return (
                   <Card
@@ -548,9 +444,7 @@ export function BillingCheckout({
                       <CardTitle className="text-lg font-bold">{plan.name}</CardTitle>
                       <div className="mt-2 flex items-baseline gap-1">
                         <span className="text-3xl font-extrabold">{formattedPrice}</span>
-                        {!isFree && (
-                          <span className="text-xs text-muted-foreground">one-time · 30 days of access</span>
-                        )}
+                        {!isFree && <span className="text-xs text-muted-foreground">/mo</span>}
                       </div>
                       <div className="mt-2 flex items-center gap-1.5 text-xs text-accent">
                         <Zap className="h-3.5 w-3.5" />
@@ -738,7 +632,7 @@ export function BillingCheckout({
                               </Badge>
                             </td>
                             <td className="py-3 px-4 text-xs text-muted-foreground">
-                              {creditReasonLabel(tx)}
+                              {tx.reason || tx.relatedToolSlug || 'Credit movement'}
                             </td>
                             <td className="py-3 pl-4 text-right">
                               <span

@@ -15,9 +15,23 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Loader2, Check, X, ChevronDown, ChevronUp, Zap, CheckCircle2, XCircle, Plus, Trash2, Globe } from 'lucide-react';
+import {
+  Loader2,
+  Check,
+  X,
+  ChevronDown,
+  ChevronUp,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  Plus,
+  Trash2,
+  Globe,
+  Key,
+  Cpu,
+  Sparkles,
+} from 'lucide-react';
 import { TOOL_SLUGS, TOOL_META } from '@/lib/tools/slugs';
-import { providerLabel } from '@/lib/ai/provider-label';
 
 interface TestResult {
   ok: boolean;
@@ -36,7 +50,14 @@ interface ProviderPreset {
 }
 
 /** Display name for a provider slug — CSS `capitalize` would render "Openai". */
-
+const PROVIDER_LABELS: Record<string, string> = {
+  gemini: 'Gemini',
+  grok: 'Grok',
+  openai: 'OpenAI',
+};
+function providerLabel(slug: string): string {
+  return PROVIDER_LABELS[slug] ?? slug.charAt(0).toUpperCase() + slug.slice(1);
+}
 
 const PRESETS: ProviderPreset[] = [
   {
@@ -221,24 +242,10 @@ export function AiProvidersClient({ configs: initialConfigs }: { configs: any[] 
     setTestResults({ ...testResults, [provider]: undefined as any });
 
     try {
-      // T4-58: send the card's current (possibly unsaved) values as a
-      // draft — the test used to send only the provider name and silently
-      // tested the SAVED config, so a broken draft key/model looked fine.
-      const draftCfg: any = configs.find((c) => c.provider === provider) || {};
       const res = await fetch('/api/admin/ai-providers/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider,
-          draft: {
-            apiKey: draftCfg.apiKey || undefined,
-            modelDefault: draftCfg.modelDefault || undefined,
-            customApiUrl: draftCfg.customApiUrl || undefined,
-            apiType: draftCfg.apiType || undefined,
-            customHeaders: draftCfg.customHeaders,
-            maxTokens: typeof draftCfg.maxTokens === 'number' ? draftCfg.maxTokens : undefined,
-          },
-        }),
+        body: JSON.stringify({ provider }),
       });
       const result = await res.json();
       setTestResults({ ...testResults, [provider]: result });

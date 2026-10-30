@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { X, Sparkles } from 'lucide-react';
+import { X, Plus, Sparkles } from 'lucide-react';
 import { TargetPlatform } from '@/lib/generator/types';
 import { cn } from '@/lib/utils';
 

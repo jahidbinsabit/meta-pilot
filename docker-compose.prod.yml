@@ -5,7 +5,7 @@
 #   2. docker compose -f docker-compose.prod.yml up -d --build
 #   3. Add the two cron lines from the output of `docker compose ... logs` / DEPLOY notes.
 #
-# What you get: app + Postgres 16 + Caddy (automatic HTTPS).
+# What you get: app + Postgres 16 + Redis 7 + Caddy (automatic HTTPS).
 
 services:
   db:
@@ -28,6 +28,22 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   app:
     build:
       context: .
@@ -44,10 +60,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file: .env
     environment:
       # Point the app at the compose services (overrides .env values)
       DATABASE_URL: postgresql://stockforge:${DB_PASSWORD}@db:5432/stockforge?schema=public
+      REDIS_URL: redis://redis:6379
     # Localhost-only: host crontab curls the cron endpoints here.
     # Public traffic goes through the reverse proxy (Caddy or CyberPanel).
     # NOTE: 3100, not 3000 — some VPS images run nghttpx on 127.0.0.1:3000.
@@ -86,6 +105,7 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
   uploads:
   caddydata:
   caddyconfig:

@@ -28,17 +28,6 @@ export function UserQuickPasswordDialog({ user, onClose }: QuickPasswordDialogPr
   const [password, setPassword] = React.useState<string>('');
   const [showPassword, setShowPassword] = React.useState(false);
 
-  // T4-26: the dialog stays mounted across users — clear the typed password
-  // whenever a different user is opened (it previously cleared only on a
-  // successful reset, leaking one user's draft into the next dialog).
-  const userId = user?.id;
-  React.useEffect(() => {
-    if (userId) {
-      setPassword('');
-      setShowPassword(false);
-    }
-  }, [userId]);
-
   const mutation = useMutation({
     mutationFn: async (payload: any) => {
       const res = await fetch('/api/admin/users', {

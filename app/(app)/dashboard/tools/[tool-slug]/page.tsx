@@ -1,11 +1,6 @@
 import nextDynamic from 'next/dynamic';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { Lock } from 'lucide-react';
-import { getTool, type ToolEntry } from '@/lib/tools/registry';
-import { resolveUserTier, tierAllowedForTool } from '@/lib/tools/gate';
-import { prisma } from '@/lib/db';
-import getServerSession from '@/lib/server-session';
+import { getTool } from '@/lib/tools/registry';
 import { Spinner } from '@/components/ui/loading';
 
 // Authenticated page: never prerender at build time (needs session + DB).
@@ -98,56 +93,9 @@ const TEXT_TOOLS = new Set([
   'batch-export',
 ]);
 
-/**
- * Display-side mirror of the run gate (lib/tools/gate.ts): the run APIs
- * already refuse tier-excluded users with 403 — the page previously
- * rendered the full runnable UI anyway and let them discover the refusal
- * on submit. Show the same locked state the tools grid uses instead.
- */
-function ToolTierLocked({ tool }: { tool: ToolEntry }) {
-  const tiers = (tool.enabledForTiers ?? []).join(' / ');
-  return (
-    <div className="mx-auto flex min-h-[50vh] max-w-md flex-col items-center justify-center text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-        <Lock className="h-6 w-6" />
-      </div>
-      <h1 className="mt-4 font-display text-2xl font-bold tracking-tight">{tool.name}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">{tool.description}</p>
-      <p className="mt-4 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Requires {tiers}
-      </p>
-      <p className="mt-3 text-sm text-muted-foreground">
-        This tool isn&apos;t included in your current plan.
-      </p>
-      <Link
-        href="/pricing"
-        className="mt-5 inline-flex items-center justify-center rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-accent-foreground shadow-sm transition-colors hover:bg-accent/90"
-      >
-        View plans
-      </Link>
-    </div>
-  );
-}
-
 export default async function ToolPage({ params }: { params: { 'tool-slug': string } }) {
   const tool = await getTool(params['tool-slug']);
   if (!tool || !tool.isEnabled) notFound();
-
-  // Tier gate (display coherence with assertToolRunnable): ADMIN bypasses
-  // the tier list, exactly as the run gate does.
-  if (tool.enabledForTiers && tool.enabledForTiers.length > 0) {
-    const session = await getServerSession();
-    const email = session?.user?.email;
-    const dbUser = email
-      ? await prisma.user.findUnique({ where: { email }, select: { id: true, role: true } })
-      : null;
-    if (dbUser?.role !== 'ADMIN') {
-      const tier = dbUser ? await resolveUserTier(dbUser.id) : 'FREE';
-      if (!tierAllowedForTool(tool.enabledForTiers, tier)) {
-        return <ToolTierLocked tool={tool} />;
-      }
-    }
-  }
 
   switch (tool.slug) {
     case 'bg-remover':

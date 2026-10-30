@@ -1,9 +1,18 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireApiAdmin } from '@/lib/api/auth';
-import { normalizeAudience } from '@/lib/notifications';
 
 export const runtime = 'nodejs';
+
+function normalizeAudience(value: unknown) {
+  const normalized = typeof value === 'string' ? value.toUpperCase() : 'ALL';
+  // ENTERPRISE included: it is a valid NotificationAudience — without it an
+  // ENTERPRISE-targeted edit silently widened the audience to ALL.
+  if (['ALL', 'FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'].includes(normalized)) {
+    return normalized as 'ALL' | 'FREE' | 'PRO' | 'PLUS' | 'AGENCY' | 'ENTERPRISE';
+  }
+  return 'ALL';
+}
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {

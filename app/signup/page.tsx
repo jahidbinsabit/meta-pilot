@@ -15,7 +15,5 @@ export default async function SignupPage() {
   const siteName = settings?.siteName || 'MetaCSV';
   const signupCredits =
     typeof settings?.signupCredits === 'number' ? settings.signupCredits : 20;
-  return (
-    <SignupClient siteName={siteName} signupCredits={signupCredits} logoUrl={settings?.logoUrl} />
-  );
+  return <SignupClient siteName={siteName} signupCredits={signupCredits} />;
 }

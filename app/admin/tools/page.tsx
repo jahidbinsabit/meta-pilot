@@ -1,4 +1,5 @@
-import { listTools } from '@/lib/tools/registry';
+import { prisma } from '@/lib/db';
+import { listTools, type ToolEntry } from '@/lib/tools/registry';
 import { ToolsClient } from '@/components/admin/tools-client';
 
 // Authenticated page: never prerender at build time (needs session + DB).

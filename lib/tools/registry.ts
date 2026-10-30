@@ -132,11 +132,7 @@ export const getTool = unstable_cache(
   { revalidate: 300, tags: ['tool-registry'] },
 );
 
-/**
- * Run-path enforcement of `isEnabled` / `enabledForTiers` lives in
- * lib/tools/gate.ts (assertToolRunnable) — this module only reads and
- * writes registry rows.
- */
+/** Whether a tool is visible for the given user's plan tier. */
 /** Upsert a tool registry row, applying defaults for any unset fields. */
 export async function upsertTool(
   slug: string,

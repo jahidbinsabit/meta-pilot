@@ -61,14 +61,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    // T4-65: the catch-all mapped even auth failures to a 500 — map them
-    // like the sibling admin routes (401/403) and reserve 500 for faults.
-    if (e?.message === 'UNAUTHORIZED' || e?.message === 'FORBIDDEN') {
-      return new Response(JSON.stringify({ error: e.message.toLowerCase() }), {
-        status: e.message === 'FORBIDDEN' ? 403 : 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
     console.error('admin tools save failed', e);
     return new Response(JSON.stringify({ error: 'save_failed' }), {
       status: 500,

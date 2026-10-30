@@ -59,6 +59,22 @@ function redactSecrets(data: Record<string, any>): Record<string, any> {
   return out;
 }
 
+export async function GET() {
+  await requireApiAdmin();
+  await ensureDatabaseSchema().catch(() => {});
+
+  const settings = await prisma.siteSettings.findUnique({ where: { id: 'default' } });
+  if (!settings) {
+    // Create default row
+    const created = await prisma.siteSettings.create({
+      data: { id: 'default', siteName: 'MetaCSV' },
+    });
+    return NextResponse.json(publicSettings(created));
+  }
+
+  return NextResponse.json(publicSettings(settings));
+}
+
 export async function PATCH(req: Request) {
   const admin = await requireApiAdmin();
   await ensureDatabaseSchema().catch(() => {});

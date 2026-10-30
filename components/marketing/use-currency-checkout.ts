@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/ui/toast';
 import { formatCheckoutAmount, type CheckoutCurrency, type PublicGateway } from '@/lib/payments/public';
-import { gatewaysForCurrency, planAmount, savePendingCheckout, type CheckoutPlan, type CheckoutStep } from './checkout-helpers';
+import { gatewaysForCurrency, planAmount, type CheckoutPlan, type CheckoutStep } from './checkout-helpers';
 
 export function useCurrencyCheckout({
   open,
@@ -48,9 +48,6 @@ export function useCurrencyCheckout({
   const shownGateways = gatewaysForCurrency(gateways, currency);
 
   const requireLogin = () => {
-    // T1-18: keep the chosen plan/package across the login round-trip —
-    // the landing page restores it via takePendingCheckout().
-    if (plan) savePendingCheckout(plan, currency);
     const returnPath = typeof window !== 'undefined' ? window.location.pathname : '/pricing';
     router.push(`/login?callbackUrl=${encodeURIComponent(returnPath)}`);
   };

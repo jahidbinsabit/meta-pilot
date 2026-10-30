@@ -4,14 +4,6 @@ import { prisma } from '@/lib/db';
 import { encryptSecret } from '@/lib/crypto';
 import { writeAudit } from '@/lib/audit';
 
-/** T4-63: audit entries stored the full config row — including the
- * (encrypted) API key — in the AuditLog JSON. Redact the key material,
- * mirroring the gateway-config audit pattern. */
-function redactForAudit<T extends { apiKey?: string | null }>(row: T | null | undefined): T | undefined {
-  if (!row) return undefined;
-  return { ...row, apiKey: row.apiKey ? '[REDACTED]' : row.apiKey };
-}
-
 /**
  * GET: list all provider configs (admin only).
  */
@@ -119,8 +111,8 @@ export async function POST(req: Request) {
       action: before ? 'ai_provider_config_updated' : 'ai_provider_config_created',
       targetType: 'AiProviderConfig',
       targetId: cfg.id,
-      before: redactForAudit(before),
-      after: redactForAudit(cfg),
+      before: before || undefined,
+      after: cfg,
     });
   } catch (e) {
     console.error('[audit] ai provider config audit write failed', e);
@@ -176,7 +168,7 @@ export async function DELETE(req: Request) {
       action: 'ai_provider_config_deleted',
       targetType: 'AiProviderConfig',
       targetId: before.id,
-      before: redactForAudit(before),
+      before,
     });
   } catch (e) {
     console.error('[audit] ai provider config audit write failed', e);

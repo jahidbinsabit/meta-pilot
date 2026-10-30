@@ -11,11 +11,8 @@ export const FLAT_METADATA_FEE = 1;
 
 /**
  * Admin-configurable credit cost per tool slug (PROMPT 7).
- * Reads the `ToolCreditCost` table; falls back to the default cost in
- * TOOL_META only when NO row exists for the slug. A row that exists
- * with `isActive = false` is an admin decision to deactivate the price
- * — the tool runs FREE (cost 0), it does not silently revert to the
- * TOOL_META price (R9 B9-06).
+ * Reads the `ToolCreditCost` table; falls back to the default cost in TOOL_META
+ * when no row exists or the tool is inactive.
  */
 // Tiny 30s TTL cache, keyed by tool slug (per-process, best-effort).
 // Disabled under the test runner, where per-test Prisma mocks must stay
@@ -32,11 +29,10 @@ export async function getToolCost(toolSlug: string): Promise<number> {
     if (hit && hit.expiresAt > Date.now()) return hit.value;
   }
   const row = await prisma.toolCreditCost.findUnique({ where: { toolSlug } });
-  const value = !row
-    ? (TOOL_META[toolSlug as ToolSlug]?.cost ?? 1)
-    : row.isActive
+  const value =
+    row && row.isActive
       ? Math.max(0, row.cost)
-      : 0;
+      : (TOOL_META[toolSlug as ToolSlug]?.cost ?? 1);
   if (CACHE_ENABLED) {
     toolCostCache.set(toolSlug, { value, expiresAt: Date.now() + CACHE_TTL_MS });
   }

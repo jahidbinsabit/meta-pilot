@@ -13,21 +13,16 @@ export default async function UsersPage() {
         orderBy: { sortOrder: 'asc' },
       }).catch(() => []),
       prisma.$transaction(async (tx) => {
-        // T4-22: every count uses the API's scope (deletedAt: null) — the
-        // SSR seed previously mixed scopes, so the stat cards disagreed
-        // with GET /api/admin/users until the first refetch.
         const [totalUsers, activeUsers, suspendedUsers, adminUsers, paidUsers] = await Promise.all([
-          tx.user.count({ where: { deletedAt: null } }).catch(() => 0),
+          tx.user.count().catch(() => 0),
           tx.user.count({ where: { status: 'ACTIVE', deletedAt: null } }).catch(() => 0),
-          tx.user.count({ where: { status: 'SUSPENDED', deletedAt: null } }).catch(() => 0),
-          tx.user.count({ where: { role: 'ADMIN', deletedAt: null } }).catch(() => 0),
-          tx.user.count({ where: { membership: { not: 'FREE' }, deletedAt: null } }).catch(() => 0),
+          tx.user.count({ where: { status: 'SUSPENDED' } }).catch(() => 0),
+          tx.user.count({ where: { role: 'ADMIN' } }).catch(() => 0),
+          tx.user.count({ where: { membership: { not: 'FREE' } } }).catch(() => 0),
         ]);
         return { totalUsers, activeUsers, suspendedUsers, adminUsers, paidUsers };
       }).catch(() => ({ totalUsers: 0, activeUsers: 0, suspendedUsers: 0, adminUsers: 0, paidUsers: 0 })),
       prisma.user.findMany({
-        // T4-22: match the API's default list scope (deleted = 'active').
-        where: { deletedAt: null },
         take: 25,
         orderBy: { createdAt: 'desc' },
         // Explicit select (mirrors GET /api/admin/users): never load
@@ -63,7 +58,7 @@ export default async function UsersPage() {
           },
         },
       }).catch(() => []),
-      prisma.user.count({ where: { deletedAt: null } }).catch(() => 0),
+      prisma.user.count().catch(() => 0),
     ]);
 
     const sanitizedInitialUsers = initialUsers.map((u: any) => ({

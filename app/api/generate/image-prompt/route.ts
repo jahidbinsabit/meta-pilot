@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
 import { requireApiUserOrKey } from '@/lib/api/auth';
-import { rateLimit } from '@/lib/rate-limit';
 import { prisma } from '@/lib/db';
 import { refundCredits } from '@/lib/credits/engine';
 import { chargeCredits } from '@/lib/credits/charge';
 import { getToolCost } from '@/lib/credits/cost';
 import { generateWithAI } from '@/lib/ai';
 import { ImagePromptSchema } from '@/lib/ai/schemas';
+import { downloadFile } from '@/lib/s3/client';
 import { ownsStorageKey } from '@/lib/api/ownership';
+import { resizeImage } from '@/lib/generator/images';
 import { getPresetBySlug } from '@/lib/prompt-styles/presets';
-import { toBase64, type PromptImage } from '@/lib/tools/run-image-prompt';
 import type { ImagePromptResult } from '@/lib/prompt-styles/types';
 import {
   buildImagePromptSystemInstruction,
@@ -18,12 +18,80 @@ import {
 
 import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 import { UNIVERSAL_BATCH_LIMIT } from '@/lib/generator/limits';
-import { assertToolRunnable, toolGateErrorResponse } from '@/lib/tools/gate';
+import {
+  decodeDataImageUrl,
+  fetchImageGuarded,
+  normalizeOwnedImageRef,
+} from '@/lib/net/safe-fetch';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 const TOOL_SLUG = 'image-to-prompt';
+
+interface PromptImage {
+  id: string;
+  fileName: string;
+  /** S3 object key, preferred — lets us pull bytes straight from S3. */
+  key?: string;
+  /** Fallback when only a public URL is available. */
+  previewUrl?: string;
+  mimeType?: string;
+}
+
+/**
+ * Resolve an image to bare base64, which is what both provider adapters
+ * expect (gemini.ts puts image.data straight into inline_data.data; openai.ts
+ * builds a data: URL from it). Downscales to max 1024px and compresses to JPEG
+ * to ensure fast generation and minimal token consumption.
+ *
+ * Reference resolution (H1/H2): a storage `key` is read directly (the
+ * caller validated ownership above); a `previewUrl` is first checked as
+ * an owned storage reference / data: URL via normalizeOwnedImageRef —
+ * data: payloads are size-capped by decodeDataImageUrl — and only a
+ * genuinely EXTERNAL http(s) URL (the Chrome-extension flow) is fetched,
+ * through fetchImageGuarded (SSRF-safe: public-IP validation, manual
+ * redirects, image-only, streamed size cap). A bare fetch here was the
+ * old SSRF sink.
+ */
+async function toBase64(
+  img: PromptImage,
+  userId: string,
+): Promise<{ data: string; mime: string }> {
+  let mime = img.mimeType || 'image/png';
+  let buf: Buffer;
+
+  if (img.key) {
+    buf = await downloadFile(img.key);
+  } else if (img.previewUrl) {
+    const ref = normalizeOwnedImageRef(userId, img.previewUrl);
+    if (ref.ok && /^data:/i.test(ref.value)) {
+      const decoded = decodeDataImageUrl(ref.value);
+      if (!decoded) throw new Error('invalid_image_reference');
+      buf = decoded.buffer;
+      mime = decoded.mime;
+    } else if (ref.ok) {
+      // Owned storage reference normalized to its raw key.
+      buf = await downloadFile(ref.value);
+    } else if (/^https?:\/\//i.test(img.previewUrl)) {
+      const fetched = await fetchImageGuarded(img.previewUrl);
+      buf = fetched.buffer;
+      mime = fetched.contentType;
+    } else {
+      throw new Error('invalid_image_reference');
+    }
+  } else {
+    throw new Error('image_reference_required');
+  }
+
+  // Safety server-side downscale to max 1024px JPEG to minimize tokens
+  try {
+    const optimized = await resizeImage(buf, mime, 1024, 80);
+    return { data: optimized.buffer.toString('base64'), mime: optimized.mime };
+  } catch {
+    return { data: buf.toString('base64'), mime };
+  }
+}
 
 export async function POST(req: Request) {
   // Hoisted so the outer catch can refund on total failure.
@@ -33,20 +101,6 @@ export async function POST(req: Request) {
   try {
     const user = await requireApiUserOrKey(req, 'tools:run');
     userId = user.id;
-
-    // R9 S9-04: per-user rate limit — this synchronous sibling of the
-    // start route had none; match it exactly (30 starts / 10 min).
-    const rl = rateLimit(`generate-image-prompt:${user.id}`, {
-      max: 30,
-      windowMs: 10 * 60 * 1000,
-    });
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited', retryAfter: rl.retryAfter },
-        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
-      );
-    }
-
     const body = await req.json();
     const { images, style } = body as { images?: PromptImage[]; style?: string };
 
@@ -85,18 +139,6 @@ export async function POST(req: Request) {
       if (img.key && !ownsStorageKey(user.id, img.key)) {
         return NextResponse.json({ error: 'forbidden' }, { status: 403 });
       }
-    }
-
-    // R9 B9-06/S9-01: registry gate before any charge — this route is
-    // the Chrome extension's execution path for 'image-to-prompt', so
-    // it must honour an admin disable / tier restriction too. The gate
-    // response returns directly (never into the refund catch below).
-    try {
-      await assertToolRunnable(TOOL_SLUG, user);
-    } catch (e) {
-      const gateRes = toolGateErrorResponse(e);
-      if (gateRes) return gateRes;
-      throw e;
     }
 
     const costPerImage = await getToolCost(TOOL_SLUG);

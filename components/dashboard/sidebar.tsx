@@ -3,7 +3,24 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutGrid, Sparkles, History, BarChart3, Wrench, CreditCard, Settings, LogOut, ChevronLeft, Zap, TrendingUp, Shield, UserCircle, Coins, Infinity as InfinityIcon } from 'lucide-react';
+import {
+  LayoutGrid,
+  Image,
+  Sparkles,
+  History,
+  BarChart3,
+  Wrench,
+  CreditCard,
+  Settings,
+  LogOut,
+  ChevronLeft,
+  Zap,
+  TrendingUp,
+  Shield,
+  UserCircle,
+  Coins,
+  Infinity as InfinityIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -37,15 +54,12 @@ export function Sidebar({
   user,
   siteName = 'MetaCSV',
   logoUrl,
-  planCreditsIncluded = 0,
 }: {
   collapsed: boolean;
   onCollapse: (v: boolean) => void;
   user: { name?: string | null; email: string; credits: number; membership: string; role: string };
   siteName?: string;
   logoUrl?: string | null;
-  /** Active plan's included credits — the credit bar's denominator (T1-20 mirror). */
-  planCreditsIncluded?: number;
 }) {
   const pathname = usePathname();
   const { credits, unlimited } = useCredits();
@@ -133,20 +147,12 @@ export function Sidebar({
             </span>
             <span className="text-xs text-muted-foreground">available</span>
           </div>
-          {/* T1-20 mirror: measure the fill against the active plan's
-              included credits, not a hardcoded 100 — and render no bar
-              at all when there is no meaningful denominator (FREE tier)
-              or the balance is presented as Unlimited. */}
-          {!unlimited && planCreditsIncluded > 0 && (
-            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-accent transition-all duration-300"
-                style={{
-                  width: `${Math.min(100, ((mounted ? credits : user.credits) / planCreditsIncluded) * 100)}%`,
-                }}
-              />
-            </div>
-          )}
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-accent transition-all duration-300"
+              style={{ width: `${Math.min(100, ((mounted ? credits : user.credits) / 100) * 100)}%` }}
+            />
+          </div>
           <Link href="/dashboard/billing" className="mt-2 block">
             <Button size="xs" variant="subtle" className="w-full">
               Top up

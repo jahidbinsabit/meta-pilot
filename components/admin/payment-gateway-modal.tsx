@@ -284,19 +284,6 @@ export function PaymentGatewayModal({
                           className="mt-1"
                         />
                       </div>
-                      {/* T4-40: checkout and the admin card read an
-                          `accountNumber` credential that no editor wrote —
-                          bank numbers only ever landed in receivingNumber. */}
-                      <div>
-                        <Label htmlFor="accountNumber">Account Number</Label>
-                        <Input
-                          id="accountNumber"
-                          value={credentials.accountNumber || ''}
-                          onChange={(e) => updateCred('accountNumber', e.target.value)}
-                          placeholder="e.g. 1234567890123"
-                          className="mt-1 font-mono text-sm"
-                        />
-                      </div>
                     </div>
                   )}
 

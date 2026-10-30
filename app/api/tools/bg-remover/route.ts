@@ -9,8 +9,6 @@ import { prisma } from '@/lib/db';
 import { downloadFile } from '@/lib/s3/client';
 import { storePreview } from '@/lib/generator/images';
 import { removeBackground } from '@/lib/tools/bg-remover';
-import { assertToolRunnable, toolGateErrorResponse } from '@/lib/tools/gate';
-import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -25,23 +23,6 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
-    // R9 B9-06/S9-01: registry gate before any charge — a disabled or
-    // tier-restricted tool must not run via its dedicated route either.
-    try {
-      await assertToolRunnable('bg-remover', user);
-    } catch (e) {
-      const gateRes = toolGateErrorResponse(e);
-      if (gateRes) return gateRes;
-      throw e;
-    }
-    // R9 S9-04: per-user rate limit before CPU-heavy compute.
-    const rl = rateLimit(`tools-bg-remover:${user.id}`, { max: 60, windowMs: 10 * 60 * 1000 });
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited', retryAfter: rl.retryAfter },
-        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
-      );
-    }
     // R7-02: NO BYOK gate here — background removal is a fully local,
     // deterministic corner-colour chroma key (lib/tools/bg-remover); it
     // never calls an AI provider, so keyless users must not be blocked

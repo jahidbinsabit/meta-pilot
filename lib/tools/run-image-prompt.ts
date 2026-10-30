@@ -43,7 +43,7 @@ export interface PromptControls {
   negativeWords: string;
 }
 
-export async function toBase64(
+async function toBase64(
   img: PromptImage,
   userId: string,
 ): Promise<{ data: string; mime: string }> {
@@ -159,22 +159,7 @@ export async function runImagePromptGeneration(
   let refundedTotal = 0;
   let refundError: string | undefined;
 
-  // R9 H5: progress writes are throttled to one per ~2 s. The full
-  // cumulative `results` blob used to be rewritten after EVERY image
-  // (up to 100 full writes per job). `results` is written wholesale
-  // on every admitted write, so a skipped write loses nothing — the
-  // next admitted write carries every entry, and the terminal writes
-  // are separate updateMany calls that always run. heartbeatAt rides
-  // along on each admitted write, so it can lag at most one throttle
-  // interval (~2 s) — far inside the stale-job reaper's 20-minute
-  // window, the only consumer of heartbeat freshness.
-  const PROGRESS_WRITE_MIN_INTERVAL_MS = 2000;
-  let lastProgressWriteAt = 0;
-
   const writeProgress = async () => {
-    const now = Date.now();
-    if (now - lastProgressWriteAt < PROGRESS_WRITE_MIN_INTERVAL_MS) return;
-    lastProgressWriteAt = now;
     try {
       // Status-guarded (R7-01): only a still-running job accepts progress.
       // If the stale-job reaper already claimed this job (FAILED +

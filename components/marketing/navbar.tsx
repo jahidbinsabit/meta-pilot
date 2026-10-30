@@ -15,21 +15,10 @@ const NAV_LINKS = [
   { label: 'About', href: '/about' },
 ];
 
-export function Navbar({
-  siteName = 'MetaCSV',
-  logoUrl,
-  initialAuthed = false,
-}: {
-  siteName?: string;
-  logoUrl?: string | null;
-  /** Auth state resolved on the server — used until the client session
-   *  resolves, so the header CTA never visibly swaps after load. */
-  initialAuthed?: boolean;
-}) {
+export function Navbar({ siteName = 'MetaCSV', logoUrl }: { siteName?: string; logoUrl?: string | null }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const { data: session, status } = useSession();
   const pathname = usePathname();
-  const authed = status === 'loading' ? initialAuthed : status === 'authenticated' && !!session?.user;
 
   React.useEffect(() => {
     setIsOpen(false);
@@ -74,7 +63,7 @@ export function Navbar({
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
-          {authed ? (
+          {status === 'authenticated' && session?.user ? (
             <Link
               href="/dashboard"
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground shadow-sm hover:bg-accent/90 transition-all"
@@ -127,7 +116,7 @@ export function Navbar({
           </nav>
 
           <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4">
-            {authed ? (
+            {status === 'authenticated' && session?.user ? (
               <Link
                 href="/dashboard"
                 onClick={() => setIsOpen(false)}

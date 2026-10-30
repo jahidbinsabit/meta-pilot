@@ -3,7 +3,22 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutGrid, Sparkles, History, BarChart3, Wrench, CreditCard, Settings, Shield, X, Zap, TrendingUp, LogOut, UserCircle } from 'lucide-react';
+import {
+  LayoutGrid,
+  Sparkles,
+  History,
+  Image,
+  BarChart3,
+  Wrench,
+  CreditCard,
+  Settings,
+  Shield,
+  X,
+  Zap,
+  TrendingUp,
+  LogOut,
+  UserCircle,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { useCredits } from '@/components/dashboard/credits-provider';

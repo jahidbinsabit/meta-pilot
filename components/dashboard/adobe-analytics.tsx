@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Search, Loader2, Info, Lock, ArrowRight } from 'lucide-react';
+import { Search, Loader2, Calendar, Info, AlertTriangle, User, Copy, Check, Sparkles, Tag } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,10 +19,16 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
 
-import { relativeTime } from '@/lib/utils';
 import { InterestChart } from './interest-chart';
 import { AssetGrid, AssetList, StatTile, WarningNote } from './asset-grid';
-import type { ContentTypeValue, ContributorResult, GenerativeAiValue, KeywordSearchResult, SortValue } from '@/lib/adobe-analytics/types';
+import type {
+  AssetRow,
+  ContentTypeValue,
+  ContributorResult,
+  GenerativeAiValue,
+  KeywordSearchResult,
+  SortValue,
+} from '@/lib/adobe-analytics/types';
 
 const SORT_LABELS: Record<SortValue, string> = {
   relevance: 'Relevance',
@@ -43,12 +49,24 @@ const GENAI_LABELS: Record<GenerativeAiValue, string> = {
   exclude: 'Exclude AI',
 };
 
+const KEYWORD_PRESETS = [
+  'Cyberpunk City',
+  'Autumn Forest',
+  'Isometric 3D Room',
+  'Minimalist Logo',
+  'Vintage Botanical',
+  'AI Character Portrait',
+];
+
 const CONTRIBUTOR_PRESETS = [
   { id: '209617558', label: 'The Little Hut (209617558)' },
   { id: '205867021', label: 'TWINS DESIGN (205867021)' },
   { id: '203410118', label: 'nedomacki (203410118)' },
   { id: '206240212', label: 'Master Vector (206240212)' },
 ];
+
+/** How many top results the free tier sees; mirrors FREE_TIER_RESULT_LIMIT. */
+const FREE_LIMIT = 100;
 
 /** Assets shown per results page (both tabs). */
 const PAGE_SIZE = 100;
@@ -135,25 +153,6 @@ function ResultsPager({
   );
 }
 
-/** Gate fields a daily-cap 429 carries (same names a search result uses). */
-interface GateInfo {
-  limit: number;
-  tier: string;
-  planName: string;
-  dailyCap?: number;
-}
-
-/** A 429 from the daily search cap, carrying the plan's gate fields so
- *  the UI can render the upgrade gate instead of a bare error string. */
-class SearchGateError extends Error {
-  gate: GateInfo;
-  constructor(message: string, gate: GateInfo) {
-    super(message);
-    this.name = 'SearchGateError';
-    this.gate = gate;
-  }
-}
-
 async function postSearch(body: Record<string, unknown>) {
   const res = await fetch('/api/adobe-analytics', {
     method: 'POST',
@@ -165,49 +164,13 @@ async function postSearch(body: Record<string, unknown>) {
     if (res.status === 401) throw new Error('Please sign in again.');
     const issues = data?.issues as Record<string, string[]> | undefined;
     const first = issues && Object.values(issues)[0]?.[0];
-    const message = first || data?.error || 'Search failed.';
-    if (
-      res.status === 429 &&
-      typeof data?.planName === 'string' &&
-      typeof data?.tier === 'string'
-    ) {
-      throw new SearchGateError(message, {
-        limit: typeof data.limit === 'number' ? data.limit : 0,
-        tier: data.tier,
-        planName: data.planName,
-        dailyCap: typeof data.dailyCap === 'number' ? data.dailyCap : undefined,
-      });
-    }
-    throw new Error(message);
+    throw new Error(first || data?.error || 'Search failed.');
   }
   return data;
 }
 
 function isLocked(result: { limit: number; hiddenCount: number }): boolean {
   return result.hiddenCount > 0 && result.limit !== -1;
-}
-
-/** Upgrade banner for the daily search cap wall — the converting
- *  counterpart to the result-limit UpgradeGate in asset-grid.tsx. */
-function DailyCapGate({ gate }: { gate: GateInfo }) {
-  return (
-    <div className="relative overflow-hidden rounded-lg border border-accent/30 bg-gradient-to-b from-accent/10 to-transparent p-6 text-center">
-      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-accent/15">
-        <Lock className="h-4 w-4 text-accent" />
-      </div>
-      <h3 className="mt-3 text-sm font-semibold">Daily search limit reached</h3>
-      <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-        The {gate.planName} plan includes {gate.dailyCap ?? 30} Adobe Analytics searches per
-        day. Upgrade for a higher daily limit and deeper results.
-      </p>
-      <Button asChild size="sm" className="mt-4">
-        <a href="/dashboard/billing">
-          Upgrade plan
-          <ArrowRight className="h-3.5 w-3.5" />
-        </a>
-      </Button>
-    </div>
-  );
 }
 
 export function AdobeAnalyticsDashboard() {
@@ -249,23 +212,6 @@ export function AdobeAnalyticsDashboard() {
           )}
         </div>
       </div>
-
-      {/* T4-11: the meta query already returns the user's recent searches —
-          render them instead of fetching the payload and discarding it. */}
-      {meta?.queries?.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-muted-foreground">Recent searches:</span>
-          {meta.queries.map(
-            (q: { id: string; queryType: string; queryValue: string; createdAt: string }) => (
-              <Badge key={q.id} variant="outline" className="gap-1.5 py-0.5 text-[11px] font-normal">
-                <span className="text-muted-foreground">{q.queryType === 'contributor' ? 'Contributor' : 'Keyword'}</span>
-                <span className="max-w-[220px] truncate font-medium">{q.queryValue}</span>
-                <span className="text-muted-foreground">{relativeTime(q.createdAt)}</span>
-              </Badge>
-            ),
-          )}
-        </div>
-      )}
 
       {!configured && (
         <WarningNote>
@@ -310,8 +256,6 @@ function KeywordTab({
   const [generativeAi, setGenerativeAi] = React.useState<GenerativeAiValue>('all');
   const [error, setError] = React.useState<string | null>(null);
 
-  const [gateHit, setGateHit] = React.useState<GateInfo | null>(null);
-
   const mutation = useMutation({
     mutationFn: (payload: {
       query: string;
@@ -319,13 +263,9 @@ function KeywordTab({
       contentType: ContentTypeValue;
       generativeAi: GenerativeAiValue;
     }) => postSearch({ type: 'keyword', ...payload }),
-    onSuccess: () => {
-      setError(null);
-      setGateHit(null);
-    },
+    onSuccess: () => setError(null),
     onError: (e: Error) => {
       setError(e.message);
-      if (e instanceof SearchGateError) setGateHit(e.gate);
       toast({ title: 'Search failed', description: e.message, variant: 'error' });
     },
   });
@@ -440,8 +380,6 @@ function KeywordTab({
           </form>
         </CardContent>
       </Card>
-
-      {gateHit && !mutation.isPending && <DailyCapGate gate={gateHit} />}
 
       {mutation.isPending && (
         <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">

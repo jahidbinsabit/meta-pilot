@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { decryptSecret } from '@/lib/crypto';
+import { decryptSecret, encryptSecret } from '@/lib/crypto';
 import { GeminiAdapter } from '@/lib/ai/gemini';
 import { GrokAdapter } from '@/lib/ai/grok';
 import { OpenAiAdapter } from '@/lib/ai/openai';

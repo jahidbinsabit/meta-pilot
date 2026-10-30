@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { requireApiAdmin } from '@/lib/api/auth';
-import { rateLimit } from '@/lib/rate-limit';
 import { ApifyClient } from 'apify-client';
 import { getApifyConfig } from '@/lib/adobe-analytics/apify-stock';
 
@@ -8,20 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    const admin = await requireApiAdmin(req);
-
-    // R9 S9-04: every test spends live Apify API calls — cap per admin.
-    const rl = rateLimit(`admin-apify-test:${admin.id}`, {
-      max: 10,
-      windowMs: 10 * 60 * 1000,
-    });
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited', retryAfter: rl.retryAfter },
-        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
-      );
-    }
-
+    await requireApiAdmin(req);
     const body = await req.json().catch(() => ({}));
     let token: string = body.token?.trim() || '';
     let actorId: string = body.actorId?.trim() || '';

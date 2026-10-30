@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Image as ImageIcon, X, Loader2, AlertCircle, Check, RotateCcw } from 'lucide-react';
+import { Upload, Image as ImageIcon, X, Loader2, AlertCircle, Check, RotateCcw } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -157,43 +157,38 @@ export function ImageUploader({
         };
       });
 
-      // T2-10: decide the KEPT set before anything uploads. The old code
-      // trimmed the state to the batch limit but still uploaded every
-      // file — trimmed files burned bandwidth and server storage for
-      // files the user would never see in the batch.
-      const room = batchLimit > 0 ? Math.max(0, batchLimit - files.length) : metas.length;
-      const kept = metas.slice(0, room);
-      if (kept.length < metas.length) {
-        toast({
-          title: 'Batch limit reached',
-          description: `Your plan allows ${batchLimit} image${batchLimit === 1 ? '' : 's'} per batch — ${metas.length - kept.length} file(s) were not added.`,
-          variant: 'error',
-        });
-      }
-      if (kept.length === 0) return;
-
-      // Keep the originals for in-place retry (kept metas pair with the
-      // first `kept.length` entries of `valid`, in order).
-      kept.forEach((m, i) => {
+      // Keep the originals for in-place retry (metas were mapped from
+      // `valid` in order, so index pairing is exact).
+      metas.forEach((m, i) => {
         const file = valid[i];
         if (file) fileStoreRef.current.set(m.id, file);
       });
 
+      let next: UploadedFile[] = [];
       onFilesChange((prev) => {
-        const combined = [...prev, ...kept];
-        // Defensive: if the `files` snapshot was stale (two adds within
-        // one render tick), state still never exceeds the limit.
-        return batchLimit > 0 ? combined.slice(0, batchLimit) : combined;
+        const combined = [...prev, ...metas];
+        if (batchLimit > 0 && combined.length > batchLimit) {
+          toast({
+            title: 'Batch limit reached',
+            description: `Your plan allows ${batchLimit} image${batchLimit === 1 ? '' : 's'} per batch.`,
+            variant: 'error',
+          });
+          next = combined.slice(0, batchLimit);
+        } else {
+          next = combined;
+        }
+        return next;
       });
 
-      // Upload ONLY the kept set, through the pool (max 3 at a time).
-      kept.forEach((m, i) => {
-        const file = valid[i];
+      // Upload outside the state updater so the closure sees the full set.
+      // Runs through the upload pool — max 3 files process at a time.
+      metas.forEach((m) => {
+        const file = valid.find((f) => f.name === m.name && f.size === m.size);
         if (file) void withUploadSlot(() => processFile(file, m));
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [batchLimit, files],
+    [batchLimit],
   );
 
   const patch = (id: string, changes: Partial<UploadedFile>) => {

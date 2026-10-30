@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
-import { rateLimit } from '@/lib/rate-limit';
-import { extOf } from '@/lib/utils';
 import {
   ACCEPTED_EXTENSIONS,
   convertSvgToPng,
@@ -16,24 +14,15 @@ export const maxDuration = 60;
 const MAX_BYTES = 25 * 1024 * 1024;
 const ALLOWED = new Set(['.eps', '.ai', '.svg']);
 
+function extOf(name: string): string {
+  return '.' + (name.split('.').pop() || '').toLowerCase();
+}
+
 export async function POST(req: Request) {
   let step = 'init';
   try {
     step = 'auth';
     const user = await requireApiUser(req);
-
-    // R9 S9-04: Ghostscript rasterization is CPU-heavy (up to 60s/call)
-    // — cap it per user.
-    const rl = rateLimit(`uploads-rasterize:${user.id}`, {
-      max: 20,
-      windowMs: 10 * 60 * 1000,
-    });
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { error: 'rate_limited', retryAfter: rl.retryAfter },
-        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
-      );
-    }
 
     step = 'formdata';
     const form = await req.formData();

@@ -3,7 +3,7 @@ import { decryptSecret, encryptSecret } from '@/lib/crypto';
 import { writeAudit } from '@/lib/audit';
 import { fulfillPayment } from '@/lib/payments/fulfill';
 import { createId } from '@/lib/id';
-import type { PaymentMethod } from '@prisma/client';
+import type { PaymentGatewayConfig, PaymentMethod } from '@prisma/client';
 
 export { decryptSecret, encryptSecret };
 
@@ -96,28 +96,17 @@ export async function listGatewayConfigsAdmin(): Promise<DecryptedGatewayConfig[
     orderBy: { sortOrder: 'asc' },
   });
 
-  return gateways.map((g) => {
-    const credentials = parseGatewayCredentials(g.credentialsJson);
-    // T4-40: the admin UI renders a Live/Test badge from credentials.isLive,
-    // but nothing ever wrote that field — it was always undefined ("Test").
-    // Derive it at read time from the Stripe key prefixes, the ground
-    // truth of the mode; stored credentials are left untouched.
-    if (g.gatewayKey.toLowerCase().includes('stripe')) {
-      const keyBlob = `${credentials.secretKey || ''} ${credentials.publishableKey || ''}`;
-      credentials.isLive = keyBlob.includes('_live_');
-    }
-    return {
-      id: g.id,
-      gatewayKey: g.gatewayKey,
-      displayName: g.displayName,
-      isEnabled: g.isEnabled,
-      isManual: g.isManual,
-      sortOrder: g.sortOrder,
-      credentials,
-      createdAt: g.createdAt,
-      updatedAt: g.updatedAt,
-    };
-  });
+  return gateways.map((g) => ({
+    id: g.id,
+    gatewayKey: g.gatewayKey,
+    displayName: g.displayName,
+    isEnabled: g.isEnabled,
+    isManual: g.isManual,
+    sortOrder: g.sortOrder,
+    credentials: parseGatewayCredentials(g.credentialsJson),
+    createdAt: g.createdAt,
+    updatedAt: g.updatedAt,
+  }));
 }
 
 export async function getGatewayConfig(gatewayKey: string): Promise<DecryptedGatewayConfig | null> {
@@ -291,10 +280,6 @@ export async function createManualPaymentAdmin(input: AdminManualPaymentInput, a
   const methodUpper = method.toUpperCase();
   if (methodUpper.includes('BKASH')) normalizedMethod = 'BKASH_MANUAL';
   else if (methodUpper.includes('NAGAD')) normalizedMethod = 'NAGAD_MANUAL';
-  // T4-44: Rocket / Bank Transfer now have real enum values instead of
-  // collapsing into OTHER_GATEWAY.
-  else if (methodUpper.includes('ROCKET')) normalizedMethod = 'ROCKET_MANUAL';
-  else if (methodUpper.includes('BANK')) normalizedMethod = 'BANK_TRANSFER';
   else if (methodUpper.includes('STRIPE')) normalizedMethod = 'STRIPE';
 
   let payload: Record<string, any> = {

@@ -470,6 +470,7 @@ function UpgradeGate({
   hiddenCount,
   limit,
   planName,
+  tier,
 }: {
   hiddenCount: number;
   limit: number;

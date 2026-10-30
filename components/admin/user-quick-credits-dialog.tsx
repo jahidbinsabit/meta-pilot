@@ -29,17 +29,6 @@ export function UserQuickCreditsDialog({ user, onClose }: QuickCreditsDialogProp
   const [amount, setAmount] = React.useState<number>(10);
   const [reason, setReason] = React.useState<string>('Admin manual credit adjustment');
 
-  // T4-26: the dialog stays mounted across users — reset the form whenever
-  // a different user is opened so one user's amount/reason can't leak into
-  // another's adjustment.
-  const userId = user?.id;
-  React.useEffect(() => {
-    if (userId) {
-      setAmount(10);
-      setReason('Admin manual credit adjustment');
-    }
-  }, [userId]);
-
   const mutation = useMutation({
     mutationFn: async (payload: any) => {
       const res = await fetch('/api/admin/users', {
@@ -79,11 +68,7 @@ export function UserQuickCreditsDialog({ user, onClose }: QuickCreditsDialogProp
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            // T4-24: amount 0 used to be a silent no-op — say so.
-            if (amount === 0) {
-              toast({ title: 'Error', description: 'Amount cannot be zero.', variant: 'error' });
-              return;
-            }
+            if (amount === 0) return;
             mutation.mutate({
               action: 'adjust_credits',
               userId: user.id,

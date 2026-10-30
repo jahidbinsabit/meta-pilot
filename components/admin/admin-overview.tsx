@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Users, CreditCard, Cog, Zap, TrendingUp, Activity, Bot, Sparkles } from 'lucide-react';
+import { Users, CreditCard, Cog, Zap, TrendingUp, Activity, Settings, Bot, Sparkles } from 'lucide-react';
 
 type DailyRow = { day: string; fullDay: string; generations: number };
 
@@ -12,7 +12,6 @@ export function AdminOverview({
   orders,
   jobs,
   providers,
-  providerNames,
   revenue,
   todayGens,
   dailyGens,
@@ -22,7 +21,6 @@ export function AdminOverview({
   orders: number;
   jobs: number;
   providers: number;
-  providerNames?: string[];
   revenue: number;
   todayGens: number;
   dailyGens: DailyRow[];
@@ -126,18 +124,11 @@ export function AdminOverview({
             <CardTitle>System</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
-            {/* T4-55: this card was hardcoded text — it named a single
-                provider and a BullMQ + Redis queue that no longer exists
-                (queue lib deleted in R7, Redis removed in R9 Batch E;
-                generation runs as in-process polled job runners). */}
             <p>
-              Active AI providers:{' '}
-              <span className="text-foreground">
-                {providerNames && providerNames.length > 0 ? providerNames.join(', ') : 'None enabled'}
-              </span>
+              Active AI provider: <span className="text-foreground">Gemini</span>
             </p>
             <p>
-              Job runner: <span className="text-foreground">In-process (polled jobs)</span>
+              Queue: <span className="text-foreground">BullMQ + Redis</span>
             </p>
             <p>
               Payments: <span className="text-foreground">Stripe + bKash/Nagad</span>

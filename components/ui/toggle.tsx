@@ -4,12 +4,7 @@ import * as React from 'react';
 import * as Switch from '@radix-ui/react-switch';
 import { cn } from '@/lib/utils';
 
-// T4-65: the contract is onChange ONLY. Callers used to pass Radix's
-// onCheckedChange as well; it silently overrode the internal wiring via
-// the props spread (both spellings "worked", one by accident). Omitting
-// onCheckedChange here makes the wrong spelling a type error.
-interface ToggleProps
-  extends Omit<React.ComponentPropsWithoutRef<typeof Switch.Root>, 'onChange' | 'onCheckedChange'> {
+interface ToggleProps extends Omit<React.ComponentPropsWithoutRef<typeof Switch.Root>, 'onChange'> {
   label?: string;
   description?: string;
   onChange?: (checked: boolean) => void;

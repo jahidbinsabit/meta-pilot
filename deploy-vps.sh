@@ -92,8 +92,8 @@ if [ -z "$PORTS_BUSY" ]; then
   USE_CADDY=1
 else
   echo "ports $PORTS_BUSY already in use (likely CyberPanel/OpenLiteSpeed)"
-  echo "starting app + db only (no Caddy)"
-  $COMPOSE up -d --build app db
+  echo "starting app + db + redis only (no Caddy)"
+  $COMPOSE up -d --build app db redis
   USE_CADDY=0
 fi
 
@@ -110,7 +110,7 @@ echo "crons installed (daily-credits 00:00, cleanup-uploads every 30 min)"
 echo "=== [7/7] Image + build-cache cleanup ==="
 # Every --build leaves the previous app image behind as a dangling layer
 # set; without this they pile up until the VPS disk fills. Dangling ONLY —
-# never `prune -a`: tagged images (db, caddy) must stay.
+# never `prune -a`: tagged images (db, redis, caddy) must stay.
 docker image prune -f >/dev/null 2>&1 || true
 echo "dangling docker images pruned"
 # Build cache grows by several GB per deploy (superseded layers stay

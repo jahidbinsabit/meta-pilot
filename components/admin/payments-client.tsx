@@ -41,9 +41,6 @@ interface PaymentsClientProps {
   plans: Plan[];
   packages: CreditPackage[];
   users: Array<{ id: string; name: string | null; email: string | null }>;
-  /** T4-38: true row totals behind the 200-row SSR caps. */
-  totalPayments?: number;
-  totalUsers?: number;
 }
 
 export function PaymentsClient({
@@ -54,8 +51,6 @@ export function PaymentsClient({
   plans,
   packages,
   users,
-  totalPayments,
-  totalUsers,
 }: PaymentsClientProps) {
   const [payments, setPayments] = React.useState<PaymentWithUser[]>(
     initialPayments || fallbackPayments || [],
@@ -168,7 +163,7 @@ export function PaymentsClient({
                   ...(typeof p.gatewayPayload === 'object' && p.gatewayPayload !== null
                     ? (p.gatewayPayload as any)
                     : {}),
-                  rejectReason: reason,
+                  rejectionReason: reason,
                 },
               }
             : p
@@ -185,7 +180,7 @@ export function PaymentsClient({
                   ...(typeof prev.gatewayPayload === 'object' && prev.gatewayPayload !== null
                     ? (prev.gatewayPayload as any)
                     : {}),
-                  rejectReason: reason,
+                  rejectionReason: reason,
                 },
               }
             : null
@@ -241,14 +236,8 @@ export function PaymentsClient({
           body: JSON.stringify(data),
         });
         const result = await res.json();
-        if (!res.ok) throw new Error(result.message || result.error || 'Failed to create gateway');
-        // T4-46: never duplicate a row if the returned gateway is already
-        // in the list — replace it in place.
-        setGateways((prev) =>
-          prev.some((g) => g.id === result.gateway.id)
-            ? prev.map((g) => (g.id === result.gateway.id ? result.gateway : g))
-            : [result.gateway, ...prev],
-        );
+        if (!res.ok) throw new Error(result.error || 'Failed to create gateway');
+        setGateways((prev) => [result.gateway, ...prev]);
       }
       setGatewayModalOpen(false);
       setEditingGateway(null);
@@ -398,20 +387,6 @@ export function PaymentsClient({
                   <CardTitle className="text-lg">Payment Transactions</CardTitle>
                   <CardDescription>
                     Review customer transactions and approve manual mobile wallet transfers.
-                    {/* T4-38: the SSR list is capped at the latest 200 —
-                        say so when older payments exist beyond it. */}
-                    {typeof totalPayments === 'number' && totalPayments > payments.length && (
-                      <span className="mt-0.5 block text-amber-500">
-                        Showing the latest {payments.length} of {totalPayments} payments — older
-                        records are not listed.
-                      </span>
-                    )}
-                    {typeof totalUsers === 'number' && totalUsers > users.length && (
-                      <span className="mt-0.5 block text-amber-500">
-                        The manual-payment user picker holds the first {users.length} of{' '}
-                        {totalUsers} users.
-                      </span>
-                    )}
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -433,9 +408,7 @@ export function PaymentsClient({
                     <option value="PENDING">Pending Only</option>
                     <option value="COMPLETED">Completed</option>
                     <option value="REJECTED">Rejected</option>
-                    {/* T4-43: 'FAILED' is not a PaymentStatus — the option
-                        could never match. REFUNDED is real (clawback flow). */}
-                    <option value="REFUNDED">Refunded</option>
+                    <option value="FAILED">Failed</option>
                   </select>
                 </div>
               </div>

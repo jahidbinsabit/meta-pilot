@@ -516,18 +516,6 @@ export function SettingsClient({
               placeholder="https://..."
             />
           </div>
-          {/* T4-54: twitterHandle was in the settings type/state and is
-              consumed by the public pages' Twitter metadata, but had no
-              input — it could only be set by editing the DB. */}
-          <div className="space-y-2">
-            <Label htmlFor="twitterHandle">Twitter / X handle</Label>
-            <Input
-              id="twitterHandle"
-              value={settings.twitterHandle || ''}
-              onChange={(e) => setSettings((s) => ({ ...s, twitterHandle: e.target.value }))}
-              placeholder="@yourhandle"
-            />
-          </div>
         </CardContent>
       </Card>
 
@@ -598,13 +586,21 @@ export function SettingsClient({
               saveMutation.mutate({ ...settings, unlimitedMode: checked });
             }}
           />
-          {/* T4-49: three decorative toggles (Public signups / Email
-              notifications / Daily free credits) were removed — they were
-              hardcoded with no onChange and no backing setting or consumer,
-              so they claimed control that does not exist. Re-add each only
-              together with its backing field + enforcement (signup gating
-              needs a register-route check; email needs SMTP; the daily
-              grant is per-plan via Plan.dailyFreeCredits + the cron). */}
+          <Toggle
+            label="Public signups"
+            description="Allow new users to create accounts."
+            checked={true}
+          />
+          <Toggle
+            label="Email notifications"
+            description="Send transactional email on signups and payments."
+            checked={false}
+          />
+          <Toggle
+            label="Daily free credits"
+            description="Grant free-tier credits at UTC midnight."
+            checked={true}
+          />
         </CardContent>
       </Card>
 

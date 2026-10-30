@@ -4,13 +4,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import { getSiteSettings } from '@/lib/site-settings';
 import { createEmailVerification } from '@/lib/email/verification';
-import { isDisposableEmailDomain } from '@/lib/email/disposable';
-import { getClientIp, rateLimitResponse } from '@/lib/rate-limit';
-
-/** Signup-bonus farming cap (R9 S9-03): at most this many accounts per
- * signup IP per rolling 24h receive the welcome bonus. Further accounts
- * are created normally, just without the bonus. */
-const SIGNUP_BONUS_PER_IP_PER_DAY = 3;
+import { rateLimitResponse } from '@/lib/rate-limit';
 
 const RegisterSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(80),
@@ -33,20 +27,6 @@ export async function POST(req: Request) {
       );
     }
     const { name, email, password } = parsed.data;
-
-    // R9 S9-03: reject throwaway inboxes outright — they can never
-    // receive the verification OTP and exist here only to farm bonuses.
-    if (isDisposableEmailDomain(email)) {
-      return NextResponse.json(
-        {
-          error: 'disposable_email',
-          message: 'Please use a permanent email address to register.',
-        },
-        { status: 400 },
-      );
-    }
-
-    const signupIp = getClientIp(req);
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -75,31 +55,12 @@ export async function POST(req: Request) {
       initialCredits = isNaN(trial) || trial < 0 ? 20 : trial;
     }
 
-    // R9 S9-03: signup-bonus farming cap. Count accounts already created
-    // from this IP in the last 24h; once the cap is reached the account
-    // is still created, but with no bonus. Race-tolerant by design —
-    // this is friction, not a vault. Skipped when no IP is attributable.
-    if (initialCredits > 0 && signupIp && signupIp !== 'unknown') {
-      try {
-        const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const recentFromIp = await prisma.user.count({
-          where: { signupIp, createdAt: { gte: since } },
-        });
-        if (recentFromIp >= SIGNUP_BONUS_PER_IP_PER_DAY) {
-          initialCredits = 0;
-        }
-      } catch (capErr) {
-        console.error('register: signup bonus cap check failed (non-fatal)', capErr);
-      }
-    }
-
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
       data: {
         name,
         email,
         passwordHash,
-        signupIp,
         role: 'USER',
         membership: 'FREE',
         credits: initialCredits,

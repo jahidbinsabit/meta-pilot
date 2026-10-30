@@ -155,19 +155,11 @@ export interface GuardedImage {
 const MAX_REDIRECTS = 3;
 const FETCH_TIMEOUT_MS = 10_000;
 
-/** Default byte cap for `fetchBufferSafe` (generic guarded downloads). */
-export const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
-
-/**
- * Shared guarded-fetch core: same SSRF defenses as `fetchImageGuarded`
- * (public-IP validation per hop, manual redirects, streamed byte cap).
- * `requireImage` additionally enforces an `image/*` response type.
- */
-async function fetchGuarded(
+export async function fetchImageGuarded(
   rawUrl: string,
-  opts: { maxBytes: number; requireImage: boolean },
+  opts?: { maxBytes?: number },
 ): Promise<GuardedImage> {
-  const maxBytes = opts.maxBytes;
+  const maxBytes = opts?.maxBytes ?? MAX_IMAGE_BYTES;
   let current = rawUrl;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -214,9 +206,7 @@ async function fetchGuarded(
       .split(';')[0]
       .trim()
       .toLowerCase();
-    if (opts.requireImage && !contentType.startsWith('image/')) {
-      throw new Error('image_not_image');
-    }
+    if (!contentType.startsWith('image/')) throw new Error('image_not_image');
 
     const declared = Number(res.headers.get('content-length') || 0);
     if (declared > maxBytes) throw new Error('image_too_large');
@@ -246,37 +236,6 @@ async function fetchGuarded(
   }
 
   throw new Error('too_many_redirects');
-}
-
-export async function fetchImageGuarded(
-  rawUrl: string,
-  opts?: { maxBytes?: number },
-): Promise<GuardedImage> {
-  return fetchGuarded(rawUrl, {
-    maxBytes: opts?.maxBytes ?? MAX_IMAGE_BYTES,
-    requireImage: true,
-  });
-}
-
-/**
- * SSRF-safe generic download (audit R9, S9-02): identical guards to
- * `fetchImageGuarded` — http/https only, every resolved address must be
- * public, redirects followed manually (≤3) with per-hop re-validation,
- * declared Content-Length checked AND the body stream-capped (default
- * `MAX_BUFFER_BYTES`) — but no `image/*` requirement, so callers that
- * resolve arbitrary references server-side (e.g. the Gemini adapter's
- * inline-image resolver) never fall back to a bare `fetch`.
- * Returns the body bytes plus the response Content-Type (may be '').
- * Throws the same error codes as `fetchImageGuarded`.
- */
-export async function fetchBufferSafe(
-  rawUrl: string,
-  opts?: { maxBytes?: number },
-): Promise<GuardedImage> {
-  return fetchGuarded(rawUrl, {
-    maxBytes: opts?.maxBytes ?? MAX_BUFFER_BYTES,
-    requireImage: false,
-  });
 }
 
 /* ------------------------------------------------------------------ */

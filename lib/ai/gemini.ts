@@ -10,8 +10,6 @@
 
 import { zodToJsonSchema } from '@/lib/ai/json-schema';
 import { BaseAdapter } from '@/lib/ai/base';
-import { ownedImageKey, resolveLocalUploadPath } from '@/lib/ai/image-ref';
-import { fetchBufferSafe } from '@/lib/net/safe-fetch';
 import type { AiRequest } from '@/lib/ai/types';
 
 export class GeminiAdapter extends BaseAdapter {
@@ -60,7 +58,7 @@ export class GeminiAdapter extends BaseAdapter {
 
     const images = req.imageUrls ?? [];
     for (const url of images) {
-      const { data, mimeType } = await toInlineImage(url, req.userId);
+      const { data, mimeType } = await toInlineImage(url);
       parts.push({ inline_data: { mime_type: mimeType, data } });
     }
 
@@ -132,38 +130,11 @@ export class GeminiAdapter extends BaseAdapter {
   }
 }
 
-const INLINE_IMAGE_MIME: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-  gif: 'image/gif',
-  // Vector files rasterized to PNG — keep as PNG for AI vision
-  svg: 'image/png',
-  eps: 'image/png',
-  ai: 'image/png',
-};
-
-function mimeForRef(ref: string): string {
-  const ext = ref.split('.').pop()?.toLowerCase() || 'jpeg';
-  return INLINE_IMAGE_MIME[ext] || 'image/jpeg';
-}
-
 /**
  * Accept either a data: URL (`data:image/png;base64,...`), local /uploads path, /api/s3/<key>, raw key, or a remote URL.
  * Gemini wants inline base64, so URLs and keys are resolved and inlined.
- *
- * Hardened (audit R9, S9-02): the resolver is safe regardless of caller —
- * local reads must resolve inside `public/uploads` (`..` escapes are
- * rejected), storage keys must be a well-formed `uploads/<userId>/…` or
- * `previews/<userId>/…` key owned by `userId`, and remote URLs go through
- * `fetchBufferSafe` (SSRF public-IP validation, guarded redirects,
- * streamed 10MB cap) instead of a bare fetch.
  */
-async function toInlineImage(
-  url: string,
-  userId?: string,
-): Promise<{ data: string; mimeType: string }> {
+async function toInlineImage(url: string): Promise<{ data: string; mimeType: string }> {
   if (!url || typeof url !== 'string') {
     throw new Error('Image URL is required');
   }
@@ -180,15 +151,23 @@ async function toInlineImage(
   if (uploadsMatch) {
     try {
       const fs = await import('fs/promises');
+      const path = await import('path');
       const filename = decodeURIComponent(uploadsMatch[1]);
-      // Reject anything that resolves outside public/uploads.
-      const filePath = resolveLocalUploadPath(filename);
-      if (!filePath) {
-        console.warn('[toInlineImage] local path escapes uploads dir, skipping');
-      } else {
-        buf = await fs.readFile(filePath);
-        mime = mimeForRef(filename);
-      }
+      const filePath = path.join(process.cwd(), 'public', 'uploads', filename);
+      buf = await fs.readFile(filePath);
+      const ext = filename.split('.').pop()?.toLowerCase() || 'jpeg';
+      const mimeMap: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        webp: 'image/webp',
+        gif: 'image/gif',
+        // Vector files rasterized to PNG — keep as PNG for AI vision
+        svg: 'image/png',
+        eps: 'image/png',
+        ai: 'image/png',
+      };
+      mime = mimeMap[ext] || 'image/jpeg';
     } catch (err) {
       console.warn('[toInlineImage] local file read failed:', err);
     }
@@ -200,15 +179,20 @@ async function toInlineImage(
     if (s3Match) {
       try {
         const rawKey = decodeURIComponent(s3Match[1]);
-        // Only the caller's own uploads/previews objects may be pulled.
-        const key = ownedImageKey(userId, rawKey);
-        if (!key) {
-          console.warn('[toInlineImage] storage key not owned by caller, skipping');
-        } else {
-          const { downloadFile } = await import('@/lib/s3/client');
-          buf = await downloadFile(key);
-          mime = mimeForRef(key);
-        }
+        const { downloadFile } = await import('@/lib/s3/client');
+        buf = await downloadFile(rawKey);
+        const ext = rawKey.split('.').pop()?.toLowerCase() || 'jpeg';
+        const mimeMap: Record<string, string> = {
+          png: 'image/png',
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          webp: 'image/webp',
+          gif: 'image/gif',
+          svg: 'image/png',
+          eps: 'image/png',
+          ai: 'image/png',
+        };
+        mime = mimeMap[ext] || 'image/jpeg';
       } catch (err) {
         console.warn('[toInlineImage] direct S3 download failed:', err);
       }
@@ -218,26 +202,41 @@ async function toInlineImage(
   // 4. Raw S3 key (uploads/... or previews/...)
   if (!buf && (url.startsWith('uploads/') || url.startsWith('previews/'))) {
     try {
-      const key = ownedImageKey(userId, url);
-      if (!key) {
-        console.warn('[toInlineImage] raw key not owned by caller, skipping');
-      } else {
-        const { downloadFile } = await import('@/lib/s3/client');
-        buf = await downloadFile(key);
-        mime = mimeForRef(key);
-      }
+      const { downloadFile } = await import('@/lib/s3/client');
+      buf = await downloadFile(url);
+      const ext = url.split('.').pop()?.toLowerCase() || 'jpeg';
+      const mimeMap: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        webp: 'image/webp',
+        gif: 'image/gif',
+        svg: 'image/png',
+        eps: 'image/png',
+        ai: 'image/png',
+      };
+      mime = mimeMap[ext] || 'image/jpeg';
     } catch (err) {
       console.warn('[toInlineImage] raw key download failed:', err);
     }
   }
 
-  // 5. External HTTP(S) URL — SSRF-guarded fetch (public IPs only,
-  // redirects re-validated per hop, body stream-capped at 10MB).
+  // 5. External HTTP(S) URL
   if (!buf && /^https?:\/\//i.test(url)) {
     try {
-      const fetched = await fetchBufferSafe(url, { maxBytes: 10 * 1024 * 1024 });
-      mime = fetched.contentType || 'image/jpeg';
-      buf = fetched.buffer;
+      const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+      if (res.ok) {
+        // 10MB cap — refuse to buffer huge responses into memory.
+        const len = Number(res.headers.get('content-length') || 0);
+        if (len > 10 * 1024 * 1024) {
+          console.warn(`[toInlineImage] ${url} too large (${len} bytes), skipping`);
+        } else {
+          mime = res.headers.get('content-type') || 'image/jpeg';
+          buf = Buffer.from(await res.arrayBuffer());
+        }
+      } else {
+        console.warn(`[toInlineImage] fetch ${url} returned ${res.status}`);
+      }
     } catch (err) {
       console.warn('[toInlineImage] remote fetch failed:', err);
     }

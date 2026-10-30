@@ -11,7 +11,30 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Toggle } from '@/components/ui/toggle';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Sparkles, Upload, Copy, Trash2, Download, ChevronDown, ChevronUp, Layers, Loader2, StopCircle } from 'lucide-react';
+import {
+  Sparkles,
+  Image as ImageIcon,
+  Upload,
+  Copy,
+  Check,
+  Trash2,
+  Lock,
+  Download,
+  Mail,
+  ChevronDown,
+  ChevronUp,
+  Settings,
+  X,
+  Plus,
+  Send,
+  Layers,
+  Info,
+  Loader2,
+  StopCircle,
+  FileCode,
+  Pen,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type {
   GeneratorSettings,
   UploadedFile,
@@ -35,16 +58,42 @@ interface Props {
   onTabChange?: (tab: 'metadata' | 'prompt') => void;
 }
 
+const STATUS_LABEL: Record<UploadedFile['status'], string> = {
+  queued: 'Queued',
+  analyzing: 'Analyzing',
+  done: 'Ready',
+  error: 'Error',
+};
+
+const STATUS_VARIANT: Record<
+  UploadedFile['status'],
+  'default' | 'secondary' | 'success' | 'destructive' | 'warning' | 'info' | 'muted'
+> = {
+  queued: 'secondary',
+  analyzing: 'info',
+  done: 'success',
+  error: 'destructive',
+};
+
+const ACCEPT = ['.jpg', '.jpeg', '.png', '.svg', '.eps', '.ai'];
+
+function fileExt(file: File): string {
+  return ('.' + file.name.split('.').pop() || '').toLowerCase();
+}
+
 export function MetadataGenerator({
   initialSettings,
   batchLimit,
+  initialCredits,
   user,
   activeTab,
   onTabChange,
 }: Props) {
+  const [mounted, setMounted] = React.useState(false);
   const [settings, setSettings] = React.useState<GeneratorSettings>(initialSettings);
   const [selectedPlatform, setSelectedPlatform] = React.useState<TargetPlatform>('adobe');
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
+  const [dragOver, setDragOver] = React.useState(false);
   const [includeDescription, setIncludeDescription] = React.useState(
     settings.includeDescription !== false,
   );
@@ -66,9 +115,11 @@ export function MetadataGenerator({
   const [exportCategory, setExportCategory] = React.useState('');
   const [exportReleases, setExportReleases] = React.useState('');
   const [sendEmail, setSendEmail] = React.useState(false);
+  const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [showExportPanel, setShowExportPanel] = React.useState(false);
   const [successModalOpen, setSuccessModalOpen] = React.useState(false);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
+  const [batchGeneration, setBatchGeneration] = React.useState(true);
   const [dropzoneExpanded, setDropzoneExpanded] = React.useState(true);
 
   // Set by stopGeneration() to halt job polling (the server-side job
@@ -81,6 +132,12 @@ export function MetadataGenerator({
   const toast = useToast();
   const queryClient = useQueryClient();
   const { credits, unlimited } = useCredits();
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+
 
   // Persist last-used settings per user (localStorage + server backup).
   React.useEffect(() => {
@@ -229,13 +286,7 @@ export function MetadataGenerator({
       setIsGenerating(false);
       setGeneratingIds(new Set());
       queryClient.invalidateQueries({ queryKey: ['credits'] });
-      // T2-08: the success modal is a celebration (stats + share links) —
-      // it used to open even when EVERY image failed. Only open it when
-      // at least one image actually succeeded; an all-failed run gets
-      // the failure toast below instead.
-      if (succeeded > 0) {
-        setSuccessModalOpen(true);
-      }
+      setSuccessModalOpen(true);
 
       if (refundError) {
         // The job reported a refund that was attempted but failed —
@@ -245,14 +296,6 @@ export function MetadataGenerator({
           description:
             'Some credits could not be refunded automatically — please contact support.',
           variant: 'warning',
-        });
-      } else if (succeeded === 0) {
-        toast({
-          title: `All ${failed} image${failed === 1 ? '' : 's'} failed`,
-          description: unlimited
-            ? 'Nothing was generated. Please try again.'
-            : 'Nothing was generated — credits refunded automatically.',
-          variant: 'error',
         });
       } else if (failed > 0) {
         toast({
@@ -288,12 +331,7 @@ export function MetadataGenerator({
       // Poll the job row every 2.5s — SSE events never reached browsers
       // through the production proxy stack (jobs completed server-side
       // while the UI spun forever); plain GET polling works everywhere.
-      // R9 H3: `knownFinished` is sent as ?known= — while the job's
-      // finished-entry count is unchanged, the server answers with a
-      // compact payload (status + counts, no results array), and the
-      // mapping below is skipped for that poll.
       let consecutivePollErrors = 0;
-      let knownFinished = 0;
       while (true) {
         if (stopRequestedRef.current) {
           finishStopped();
@@ -302,7 +340,7 @@ export function MetadataGenerator({
 
         let data: any;
         try {
-          const pollRes = await fetch(`/api/generate/jobs/${jobId}?known=${knownFinished}`);
+          const pollRes = await fetch(`/api/generate/jobs/${jobId}`);
           if (!pollRes.ok) throw new Error('poll_failed');
           data = await pollRes.json();
           consecutivePollErrors = 0;
@@ -313,8 +351,7 @@ export function MetadataGenerator({
           continue;
         }
 
-        const results: any[] =
-          data.unchanged === true || !Array.isArray(data.results) ? [] : data.results;
+        const results: any[] = Array.isArray(data.results) ? data.results : [];
         let finishedCount = 0;
         for (const result of results) {
           if (result.status !== 'complete' && result.status !== 'failed') continue;
@@ -348,10 +385,6 @@ export function MetadataGenerator({
             return next;
           });
         }
-        // On a compact (unchanged) poll there were no results to map:
-        // the finished count is by definition the one we reported.
-        if (data.unchanged === true) finishedCount = knownFinished;
-        else knownFinished = finishedCount;
         completedCountRef.current = finishedCount;
 
         if (data.status === 'COMPLETE' || data.status === 'FAILED') {
@@ -403,6 +436,27 @@ export function MetadataGenerator({
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   }
 
+  function addRowKeyword(rowId: string, kw: string) {
+    const clean = kw.trim();
+    if (!clean) return;
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== rowId) return r;
+        if (r.keywords.includes(clean)) return r;
+        return { ...r, keywords: [...r.keywords, clean] };
+      }),
+    );
+  }
+
+  function removeRowKeyword(rowId: string, kwIdx: number) {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== rowId) return r;
+        return { ...r, keywords: r.keywords.filter((_, i) => i !== kwIdx) };
+      }),
+    );
+  }
+
   async function regenerateSingle(rowId: string) {
     const f = files.find((file) => file.id === rowId);
     if (!f || !f.previewUrl) return;
@@ -449,15 +503,11 @@ export function MetadataGenerator({
 
       // Poll the job until the single result lands (SSE delivery proved
       // unreliable through the production proxy stack).
-      // R9 H3: ?known= compact polls — while no entry has finished
-      // since the last full payload, the server omits the results
-      // array and the target entry cannot have landed yet.
       let consecutivePollErrors = 0;
-      let knownFinished = 0;
       while (true) {
         let data: any;
         try {
-          const pollRes = await fetch(`/api/generate/jobs/${jobId}?known=${knownFinished}`);
+          const pollRes = await fetch(`/api/generate/jobs/${jobId}`);
           if (!pollRes.ok) throw new Error('poll_failed');
           data = await pollRes.json();
           consecutivePollErrors = 0;
@@ -468,14 +518,7 @@ export function MetadataGenerator({
           continue;
         }
 
-        const pollResults: any[] =
-          data.unchanged === true || !Array.isArray(data.results) ? [] : data.results;
-        if (data.unchanged !== true) {
-          knownFinished = pollResults.filter(
-            (r: any) => r.status === 'complete' || r.status === 'failed',
-          ).length;
-        }
-        const result = pollResults.find(
+        const result = (Array.isArray(data.results) ? data.results : []).find(
           (r: any) => r.id === rowId && (r.status === 'complete' || r.status === 'failed'),
         );
 
@@ -563,7 +606,6 @@ export function MetadataGenerator({
         const j = await res.json();
         throw new Error(j.error || 'export_failed');
       }
-      const emailDelivery = res.headers.get('x-email-delivery');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -571,29 +613,10 @@ export function MetadataGenerator({
       a.download = csvFilename(exportFormat);
       a.click();
       URL.revokeObjectURL(url);
-      return { emailDelivery };
+      return { ok: true };
     },
-    // T2-04: when the user asked for an emailed copy, say plainly what
-    // happened — the CSV always downloads here; the email only counts
-    // when the server confirms it was actually sent.
-    onSuccess: (data) => {
-      if (sendEmail && data?.emailDelivery !== 'sent') {
-        toast({
-          title: `Exported ${PLATFORMS[exportFormat].label} CSV`,
-          description:
-            'Downloaded to this device. Email delivery is not available right now, so no copy was emailed.',
-          variant: 'warning',
-        });
-      } else if (sendEmail) {
-        toast({
-          title: `Exported ${PLATFORMS[exportFormat].label} CSV`,
-          description: `Downloaded — a copy was also emailed to ${user.email}.`,
-          variant: 'success',
-        });
-      } else {
-        toast({ title: `Exported ${PLATFORMS[exportFormat].label} CSV`, variant: 'success' });
-      }
-    },
+    onSuccess: () =>
+      toast({ title: `Exported ${PLATFORMS[exportFormat].label} CSV`, variant: 'success' }),
     onError: (e: any) =>
       toast({ title: 'Export failed', description: e.message, variant: 'error' }),
   });
@@ -603,6 +626,7 @@ export function MetadataGenerator({
   const completedRows = rows.filter((r) => r.status === 'complete');
   const failedRows = rows.filter((r) => r.status === 'failed');
   const canGenerate = readyCount > 0 && !isGenerating && (unlimited || credits >= readyCount);
+  const batchLabel = batchLimit < 0 ? 'unlimited' : `${readyCount}/${batchLimit}`;
   const currentPlatformConfig = PLATFORMS[selectedPlatform];
 
   // Total file sizes
@@ -676,6 +700,12 @@ export function MetadataGenerator({
 
     return items;
   }, [files, rows, generatingIds, fileById]);
+
+  function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
 
   // Action bar — handed to ImageUploader's actionBar slot so the
   // buttons sit directly under the upload box, above the file list,
@@ -824,6 +854,8 @@ export function MetadataGenerator({
         negKws={negKws}
         addTag={addTag}
         removeTag={removeTag}
+        batchGeneration={batchGeneration}
+        setBatchGeneration={setBatchGeneration}
         user={user}
       />
 
@@ -884,23 +916,18 @@ export function MetadataGenerator({
                 </div>
                 {hasResults && (
                   <div className="flex shrink-0 gap-1.5">
-                    {/* T2-06: this button used to also read "Clear All"
-                        and silently wiped the uploaded files too — two
-                        same-named buttons with different scopes. It now
-                        clears ONLY the generated results (files stay, so
-                        the batch can be re-run); the action bar's
-                        "Clear All" remains the full files+results reset. */}
                     <Button
                       variant="outline"
                       size="sm"
                       className="h-7 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive"
                       onClick={() => {
+                        setFiles([]);
                         setRows([]);
                         setShowExportPanel(false);
                       }}
                     >
                       <Trash2 className="h-3 w-3" />
-                      Clear Results
+                      Clear All
                     </Button>
                     <Button
                       variant="outline"
@@ -998,7 +1025,7 @@ export function MetadataGenerator({
                     <Toggle
                       label="Email CSV copy to me"
                       checked={sendEmail}
-                      onChange={setSendEmail}
+                      onCheckedChange={setSendEmail}
                     />
                     <span className="text-xs text-muted-foreground">{user.email}</span>
                   </div>
@@ -1091,4 +1118,60 @@ export function MetadataGenerator({
   );
 }
 
+function TagInput({
+  values,
+  onAdd,
+  onRemove,
+  placeholder,
+}: {
+  values: string[];
+  onAdd: (v: string) => void;
+  onRemove: (i: number) => void;
+  placeholder: string;
+}) {
+  const [draft, setDraft] = React.useState('');
 
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const v = draft.trim();
+    if (!v) return;
+    onAdd(v);
+    setDraft('');
+  }
+
+  return (
+    <div className="mt-2 space-y-2">
+      {values.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {values.map((v, i) => (
+            <span
+              key={`${v}-${i}`}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[11px]"
+            >
+              {v}
+              <button
+                type="button"
+                onClick={() => onRemove(i)}
+                aria-label={`Remove ${v}`}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <form onSubmit={submit} className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={placeholder}
+          className="h-8 text-xs"
+        />
+        <Button type="submit" size="sm" variant="subtle" className="h-8 shrink-0">
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </form>
+    </div>
+  );
+}

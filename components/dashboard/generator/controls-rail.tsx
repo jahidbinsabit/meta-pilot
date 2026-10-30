@@ -1,13 +1,15 @@
 'use client';
 
 import * as React from 'react';
-import { Card } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Slider } from '@/components/ui/slider';
 import { Toggle } from '@/components/ui/toggle';
 import { cn } from '@/lib/utils';
 import { PLATFORMS, type TargetPlatform, type GeneratorSettings } from '@/lib/generator/types';
-import { Sliders, Key, Layers, FileText, ChevronDown, ChevronUp, Lock, Image as ImageIcon } from 'lucide-react';
+import { Sliders, Key, Layers, FileText, ChevronDown, ChevronUp, Check, Sparkles, Info, Lock, Image as ImageIcon } from 'lucide-react';
 import { UserApiKeysModal } from '@/components/dashboard/user-api-keys-dialog';
 
 
@@ -38,6 +40,8 @@ interface ControlsRailProps {
   negKws?: string[];
   addTag?: (type: 'negWords' | 'negKws', val: string) => void;
   removeTag?: (type: 'negWords' | 'negKws', idx: number) => void;
+  batchGeneration?: boolean;
+  setBatchGeneration?: (v: boolean) => void;
   user?: { id: string; email: string; name: string | null; preferredAiProvider?: string };
 
   // Prompt-specific props
@@ -84,7 +88,7 @@ export function ControlsRail({
   onTabChange,
   selectedPlatform = 'adobe',
   handlePlatformChange = () => {},
-  settings = { titleLength: 70, titleMin: 20, titleMax: 200, descriptionLength: 180, keywordsCount: 35, keywordsMin: 10, keywordsMax: 50, prefix: '', suffix: '', negativeTitleWords: [], negativeKeywords: [], defaultPrefix: '', defaultSuffix: '' },
+  settings = { titleLength: 70, titleMin: 20, titleMax: 200, descriptionLength: 150, keywordsCount: 35, keywordsMin: 10, keywordsMax: 50, prefix: '', suffix: '', negativeTitleWords: [], negativeKeywords: [], defaultPrefix: '', defaultSuffix: '' },
   setSettings = () => {},
   persistSettings = () => {},
   currentPlatformConfig = PLATFORMS.adobe,
@@ -106,6 +110,8 @@ export function ControlsRail({
   negKws = [],
   addTag = () => {},
   removeTag = () => {},
+  batchGeneration = true,
+  setBatchGeneration = () => {},
   user,
   style,
   onStyleChange,
@@ -179,11 +185,22 @@ export function ControlsRail({
         </div>
       </Card>
 
-      {/* T2-03: the "Batch Generation" toggle card that used to sit here
-          was removed — its state was passed in and rendered but no
-          generation path ever read it, so flipping it changed nothing.
-          Generation is always batched; there is no single-file mode for
-          it to switch to. */}
+      {/* CARD B - Batch Generation */}
+      <Card className='rounded-2xl border border-border bg-card p-4 shadow-sm flex items-center justify-between'>
+        <div className='flex items-center gap-2.5'>
+          <div className='flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400'>
+            <Layers className='h-4 w-4' />
+          </div>
+          <div>
+            <h3 className='text-sm font-semibold text-foreground'>Batch Generation</h3>
+            <p className='text-[11px] text-muted-foreground'>Process multiple at once</p>
+          </div>
+        </div>
+        <Toggle
+          checked={batchGeneration}
+          onCheckedChange={setBatchGeneration}
+        />
+      </Card>
 
       {/* CARD C - Prompt Settings (if prompt tab) */}
       {activeTab === 'prompt' && (
@@ -254,7 +271,7 @@ export function ControlsRail({
                   </div>
                   <Toggle
                     checked={promptControls.whiteBackground}
-                    onChange={(v) => onPromptControlsChange({ whiteBackground: v })}
+                    onCheckedChange={(v) => onPromptControlsChange({ whiteBackground: v })}
                   />
                 </div>
 
@@ -266,7 +283,7 @@ export function ControlsRail({
                   </div>
                   <Toggle
                     checked={promptControls.cameraParameters}
-                    onChange={(v) => onPromptControlsChange({ cameraParameters: v })}
+                    onCheckedChange={(v) => onPromptControlsChange({ cameraParameters: v })}
                   />
                 </div>
 
@@ -313,7 +330,7 @@ export function ControlsRail({
                       <span className='text-xs font-medium text-foreground'>Prefix</span>
                       <Toggle
                         checked={promptControls.prefixEnabled}
-                        onChange={(v) => onPromptControlsChange({ prefixEnabled: v })}
+                        onCheckedChange={(v) => onPromptControlsChange({ prefixEnabled: v })}
                       />
                     </div>
                     {promptControls.prefixEnabled && (
@@ -332,7 +349,7 @@ export function ControlsRail({
                       <span className='text-xs font-medium text-foreground'>Suffix</span>
                       <Toggle
                         checked={promptControls.suffixEnabled}
-                        onChange={(v) => onPromptControlsChange({ suffixEnabled: v })}
+                        onCheckedChange={(v) => onPromptControlsChange({ suffixEnabled: v })}
                       />
                     </div>
                     {promptControls.suffixEnabled && (
@@ -351,7 +368,7 @@ export function ControlsRail({
                       <span className='text-xs font-medium text-foreground'>Negative Prompt Words</span>
                       <Toggle
                         checked={promptControls.negativeEnabled}
-                        onChange={(v) => onPromptControlsChange({ negativeEnabled: v })}
+                        onCheckedChange={(v) => onPromptControlsChange({ negativeEnabled: v })}
                       />
                     </div>
                     {promptControls.negativeEnabled && (
@@ -397,7 +414,7 @@ export function ControlsRail({
                   <label className='text-[10px] font-semibold uppercase tracking-wider text-muted-foreground'>
                     Export Platform
                   </label>
-                  <div className='flex flex-wrap gap-1'>
+                  <div className='grid grid-cols-3 gap-1'>
                     {(Object.keys(PLATFORMS) as TargetPlatform[]).map((platKey) => {
                       const p = PLATFORMS[platKey];
                       const isActive = selectedPlatform === platKey;
@@ -414,8 +431,8 @@ export function ControlsRail({
                           )}
                         >
                           <PlatformIcon platform={platKey} />
-                          <span className='whitespace-nowrap text-[11px]'>{p.shortLabel}</span>
-                          {isActive && <span className='h-1 w-1 shrink-0 rounded-full bg-accent' />}
+                          <span className='flex-1 truncate text-[11px]'>{p.shortLabel}</span>
+                          {isActive && <span className='h-1 w-1 rounded-full bg-accent' />}
                         </button>
                       );
                     })}
@@ -516,7 +533,7 @@ export function ControlsRail({
                 </div>
                 <Toggle
                   checked={includeDescription}
-                  onChange={(v) => {
+                  onCheckedChange={(v) => {
                     if (selectedPlatform === 'adobe') return;
                     setIncludeDescription(v);
                     persistSettings({ includeDescription: v });
@@ -534,7 +551,7 @@ export function ControlsRail({
                 </div>
                 <Toggle
                   checked={prefixEnabled}
-                  onChange={(v) => {
+                  onCheckedChange={(v) => {
                     setPrefixEnabled(v);
                     persistSettings({ prefix: v ? prefixText : '' });
                   }}
@@ -560,7 +577,7 @@ export function ControlsRail({
                 </div>
                 <Toggle
                   checked={suffixEnabled}
-                  onChange={(v) => {
+                  onCheckedChange={(v) => {
                     setSuffixEnabled(v);
                     persistSettings({ suffix: v ? suffixText : '' });
                   }}
@@ -600,7 +617,7 @@ export function ControlsRail({
                         <span className='text-xs font-medium text-foreground'>Negative Title Words</span>
                         <Toggle
                           checked={negWordsEnabled}
-                          onChange={setNegWordsEnabled}
+                          onCheckedChange={setNegWordsEnabled}
                         />
                       </div>
                       {negWordsEnabled && (
@@ -620,7 +637,7 @@ export function ControlsRail({
                         <span className='text-xs font-medium text-foreground'>Negative Keywords</span>
                         <Toggle
                           checked={negKwsEnabled}
-                          onChange={setNegKwsEnabled}
+                          onCheckedChange={setNegKwsEnabled}
                         />
                       </div>
                       {negKwsEnabled && (

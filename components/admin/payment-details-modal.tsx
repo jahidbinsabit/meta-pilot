@@ -148,10 +148,10 @@ export function PaymentDetailsModal({
                 <span>{payload.notes}</span>
               </div>
             )}
-            {payload.rejectReason && (
+            {payload.rejectionReason && (
               <div className="pt-2 text-destructive">
                 <span className="font-semibold">Rejection Reason: </span>
-                <span>{payload.rejectReason}</span>
+                <span>{payload.rejectionReason}</span>
               </div>
             )}
           </div>

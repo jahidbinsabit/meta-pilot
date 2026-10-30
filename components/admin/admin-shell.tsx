@@ -3,8 +3,28 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutGrid, Users, Crown, CreditCard, Zap, Wrench, Globe, Bell, BarChart3, Settings, SlidersHorizontal, ArrowLeft, Shield, Package, ClipboardList, Ticket, Menu, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { signOut } from 'next-auth/react';
+import {
+  LayoutGrid,
+  Users,
+  Crown,
+  Coins,
+  CreditCard,
+  Zap,
+  Wrench,
+  Globe,
+  Bell,
+  BarChart3,
+  ScrollText,
+  Settings,
+  SlidersHorizontal,
+  LogOut,
+  ArrowLeft,
+  Shield,
+  Package,
+  ClipboardList,
+  Ticket,
+  Menu,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AdminMobileNav } from '@/components/admin/admin-mobile-nav';
@@ -25,9 +45,7 @@ export const ADMIN_NAV: Array<{
   href: string;
   icon: React.ComponentType<{ className?: string }>;
 }> = [
-  // T4-61: Overview points at the real page (/admin redirects there) —
-  // href '/admin' meant the item was never highlighted as active.
-  { label: 'Overview', href: '/admin/overview', icon: LayoutGrid },
+  { label: 'Overview', href: '/admin', icon: LayoutGrid },
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Plans', href: '/admin/plans', icon: Crown },
   { label: 'Credit Packages', href: '/admin/credit-packages', icon: Package },
@@ -57,8 +75,6 @@ export function AdminShell({
   logoUrl,
 }: AdminShellProps) {
   const pathname = usePathname();
-  // T4-61: collapse state existed but its setter was never wired to any
-  // control — the sidebar could never actually collapse.
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
@@ -90,24 +106,10 @@ export function AdminShell({
             </div>
           )}
         </div>
-        <div className="px-2.5 pb-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start gap-2 text-muted-foreground"
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            {!collapsed && 'Collapse'}
-          </Button>
-        </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2.5 py-2">
           {ADMIN_NAV.map((item) => {
             const active =
-              item.href === '/admin/overview'
-                ? pathname === '/admin' || pathname?.startsWith('/admin/overview')
-                : pathname?.startsWith(item.href);
+              item.href === '/admin' ? pathname === '/admin' : pathname?.startsWith(item.href);
             const Icon = item.icon;
             return (
               <Link
@@ -151,15 +153,6 @@ export function AdminShell({
             <Link href="/dashboard">
               <ArrowLeft className="h-4 w-4" /> Back to dashboard
             </Link>
-          </Button>
-          {/* T4-61: the admin shell had no sign-out control at all. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-1 w-full justify-start gap-2 text-muted-foreground"
-            onClick={() => signOut({ callbackUrl: '/login' })}
-          >
-            <LogOut className="h-4 w-4" /> {!collapsed && 'Sign out'}
           </Button>
         </div>
       </aside>

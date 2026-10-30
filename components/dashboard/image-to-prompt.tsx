@@ -11,7 +11,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ControlsRail, type PromptControlsSettings } from '@/components/dashboard/generator/controls-rail';
-import { Copy, Check, Sparkles, FileText, FileSpreadsheet, AlertCircle, Loader2, Trash2, RotateCcw, Image as ImageIcon, Upload, ChevronUp, ChevronDown } from 'lucide-react';
+import {
+  Copy,
+  Check,
+  Sparkles,
+  Download,
+  FileText,
+  FileSpreadsheet,
+  AlertCircle,
+  Loader2,
+  Trash2,
+  RotateCcw,
+  Image as ImageIcon,
+  Upload,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import {
   buildPromptExport,
@@ -67,12 +82,7 @@ function withNegativeLine(r: { prompt: string; negativePrompt?: string }): strin
  * (jobs completed server-side while the UI spun forever), so generation
  * is started with a plain POST that returns a jobId and progress is read
  * back with plain GET polls of `/api/generate/jobs/[jobId]`.
- * `onResults` fires after every poll that brings new finished entries.
- * Polls send `?known=` with the finished-entry count already seen
- * (R9 H3): while it is unchanged the server answers with a compact
- * payload (status + counts, no results array) and `onResults` is
- * skipped — the entries this job produces are final on arrival, so
- * the count the client holds IS its results length.
+ * `onResults` fires after every poll with the entries finished so far.
  * Returns the terminal poll payload, or null when `shouldStop()` asked
  * us to abandon polling (unmount / Clear All). Throws on a dead runner
  * (FAILED with nothing attempted) or after more than 5 consecutive poll
@@ -84,13 +94,12 @@ async function pollImagePromptJob(
   shouldStop: () => boolean,
 ): Promise<any | null> {
   let consecutivePollErrors = 0;
-  let knownFinished = 0;
   while (true) {
     if (shouldStop()) return null;
 
     let data: any;
     try {
-      const pollRes = await fetch(`/api/generate/jobs/${jobId}?known=${knownFinished}`);
+      const pollRes = await fetch(`/api/generate/jobs/${jobId}`);
       if (!pollRes.ok) throw new Error('poll_failed');
       data = await pollRes.json();
       consecutivePollErrors = 0;
@@ -101,13 +110,8 @@ async function pollImagePromptJob(
       continue;
     }
 
-    if (data.unchanged !== true) {
-      const results: any[] = Array.isArray(data.results) ? data.results : [];
-      knownFinished = results.filter(
-        (r: any) => r.status === 'complete' || r.status === 'failed',
-      ).length;
-      onResults(results);
-    }
+    const results: any[] = Array.isArray(data.results) ? data.results : [];
+    onResults(results);
 
     if (data.status === 'COMPLETE' || data.status === 'FAILED') {
       // A FAILED job with zero finished images means the runner died
@@ -631,6 +635,8 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
       <ControlsRail
         activeTab={activeTab || 'prompt'}
         onTabChange={onTabChange || (() => {})}
+        batchGeneration={true}
+        setBatchGeneration={() => {}}
         user={user}
         style={style}
         onStyleChange={onStyleChange}

@@ -26,7 +26,6 @@ interface UserTableRowProps {
   onToggleStatus: (user: UserRecord) => void;
   onDelete: (user: UserRecord) => void;
   onRestore: (user: UserRecord) => void;
-  statusTogglePending?: boolean;
 }
 
 export function UserTableRow({
@@ -37,7 +36,6 @@ export function UserTableRow({
   onToggleStatus,
   onDelete,
   onRestore,
-  statusTogglePending,
 }: UserTableRowProps) {
   const balance = user.creditWallet?.balance ?? user.credits;
   const isSuspended = user.status === 'SUSPENDED';
@@ -123,14 +121,7 @@ export function UserTableRow({
           <Button variant="ghost" size="xs" onClick={() => onResetPassword(user)} className="h-7 w-7 p-0 text-muted-foreground hover:text-sky-400">
             <Lock className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => onToggleStatus(user)}
-            disabled={isDeleted || statusTogglePending}
-            title={isDeleted ? 'Restore this user before changing their status' : undefined}
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-amber-400 disabled:opacity-40"
-          >
+          <Button variant="ghost" size="xs" onClick={() => onToggleStatus(user)} className="h-7 w-7 p-0 text-muted-foreground hover:text-amber-400">
             {isSuspended ? <UserCheck className="h-3.5 w-3.5" /> : <UserX className="h-3.5 w-3.5" />}
           </Button>
           {isDeleted ? (

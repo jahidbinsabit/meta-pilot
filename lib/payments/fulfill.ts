@@ -1,6 +1,5 @@
 import { prisma } from '@/lib/db';
-import { addCredits, clawbackCredits } from '@/lib/credits/engine';
-import { getActiveMembership } from '@/lib/plans/membership';
+import { addCredits } from '@/lib/credits/engine';
 import { createId } from '@/lib/id';
 import type { MembershipType, Payment, PaymentStatus } from '@prisma/client';
 
@@ -140,79 +139,6 @@ export async function fulfillPayment(paymentId: string) {
   }
 
   return { ok: true as const, already: false };
-}
-
-/**
- * Reverse a fulfilled payment after a Stripe refund or a lost dispute
- * (B9-02). Idempotent via an atomic status claim: only a COMPLETED
- * payment can transition to REFUNDED, and only the caller that wins the
- * claim performs the reversal — webhook redeliveries are no-ops.
- *
- * Reversal = claw back the credits the payment granted (the create-time
- * snapshot in `gatewayPayload.credits`, falling back to the Plan /
- * CreditPackage row exactly like fulfillment resolves them) floored at
- * the user's current balance, plus — for plan payments — cancel the
- * membership the purchase activated and mirror the enum back if no
- * other live membership remains.
- */
-export async function clawbackRefundedPayment(
-  paymentId: string,
-  source: string,
-): Promise<{ ok: boolean; already?: boolean; clawedCredits?: number; error?: string }> {
-  const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
-  if (!payment) return { ok: false, error: 'payment_not_found' };
-  if (payment.status !== 'COMPLETED') return { ok: true, already: true };
-
-  const claimed = await prisma.payment.updateMany({
-    where: { id: paymentId, status: 'COMPLETED' },
-    data: { status: 'REFUNDED' },
-  });
-  if (claimed.count === 0) return { ok: true, already: true };
-
-  const payload = readPayload(payment);
-  const planId = payload.planId || (payload.type === 'plan' ? payment.planIdOrCreditPackageId : null);
-  const isPlan = payload.type === 'plan' || Boolean(planId && payload.type !== 'credits');
-
-  // How many credits did this payment grant? Prefer the snapshot stored
-  // at checkout creation; fall back to the same resolution fulfill uses.
-  let granted = Number(payload.credits || 0);
-  if (!granted) {
-    if (planId && isPlan) {
-      const plan = await prisma.plan.findUnique({ where: { id: planId } });
-      granted = plan?.creditsIncluded ?? 0;
-    } else {
-      granted = await resolvePackageCredits({
-        ...payload,
-        packageId: payload.packageId || payment.planIdOrCreditPackageId || undefined,
-      });
-    }
-  }
-
-  let clawedCredits = 0;
-  if (granted > 0) {
-    clawedCredits = await clawbackCredits(payment.userId, granted, {
-      paymentId: payment.id,
-      source,
-      reason: 'Stripe refund / lost dispute clawback',
-    });
-  }
-
-  // A refunded plan purchase also loses the membership it activated.
-  if (planId && isPlan) {
-    await prisma.membership.updateMany({
-      where: { userId: payment.userId, planId, status: 'ACTIVE' },
-      data: { status: 'CANCELED' },
-    });
-    const remaining = await getActiveMembership(payment.userId);
-    if (!remaining) {
-      await prisma.user.update({
-        where: { id: payment.userId },
-        data: { membership: 'FREE' },
-      });
-    }
-  }
-
-  return { ok: true, clawedCredits };
 }
 
 export async function rejectPayment(paymentId: string, adminId: string, reason?: string) {

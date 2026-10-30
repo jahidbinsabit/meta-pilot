@@ -33,7 +33,7 @@ export default async function LoginPage() {
       <div className="relative z-10 grid min-h-screen w-full lg:grid-cols-12">
         {/* Left Side: Form Container */}
         <div className="flex flex-col justify-between px-6 py-8 sm:px-12 lg:col-span-6 xl:col-span-5 lg:px-14 xl:px-16">
-          <LoginHeader siteName={siteName} logoUrl={settings?.logoUrl} />
+          <LoginHeader siteName={siteName} />
           <LoginForm signupCredits={signupCredits} />
           <div className="pt-4 text-2xs text-muted-foreground/60 flex items-center justify-between border-t border-border/40">
             <span>© {new Date().getFullYear()} {siteName}.</span>

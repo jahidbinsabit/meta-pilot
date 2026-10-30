@@ -10,7 +10,6 @@ import { prisma } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 import { InsufficientCreditsError } from '@/lib/credits/errors';
 import { getSiteSettings } from '@/lib/site-settings';
-import { getActiveMembership } from '@/lib/plans/membership';
 
 export interface CreditResult {
   ok: boolean;
@@ -63,31 +62,10 @@ export async function addCredits(
 
   let transactionId = '';
   const balance = await prisma.$transaction(async (tx) => {
-    await ensureWallet(tx, userId);
-    let next: number;
-    if (amount > 0) {
-      // B9-04: atomic increment — the old read → compute → absolute-write
-      // lost concurrent grants (two callers reading the same balance both
-      // wrote back their own sum, silently creating/destroying credits
-      // while both ledger rows existed). `increment` is applied by the
-      // database under the row lock, like deductCredits' decrement.
-      const updated = await tx.creditWallet.update({
-        where: { userId },
-        data: { balance: { increment: amount } },
-      });
-      next = updated.balance;
-    } else {
-      // Negative grant (admin claw-down): conditional guarded update,
-      // mirroring deductCredits — the decrement applies only when the
-      // balance covers it, so the wallet can never go negative.
-      const guarded = await tx.creditWallet.updateMany({
-        where: { userId, balance: { gte: -amount } },
-        data: { balance: { decrement: -amount } },
-      });
-      if (guarded.count === 0) throw new Error('balance would go negative');
-      const wallet = await tx.creditWallet.findUnique({ where: { userId } });
-      next = wallet?.balance ?? 0;
-    }
+    const before = await ensureWallet(tx, userId);
+    const next = before + amount;
+    if (next < 0) throw new Error('balance would go negative');
+    await tx.creditWallet.update({ where: { userId }, data: { balance: next } });
     await syncUserCredits(tx, userId, next);
     const t = await tx.creditTransaction.create({
       data: { userId, amount, type: type as any, metadata: metadata as any },
@@ -96,48 +74,6 @@ export async function addCredits(
     return next;
   });
   return { balance, transactionId };
-}
-
-/**
- * Claw back previously granted credits after a refund / lost dispute
- * (B9-02). Deducts `min(balance, amount)` — unlike `addCredits` with a
- * negative amount this NEVER throws on a low balance: a user who already
- * spent the granted credits simply loses what is left (floored at 0).
- * Writes a `REFUND_CLAWBACK` ledger row for the amount actually taken
- * and returns that amount (0 when nothing could be taken).
- */
-export async function clawbackCredits(
-  userId: string,
-  amount: number,
-  metadata?: Record<string, unknown>,
-): Promise<number> {
-  if (!Number.isInteger(amount) || amount <= 0) return 0;
-
-  return prisma.$transaction(async (tx) => {
-    await ensureWallet(tx, userId);
-    const wallet = await tx.creditWallet.findUnique({ where: { userId } });
-    const take = Math.min(wallet?.balance ?? 0, amount);
-    if (take <= 0) return 0;
-
-    const guarded = await tx.creditWallet.updateMany({
-      where: { userId, balance: { gte: take } },
-      data: { balance: { decrement: take } },
-    });
-    if (guarded.count === 0) return 0;
-
-    const after = await tx.creditWallet.findUnique({ where: { userId } });
-    const next = after?.balance ?? 0;
-    await syncUserCredits(tx, userId, next);
-    await tx.creditTransaction.create({
-      data: {
-        userId,
-        amount: -take,
-        type: 'REFUND_CLAWBACK' as any,
-        metadata: metadata as any,
-      },
-    });
-    return take;
-  });
 }
 
 /**
@@ -388,12 +324,11 @@ export async function grantDailyCredits(userId: string): Promise<{
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { granted: false, balance: 0, amount: 0 };
 
-  // Daily free credits come from the user's active plan — resolved
-  // through the expiry-aware helper (B9-01 follow-up): a membership
-  // row still stamped ACTIVE but past its renewsAt is flipped to
-  // EXPIRED there, so an expired plan's dailyFreeCredits no longer
-  // drives this grant.
-  const membership = await getActiveMembership(userId);
+  // Daily free credits come from the user's active plan.
+  const membership = await prisma.membership.findFirst({
+    where: { userId, status: 'ACTIVE' },
+    include: { plan: true },
+  });
   const plan = membership?.plan;
   const amount = plan?.dailyFreeCredits ?? 0;
   if (amount <= 0) {

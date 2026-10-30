@@ -2,13 +2,14 @@
 
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { signOut, useSession } from 'next-auth/react';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Toggle } from '@/components/ui/toggle';
+import { Badge } from '@/components/ui/badge';
 import { UserApiKeysForm } from '@/components/dashboard/user-api-keys-dialog';
-import { Key, Copy, Check, Trash2, Plus, Sparkles, AlertTriangle, Loader2 } from 'lucide-react';
+import { Key, Copy, Check, Trash2, Plus, Sparkles } from 'lucide-react';
 
 export function SettingsClient({ siteName = 'MetaCSV' }: { siteName?: string }) {
   const [name, setName] = React.useState('');
@@ -189,118 +190,6 @@ export function SettingsClient({ siteName = 'MetaCSV' }: { siteName?: string }) 
           )}
         </CardContent>
       </Card>
-
-      <DangerZoneCard />
     </div>
-  );
-}
-
-/**
- * B9-14: account deletion existed server-side (DELETE /api/account →
- * soft-delete, login blocked, purge after 30 days) with NO UI caller —
- * users could not delete their own account from the product. This card
- * is that caller: type-your-email-to-confirm, then sign out to /login.
- */
-function DangerZoneCard() {
-  const { data: session } = useSession();
-  const toast = useToast();
-  const email = session?.user?.email || '';
-  const [confirming, setConfirming] = React.useState(false);
-  const [confirmText, setConfirmText] = React.useState('');
-  const [deleting, setDeleting] = React.useState(false);
-  const confirmed = email.length > 0 && confirmText.trim().toLowerCase() === email.toLowerCase();
-
-  async function handleDelete() {
-    if (!confirmed || deleting) return;
-    setDeleting(true);
-    try {
-      const res = await fetch('/api/account', { method: 'DELETE' });
-      if (!res.ok) throw new Error('delete_failed');
-      toast({ title: 'Account scheduled for deletion', variant: 'success' });
-      // The account is soft-deleted and login is now blocked — end the
-      // session and land on /login.
-      await signOut({ callbackUrl: '/login' });
-    } catch {
-      toast({
-        title: 'Could not delete your account',
-        description: 'Please try again, or contact support.',
-        variant: 'error',
-      });
-      setDeleting(false);
-    }
-  }
-
-  return (
-    <Card className="border-destructive/40">
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-destructive/15 text-destructive">
-            <AlertTriangle className="h-4 w-4" />
-          </div>
-          <div>
-            <CardTitle>Danger Zone</CardTitle>
-            <CardDescription>Irreversible actions for this account.</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <p className="text-sm font-medium text-foreground">Delete my account</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            You will be signed out immediately and will no longer be able to sign in. Your
-            account and data are permanently purged 30 days after deletion. Unused credits
-            are not refunded.
-          </p>
-        </div>
-
-        {!confirming ? (
-          <Button
-            variant="outline"
-            className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => setConfirming(true)}
-          >
-            <Trash2 className="h-4 w-4" />
-            Delete my account
-          </Button>
-        ) : (
-          <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-            <label htmlFor="delete-confirm-email" className="text-xs font-medium text-foreground">
-              Type your email address ({email}) to confirm
-            </label>
-            <Input
-              id="delete-confirm-email"
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder={email}
-              autoComplete="off"
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={!confirmed || deleting}
-              >
-                {deleting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-                Permanently delete my account
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setConfirming(false);
-                  setConfirmText('');
-                }}
-                disabled={deleting}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }

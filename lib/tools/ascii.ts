@@ -62,42 +62,7 @@ export function buildAscii(
   return out;
 }
 
-/**
- * Per-cell source colours, sampled with the exact geometry buildAscii
- * uses (same cols/rows/cell centres), for the colored canvas render.
- * T3-10: the colored PNG used to paint a hue rainbow by column
- * position (hsl(t*300)) that had nothing to do with the image — these
- * are the image's own colours at each cell.
- */
-export function buildAsciiColors(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number,
-  opts: AsciiOptions,
-): string[][] {
-  const cols = DENSITY_WIDTH[opts.density];
-  const rows = Math.max(1, Math.round((cols * height) / width / 2));
-  const cellW = width / cols;
-  const cellH = height / rows;
-  const grid: string[][] = [];
-  for (let r = 0; r < rows; r++) {
-    const line: string[] = [];
-    for (let c = 0; c < cols; c++) {
-      const cx = Math.floor(c * cellW + cellW / 2);
-      const cy = Math.floor(r * cellH + cellH / 2);
-      const idx = (cy * width + cx) * 4;
-      line.push(`rgb(${data[idx]}, ${data[idx + 1]}, ${data[idx + 2]})`);
-    }
-    grid.push(line);
-  }
-  return grid;
-}
-
-export function asciiToCanvas(
-  text: string,
-  opts: AsciiOptions,
-  colors?: string[][],
-): HTMLCanvasElement | null {
+export function asciiToCanvas(text: string, opts: AsciiOptions): HTMLCanvasElement | null {
   if (typeof document === 'undefined') return null;
   const lines = text.split('\n');
   const fontSize = Math.max(6, opts.fontSize);
@@ -116,11 +81,10 @@ export function asciiToCanvas(
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (opts.colored) {
-      // Colour each character with the SOURCE image's colour at that
-      // cell (buildAsciiColors). Without a colour grid, fall back to the
-      // neutral monochrome — never the old position-based hue rainbow.
+      // Colour each character by its source luminance — approximate by hue.
       for (let j = 0; j < line.length; j++) {
-        ctx.fillStyle = colors?.[i]?.[j] ?? '#e4e4e7';
+        const t = j / Math.max(1, line.length - 1);
+        ctx.fillStyle = `hsl(${Math.round(t * 300)}, 70%, 55%)`;
         ctx.fillText(line[j], j * charW, i * lineH);
       }
     } else {

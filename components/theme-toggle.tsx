@@ -18,14 +18,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   const [mounted, setMounted] = React.useState(false);
 
   React.useEffect(() => {
-    const initial = getInitialTheme();
-    setTheme(initial);
-    // Reconcile the DOM with the resolved theme on mount: the pre-paint
-    // script normally applies the class, but if it was skipped (cached
-    // HTML, blocked inline script) the toggle state and the rendered
-    // theme could disagree — and disagree differently per page. Syncing
-    // here makes every surface converge on the same stored preference.
-    document.documentElement.classList.toggle('light', initial === 'light');
+    setTheme(getInitialTheme());
     setMounted(true);
   }, []);
 

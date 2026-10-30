@@ -3,6 +3,8 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import { CredentialsSignin } from 'next-auth';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import { prisma } from '@/lib/db';
+import { randomString } from '@/lib/utils';
+import { decode } from 'next-auth/jwt';
 import { rateLimit, getClientIp } from '@/lib/rate-limit';
 import bcrypt from 'bcryptjs';
 
@@ -13,6 +15,33 @@ import bcrypt from 'bcryptjs';
 /** Thrown when the login rate limit is hit — surfaced as "too_many_attempts". */
 class LoginRateLimited extends CredentialsSignin {
   code = 'too_many_attempts';
+}
+
+/** Embed role + membershipPlan into the JWT so every request can read them
+ *  without hitting the DB. Refreshed whenever the membership changes. */
+async function buildSessionUser(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      memberships: {
+        where: { status: 'ACTIVE' },
+        include: { plan: true },
+        orderBy: { startedAt: 'desc' },
+        take: 1,
+      },
+    },
+  });
+  if (!user) return null;
+  const activeMembership = user.memberships[0]?.plan?.tier || user.membership || 'FREE';
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name ?? undefined,
+    image: user.image ?? undefined,
+    role: user.role,
+    membershipPlan: activeMembership,
+    credits: user.credits,
+  };
 }
 
 /** Idempotent daily free-credit grant. Runs on every login so free-tier
