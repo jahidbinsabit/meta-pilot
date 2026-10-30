@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Bell, CalendarClock, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { CalendarClock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -182,6 +182,15 @@ export function NotificationsClient({
           Create Notification
         </Button>
       </div>
+
+      {/* T4-56: toggle/delete failures set this same error state, but it
+          was only rendered inside the create/edit dialog — surface it at
+          list level so those failures are visible. */}
+      {error ? (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          {error}
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="overflow-x-auto">

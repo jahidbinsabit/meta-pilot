@@ -4,9 +4,12 @@ import { Zap } from 'lucide-react';
 export function Footer({
   siteName = 'MetaCSV',
   logoUrl,
+  tagline,
 }: {
   siteName?: string;
   logoUrl?: string | null;
+  /** T4-53: the SiteSettings tagline was write-only — render it here. */
+  tagline?: string | null;
 }) {
   const currentYear = new Date().getFullYear();
 
@@ -26,6 +29,9 @@ export function Footer({
             <span className="font-display font-semibold tracking-tight text-foreground">
               {siteName}
             </span>
+            {tagline && (
+              <span className="hidden text-xs text-muted-foreground sm:inline">{tagline}</span>
+            )}
           </div>
 
           <nav className="flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground">

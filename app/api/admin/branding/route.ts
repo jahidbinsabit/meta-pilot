@@ -4,6 +4,7 @@ import { requireApiAdmin } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
 import { ensureDatabaseSchema } from '@/lib/db-sync';
 import { uploadFile, deleteFile, listFiles } from '@/lib/s3/client';
+import { extOf } from '@/lib/utils';
 
 /**
  * Admin branding upload — POST /api/admin/branding (multipart/form-data).
@@ -23,6 +24,36 @@ import { uploadFile, deleteFile, listFiles } from '@/lib/s3/client';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
+
+/**
+ * T4-62: content sniffing. Extension + size were the only checks, so any
+ * bytes renamed to .png/.svg were stored and served as that image type.
+ * Verify the magic bytes (or, for SVG, the document shape) match the
+ * claimed extension before anything is stored.
+ */
+function contentMatchesExt(ext: string, buf: Buffer): boolean {
+  switch (ext) {
+    case 'png':
+      return buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    case 'jpg':
+    case 'jpeg':
+      return buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    case 'webp':
+      return (
+        buf.length >= 12 &&
+        buf.subarray(0, 4).toString('ascii') === 'RIFF' &&
+        buf.subarray(8, 12).toString('ascii') === 'WEBP'
+      );
+    case 'ico':
+      return buf.length >= 4 && buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0x01 && buf[3] === 0x00;
+    case 'svg': {
+      const head = buf.subarray(0, 1024).toString('utf8').replace(/^\uFEFF/, '').trimStart();
+      return head.startsWith('<') && /<svg[\s>]/i.test(head);
+    }
+    default:
+      return false;
+  }
+}
 
 type BrandingKind = 'logo' | 'favicon';
 
@@ -52,10 +83,6 @@ const RULES: Record<
   },
 };
 
-function extOf(name: string): string {
-  return (name.split('.').pop() || '').toLowerCase();
-}
-
 export async function POST(req: Request) {
   try {
     const admin = await requireApiAdmin(req);
@@ -81,7 +108,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const ext = extOf(file.name);
+    // Shared extOf returns the dotted form; branding rules key on the bare ext.
+    const ext = extOf(file.name).slice(1);
     const mime = rules.mimeByExt[ext];
     if (!mime) {
       return NextResponse.json(
@@ -106,6 +134,18 @@ export async function POST(req: Request) {
     const storedExt = ext === 'jpeg' ? 'jpg' : ext;
     const key = `branding/${kind}.${storedExt}`;
     const buffer = Buffer.from(await file.arrayBuffer());
+
+    // T4-62: verify the bytes match the claimed type BEFORE the previous
+    // variant is deleted or anything is stored.
+    if (!contentMatchesExt(ext, buffer)) {
+      return NextResponse.json(
+        {
+          error: 'content_mismatch',
+          message: `The file's contents do not match its ".${ext}" extension. Supported: ${rules.label}.`,
+        },
+        { status: 400 },
+      );
+    }
 
     // Delete any previous variant of this kind (possibly a different
     // extension) so re-uploads overwrite and never accumulate.

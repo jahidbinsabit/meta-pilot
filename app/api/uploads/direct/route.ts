@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
+import { rateLimit } from '@/lib/rate-limit';
+import { extOf } from '@/lib/utils';
 import { uploadImage, makeKey, publicUrl, deleteFile } from '@/lib/s3/client';
 
 /**
@@ -30,13 +32,22 @@ const MIME_BY_EXT: Record<string, string> = {
   '.ai': 'application/illustrator',
 };
 
-function extOf(name: string): string {
-  return '.' + (name.split('.').pop() || '').toLowerCase();
-}
-
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
+
+    // R9 S9-04: 25MB per call with no quota filled the disk once — cap
+    // uploads per user.
+    const rl = rateLimit(`uploads-direct:${user.id}`, {
+      max: 60,
+      windowMs: 10 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'rate_limited', retryAfter: rl.retryAfter },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+      );
+    }
 
     const form = await req.formData();
     const file = form.get('file');

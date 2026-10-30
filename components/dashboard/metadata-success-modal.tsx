@@ -1,13 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogClose,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -43,7 +37,7 @@ const PLATFORM_ICONS: Record<TargetPlatform, string> = {
 };
 
 export function MetadataSuccessModal({
-  open, onClose, rows, platform, exportFormat, isExporting, onExport,
+  open, onClose, rows, platform, isExporting, onExport,
 }: Props) {
   const [copiedLink, setCopiedLink] = React.useState(false);
 

@@ -172,7 +172,6 @@ async function main() {
   });
 
   // ---- AI provider configs ----
-  const geminiTools = Object.fromEntries(TOOL_SLUGS.map((s) => [s, s !== 'adobe-analytics']));
   await prisma.aiProviderConfig.upsert({
     where: { provider: 'gemini' },
     update: { updatedAt: new Date(), updatedBy: admin.id },

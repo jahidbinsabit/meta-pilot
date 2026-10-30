@@ -33,11 +33,12 @@ type Plan = {
   creditsIncluded: number;
   dailyFreeCredits: number;
   adobeAnalyticsResultLimit: number;
+  adobeAnalyticsDailyCap: number | null;
   isActive: boolean;
   sortOrder: number;
 };
 
-const TIERS = ['FREE', 'PRO', 'PLUS', 'AGENCY'] as const;
+const TIERS = ['FREE', 'PRO', 'PLUS', 'AGENCY', 'ENTERPRISE'] as const;
 type TierValue = (typeof TIERS)[number];
 
 type NewPlan = {
@@ -48,6 +49,7 @@ type NewPlan = {
   creditsIncluded: number;
   dailyFreeCredits: number;
   adobeAnalyticsResultLimit: number;
+  adobeAnalyticsDailyCap: number | null;
   isActive: boolean;
   sortOrder: number;
 };
@@ -60,6 +62,7 @@ const EMPTY_NEW: NewPlan = {
   creditsIncluded: 0,
   dailyFreeCredits: 0,
   adobeAnalyticsResultLimit: 0,
+  adobeAnalyticsDailyCap: null,
   isActive: true,
   sortOrder: 0,
 };
@@ -95,14 +98,23 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/admin/plans/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete plan');
+      if (!res.ok) {
+        // T4-39: surface the server's block reason (e.g. active
+        // memberships) instead of a generic failure.
+        const j = await res.json().catch(() => ({}));
+        throw new Error(
+          j.error === 'plan_has_active_memberships'
+            ? `This plan still has ${j.count} membership(s) and cannot be deleted.`
+            : j.message || j.error || 'Failed to delete plan',
+        );
+      }
       return res.json();
     },
     onSuccess: (_, id) => {
       setPlans((prev) => prev.filter((p) => p.id !== id));
       toast({ title: 'Plan deleted', variant: 'success' });
     },
-    onError: () => toast({ title: 'Failed to delete plan', variant: 'error' }),
+    onError: (e: Error) => toast({ title: e.message || 'Failed to delete plan', variant: 'error' }),
   });
 
   const createMutation = useMutation({
@@ -114,7 +126,7 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || 'Failed to create plan');
+        throw new Error(err.message || err.error || 'Failed to create plan');
       }
       return res.json() as Promise<Plan>;
     },
@@ -162,6 +174,7 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                   <th className="pb-3 pr-4 text-right">Credits</th>
                   <th className="pb-3 pr-4 text-right">Daily Free</th>
                   <th className="pb-3 pr-4 text-right">AA Pages</th>
+                  <th className="pb-3 pr-4 text-right">AA Daily</th>
                   <th className="pb-3 pr-4 text-center">Active</th>
                   <th className="pb-3 text-right">Actions</th>
                 </tr>
@@ -257,8 +270,11 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                               const raw = e.target.value;
                               setEditing({
                                 ...ep,
+                                // T4-41: parseFloat preserves non-multiples
+                                // of 100 (150 rows = 1.5 pg) instead of
+                                // truncating them to 100 on save.
                                 adobeAnalyticsResultLimit:
-                                  raw === '' ? -1 : (parseInt(raw, 10) || 0) * 100,
+                                  raw === '' ? -1 : Math.round((parseFloat(raw) || 0) * 100),
                               });
                             }}
                             className="h-8 w-20 text-right"
@@ -269,6 +285,28 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                           `${plan.adobeAnalyticsResultLimit / 100} pg`
                         ) : (
                           plan.adobeAnalyticsResultLimit.toLocaleString()
+                        )}
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        {isEditing && ep ? (
+                          <Input
+                            type="number"
+                            value={ep.adobeAnalyticsDailyCap ?? ''}
+                            placeholder="30"
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setEditing({
+                                ...ep,
+                                adobeAnalyticsDailyCap:
+                                  raw === '' ? null : Math.max(0, parseInt(raw, 10) || 0),
+                              });
+                            }}
+                            className="h-8 w-20 text-right"
+                          />
+                        ) : plan.adobeAnalyticsDailyCap === null ? (
+                          <span className="text-muted-foreground">Default</span>
+                        ) : (
+                          plan.adobeAnalyticsDailyCap.toLocaleString()
                         )}
                       </td>
                       <td className="py-3 pr-4 text-center">
@@ -318,7 +356,11 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => deleteMutation.mutate(plan.id)}
+                              onClick={() => {
+                                // T4-39: deletes fired with no confirmation.
+                                if (!confirm(`Delete the "${plan.name}" plan? This cannot be undone.`)) return;
+                                deleteMutation.mutate(plan.id);
+                              }}
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
@@ -393,7 +435,7 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="credits">Credits/Mo</Label>
                 <Input
@@ -431,11 +473,55 @@ export function PlansClient({ initialPlans }: { initialPlans: Plan[] }) {
                     const raw = e.target.value;
                     setDraft({
                       ...draft,
+                      // T4-41: see the edit-row handler — keep fractional
+                      // pages exact instead of truncating to whole pages.
                       adobeAnalyticsResultLimit:
-                        raw === '' ? -1 : (parseInt(raw, 10) || 0) * 100,
+                        raw === '' ? -1 : Math.round((parseFloat(raw) || 0) * 100),
                     });
                   }}
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="aadaily">AA Daily Searches (blank = default 30)</Label>
+                <Input
+                  id="aadaily"
+                  type="number"
+                  value={draft.adobeAnalyticsDailyCap ?? ''}
+                  placeholder="30"
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setDraft({
+                      ...draft,
+                      adobeAnalyticsDailyCap:
+                        raw === '' ? null : Math.max(0, parseInt(raw, 10) || 0),
+                    });
+                  }}
+                />
+              </div>
+              {/* T4-40: sortOrder / isActive were in the create payload but
+                  had no controls — the fields were dead in the editor. */}
+              <div className="grid gap-2">
+                <Label htmlFor="sortOrder">Sort Order</Label>
+                <Input
+                  id="sortOrder"
+                  type="number"
+                  value={draft.sortOrder}
+                  onChange={(e) =>
+                    setDraft({ ...draft, sortOrder: parseInt(e.target.value, 10) || 0 })
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="planActive">Active</Label>
+                <div className="flex h-10 items-center">
+                  <input
+                    id="planActive"
+                    type="checkbox"
+                    checked={draft.isActive}
+                    onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })}
+                    className="h-4 w-4 rounded border-input"
+                  />
+                </div>
               </div>
             </div>
           </div>

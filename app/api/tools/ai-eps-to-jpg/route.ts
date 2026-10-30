@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { ownsStorageKey } from '@/lib/api/ownership';
 import { requireApiUser } from '@/lib/api/auth';
-import { getToolCost } from '@/lib/credits/cost';
 import { prisma } from '@/lib/db';
 import { downloadFile } from '@/lib/s3/client';
 import { storePreview } from '@/lib/generator/images';
 import { convertVectorToJpg } from '@/lib/tools/vector-convert';
+import { assertToolRunnable, toolGateErrorResponse } from '@/lib/tools/gate';
+import { rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -19,6 +20,23 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser(req);
+    // R9 B9-06/S9-01: registry gate — free tools are gated too; a
+    // disabled or tier-restricted tool must not run via this route.
+    try {
+      await assertToolRunnable('ai-eps-to-jpg', user);
+    } catch (e) {
+      const gateRes = toolGateErrorResponse(e);
+      if (gateRes) return gateRes;
+      throw e;
+    }
+    // R9 S9-04: per-user rate limit before CPU-heavy compute.
+    const rl = rateLimit(`tools-ai-eps-to-jpg:${user.id}`, { max: 20, windowMs: 10 * 60 * 1000 });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'rate_limited', retryAfter: rl.retryAfter },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+      );
+    }
     const body = await req.json();
     const { key, fileName, width = 2000 } = body;
     if (!key) {

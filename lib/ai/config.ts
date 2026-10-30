@@ -38,21 +38,21 @@ export async function getToolProviderMap(): Promise<Record<string, string>> {
       orderBy: { updatedAt: 'desc' },
     });
 
+    // T4-58: the map used to be read from the FIRST row (by updatedAt)
+    // that held one — the admin UI parks the map on a single row, so a
+    // stale copy on any other row silently won or lost depending on
+    // update order. Merge across rows instead: rows are newest-first,
+    // so the first writer wins per tool key.
+    const out: Record<string, string> = {};
     for (const cfg of configs) {
-      if (cfg?.isActiveForToolSlug) {
-        const raw = cfg.isActiveForToolSlug as unknown;
-        if (raw && typeof raw === 'object') {
-          const out: Record<string, string> = {};
-          for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-            if (typeof v === 'string' && v.trim()) out[k] = v.trim();
-          }
-          if (Object.keys(out).length > 0) {
-            return out;
-          }
+      const raw = cfg?.isActiveForToolSlug as unknown;
+      if (raw && typeof raw === 'object') {
+        for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+          if (typeof v === 'string' && v.trim() && !(k in out)) out[k] = v.trim();
         }
       }
     }
-    return {};
+    return out;
   });
 }
 

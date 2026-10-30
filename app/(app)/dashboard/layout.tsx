@@ -119,12 +119,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const siteName = siteSettings?.siteName || 'MetaCSV';
   const logoUrl = siteSettings?.logoUrl;
   const unlimitedMode = siteSettings?.unlimitedMode === true;
+  // Denominator for the sidebar credit bar — same source the dashboard
+  // overview card uses (T1-20): the active plan's included credits.
+  const planCreditsIncluded = user.memberships[0]?.plan?.creditsIncluded ?? 0;
 
   return (
     <AppShell
       siteName={siteName}
       logoUrl={logoUrl}
       unlimitedMode={unlimitedMode}
+      planCreditsIncluded={planCreditsIncluded}
       user={{
         name: user.name,
         email: user.email,

@@ -1,6 +1,6 @@
 import { auth } from '@/lib/auth-handler';
 import { prisma } from '@/lib/db';
-import type { Prisma, User } from '@prisma/client';
+import type { User } from '@prisma/client';
 import crypto from 'crypto';
 
 /** SHA-256 hex of a full sk_ secret — the only form stored for new keys. */

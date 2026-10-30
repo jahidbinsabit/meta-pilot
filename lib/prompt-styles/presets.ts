@@ -100,11 +100,47 @@ export async function getPresetBySlug(slug: string): Promise<PromptStylePreset |
   return normalize(row);
 }
 
-/** Admin-only write. Upserts by slug and records an audit-log entry. */
+/** Admin-only write. Upserts by slug and records an audit-log entry.
+ *
+ * T4-57: when the caller supplies the row `id` (an edit of an existing
+ * preset), update THAT row — including a slug change. Keying edits purely
+ * on the submitted slug meant renaming a slug created a duplicate preset
+ * and left the original behind. */
 export async function upsertPreset(
-  patch: Partial<PromptStylePresetInput> & { slug: string },
+  patch: Partial<PromptStylePresetInput> & { slug: string; id?: string },
   adminId: string,
 ): Promise<PromptStylePreset> {
+  if (patch.id) {
+    const before = await prisma.promptStylePreset.findUnique({ where: { id: patch.id } });
+    if (before) {
+      if (patch.slug !== before.slug) {
+        const clash = await prisma.promptStylePreset.findUnique({ where: { slug: patch.slug } });
+        if (clash) throw new Error('slug_taken');
+      }
+      const after = await prisma.promptStylePreset.update({
+        where: { id: patch.id },
+        data: {
+          slug: patch.slug,
+          label: patch.label ?? undefined,
+          systemInstruction: patch.systemInstruction ?? undefined,
+          sortOrder: patch.sortOrder ?? undefined,
+          isActive: patch.isActive ?? undefined,
+        },
+      });
+      await prisma.auditLog.create({
+        data: {
+          adminId,
+          action: 'prompt_style_preset.update',
+          targetType: 'PromptStylePreset',
+          targetId: after.id,
+          before: normalize(before) as any,
+          after: normalize(after) as any,
+        },
+      });
+      return normalize(after);
+    }
+  }
+
   const before = await prisma.promptStylePreset.findUnique({ where: { slug: patch.slug } });
 
   const after = await prisma.promptStylePreset.upsert({

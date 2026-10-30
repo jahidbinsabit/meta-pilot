@@ -22,14 +22,15 @@ const UNLIMITED = -1;
 const PAGE_SIZE = 100;
 
 /**
- * Mirrors the server gate (lib/adobe-analytics/tiers.ts): a stored 0 is
- * the "not configured" sentinel and falls back per tier — FREE falls
- * back to one full page.
+ * Mirrors the server gate (lib/adobe-analytics/tiers.ts) for members
+ * ON this plan row: a stored 0 is a REAL limit — the plan is fully
+ * locked (R9 N3). (Users with no membership row resolve through the
+ * tier fallback server-side instead; this card steers the plan row.)
  */
 function effectiveRows(plan: PlanLimit): number {
   const stored = plan.adobeAnalyticsResultLimit;
   if (stored === UNLIMITED) return UNLIMITED;
-  if (stored > 0) return stored;
+  if (stored >= 0) return stored;
   switch (plan.tier) {
     case 'PRO':
       return 100;
@@ -46,6 +47,7 @@ function effectiveRows(plan: PlanLimit): number {
 
 function pagesLabel(rows: number): string {
   if (rows === UNLIMITED) return 'Unlimited pages';
+  if (rows === 0) return 'Locked — no results shown';
   const pages = rows / PAGE_SIZE;
   return Number.isInteger(pages)
     ? `${pages} page${pages === 1 ? '' : 's'} · ${rows.toLocaleString()} results`
@@ -98,7 +100,9 @@ export function AdobeAnalyticsLimits() {
         description:
           saved.pages === UNLIMITED
             ? `${saved.name} can now browse unlimited pages.`
-            : `${saved.name} can now browse ${saved.pages} page${saved.pages === 1 ? '' : 's'} per search (${saved.adobeAnalyticsResultLimit.toLocaleString()} results).`,
+            : saved.pages === 0
+              ? `${saved.name} is now locked out of Adobe Analytics results (0 pages).`
+              : `${saved.name} can now browse ${saved.pages} page${saved.pages === 1 ? '' : 's'} per search (${saved.adobeAnalyticsResultLimit.toLocaleString()} results).`,
         variant: 'success',
       });
     },
@@ -128,10 +132,11 @@ export function AdobeAnalyticsLimits() {
       return;
     }
     const n = Number(raw);
-    if (!Number.isInteger(n) || n < 1 || n > 1000) {
+    if (!Number.isInteger(n) || n < 0 || n > 1000) {
       toast({
         title: 'Invalid value',
-        description: 'Use a whole number of pages (1–1000), or leave blank for unlimited.',
+        description:
+          'Use a whole number of pages (0–1000), or leave blank for unlimited. 0 locks the plan out of results entirely.',
         variant: 'error',
       });
       return;
@@ -146,12 +151,12 @@ export function AdobeAnalyticsLimits() {
         <CardDescription>
           How many pages each plan can browse in Adobe Analytics searches — one page is 100
           results. A plan stops at its page cap; deeper results stay behind the upgrade prompt.
-          Changes apply to the next search — no redeploy.
+          Set 0 pages to lock a plan out of results entirely. Changes apply to the next
+          search — no redeploy.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {plans.map((plan) => {
-          const stored = plan.adobeAnalyticsResultLimit;
           const effective = effectiveRows(plan);
           const value =
             drafts[plan.tier] ?? (effective === UNLIMITED ? '' : String(effective / PAGE_SIZE));
@@ -174,10 +179,7 @@ export function AdobeAnalyticsLimits() {
                     </Badge>
                   )}
                 </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {pagesLabel(effective)}
-                  {plan.tier === 'FREE' && stored === 0 && ' (default)'}
-                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{pagesLabel(effective)}</p>
               </div>
 
               <div className="flex items-center gap-2">
@@ -211,8 +213,8 @@ export function AdobeAnalyticsLimits() {
         <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
           <Info className="mt-px h-3 w-3 shrink-0" />
           Leave a field blank (or type <span className="font-mono">-1</span>) for unlimited
-          pages. This module is gated purely by plan tier and does not consume image-generation
-          credits.
+          pages; type <span className="font-mono">0</span> to lock a plan completely. This
+          module is gated purely by plan tier and does not consume image-generation credits.
         </p>
       </CardContent>
     </Card>

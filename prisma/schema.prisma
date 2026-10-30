@@ -40,6 +40,23 @@ model AdobeAnalyticsQuery {
   @@index([userId])
 }
 
+// Server-side pool cache for Adobe contributor searches (R9 H1/H2):
+// one row per contributor holding the deepest normalized pool fetched
+// from the paid Apify actor, so progressive-loading chunks and repeat
+// searches slice this pool instead of re-running the actor at every
+// cumulative depth. The stored pool is never tier-sliced — the tier
+// gate is applied after the cache read, exactly as for a fresh run.
+model AdobePoolCache {
+  id            String   @id @default(cuid())
+  contributorId String   @unique
+  pool          Json
+  poolCount     Int
+  fetchedAt     DateTime @default(now())
+  expiresAt     DateTime
+
+  @@index([expiresAt])
+}
+
 model AiCallLog {
   id               String   @id @default(cuid())
   toolSlug         String
@@ -61,6 +78,25 @@ model AiCallLog {
   @@index([success])
   @@index([toolSlug])
   @@index([userId])
+}
+
+// Permanent per-day aggregate of AiCallLog (N2). Raw AiCallLog rows are
+// purged at 90 days by the cleanup cron; before purging, each completed
+// Asia/Dhaka day is rolled up here so AI cost history survives the purge.
+model AiCallDailyRollup {
+  id               String   @id @default(cuid())
+  day              String   @unique // 'YYYY-MM-DD' in Asia/Dhaka
+  calls            Int
+  successes        Int
+  failures         Int
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  latencyMsTotal   Int      @default(0)
+  byProvider       Json // { [provider]: { calls, totalTokens } }
+  byModel          Json // { [model]: { calls, totalTokens } }
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
 }
 
 model AiProviderConfig {
@@ -331,6 +367,7 @@ model Plan {
   creditsIncluded           Int          @default(0)
   dailyFreeCredits          Int          @default(0)
   adobeAnalyticsResultLimit Int          @default(0)
+  adobeAnalyticsDailyCap    Int?
   features                  Json         @default("{}")
   isActive                  Boolean      @default(true)
   sortOrder                 Int          @default(0)
@@ -470,6 +507,7 @@ model User {
   credits               Int                   @default(0)
   status                UserStatus            @default(ACTIVE)
   passwordHash          String?
+  signupIp              String?
   stripeId              String?
   geminiApiKey          String?
   grokApiKey            String?
@@ -515,6 +553,7 @@ enum CreditTxType {
   REFUND
   CREDIT
   BONUS
+  REFUND_CLAWBACK
 }
 
 enum JobStatus {
@@ -550,6 +589,10 @@ enum NotificationAudience {
 enum PaymentMethod {
   BKASH_MANUAL
   NAGAD_MANUAL
+  // T4-44: the manual-payment UI offers Rocket and Bank Transfer, but the
+  // enum had no values for them — both silently collapsed to OTHER_GATEWAY.
+  ROCKET_MANUAL
+  BANK_TRANSFER
   STRIPE
   OTHER_GATEWAY
 }
@@ -559,6 +602,7 @@ enum PaymentStatus {
   VERIFIED
   REJECTED
   COMPLETED
+  REFUNDED
 }
 
 enum PlanTier {
@@ -566,6 +610,11 @@ enum PlanTier {
   PRO
   PLUS
   AGENCY
+  // T4-27: MembershipType/NotificationAudience already had ENTERPRISE, but
+  // PlanTier did not — an ENTERPRISE-tier user could never hold a Plan /
+  // Membership record. (Deploy needs prisma generate + db push; adding an
+  // enum value is non-destructive.)
+  ENTERPRISE
 }
 
 enum UserRole {

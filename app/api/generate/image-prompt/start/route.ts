@@ -16,6 +16,7 @@ import { requireUserApiKeyIfNeeded } from '@/lib/ai/user-keys';
 import { rateLimit } from '@/lib/rate-limit';
 import { normalizeOwnedImageRef } from '@/lib/net/safe-fetch';
 import { UNIVERSAL_BATCH_LIMIT } from '@/lib/generator/limits';
+import { assertToolRunnable, toolGateErrorResponse } from '@/lib/tools/gate';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -158,6 +159,17 @@ export async function POST(req: Request) {
   // Optional dashboard Prompt Controls (white background, camera
   // parameters, prompt length, prefix/suffix, negative words).
   const controls = parsePromptControls(rawControls);
+
+  // R9 B9-06/S9-01: registry gate before any deduction — an admin
+  // disabling 'image-to-prompt' (or restricting it to higher tiers)
+  // stops job starts here too, not just the dashboard tile.
+  try {
+    await assertToolRunnable(TOOL_SLUG, user);
+  } catch (e) {
+    const gateRes = toolGateErrorResponse(e);
+    if (gateRes) return gateRes;
+    throw e;
+  }
 
   const costPerImage = await getToolCost(TOOL_SLUG);
   const total = images.length * costPerImage;

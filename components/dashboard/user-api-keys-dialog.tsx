@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/toast';
+import { providerLabel } from '@/lib/ai/provider-label';
 import {
   Key,
   ExternalLink,
@@ -36,16 +37,7 @@ export interface KeysStatus {
   userApiKeyRequired: boolean;
 }
 
-/** Display name for a provider slug — CSS `capitalize` would render "Openai". */
-const PROVIDER_LABELS: Record<string, string> = {
-  auto: 'Auto',
-  gemini: 'Gemini',
-  grok: 'Grok',
-  openai: 'OpenAI',
-};
-function providerLabel(slug: string): string {
-  return PROVIDER_LABELS[slug] ?? slug.charAt(0).toUpperCase() + slug.slice(1);
-}
+
 
 interface ProviderRowProps {
   title: string;
@@ -267,8 +259,8 @@ export function UserApiKeysForm({ onSaved }: { onSaved?: () => void }) {
   return (
     <div className="space-y-4 pt-2">
       {status.userApiKeyRequired && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 [.light_&]:border-amber-300 [.light_&]:bg-amber-100 [.light_&]:text-amber-800">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400 [.light_&]:text-amber-600" />
           <div>
             <span className="font-semibold">API Key Required:</span>{' '}
             The admin requires an API key to generate content. Please configure at least one key (Gemini, Grok, or OpenAI).

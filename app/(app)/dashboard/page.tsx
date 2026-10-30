@@ -158,7 +158,16 @@ async function StatsSection() {
 
   const todayCreditsUsed = Math.abs(creditsSpentToday?._sum?.amount || 0);
   const availableCredits = user?.credits ?? 0;
-  const creditProgress = Math.min(100, (availableCredits / 100) * 100);
+  // T1-20: the bar's denominator used to be a hardcoded 100, so the fill
+  // meant nothing (a 6,000-credit Agency wallet and a 70-credit wallet
+  // rendered identically). Measure against the active plan's included
+  // credits — the grant the balance is drawn down from. No plan grant
+  // (FREE tier) → no meaningful denominator → no bar.
+  const planCreditsIncluded = user?.memberships?.[0]?.plan?.creditsIncluded ?? 0;
+  const creditProgress =
+    planCreditsIncluded > 0
+      ? Math.min(100, (availableCredits / planCreditsIncluded) * 100)
+      : null;
 
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -184,14 +193,14 @@ async function StatsSection() {
             <p className="mt-3 text-xs text-muted-foreground">
               Wallet: {availableCredits} credits
             </p>
-          ) : (
+          ) : creditProgress !== null ? (
             <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-accent transition-all duration-500"
                 style={{ width: `${creditProgress}%` }}
               />
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 

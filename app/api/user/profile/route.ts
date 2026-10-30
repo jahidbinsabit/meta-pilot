@@ -19,36 +19,6 @@ const ALLOWED_AVATAR_EXTS = new Map([
   ['gif', 'image/gif'],
 ]);
 
-/** GET /api/user/profile — current user's public profile data */
-export async function GET(req: Request) {
-  try {
-    const user = await requireApiUser(req);
-    const profile = await prisma.user.findUnique({
-      where: { id: user.id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        image: true,
-        role: true,
-        membership: true,
-        credits: true,
-        createdAt: true,
-      },
-    });
-    return NextResponse.json(profile);
-  } catch (e: any) {
-    if (e?.message === 'UNAUTHORIZED' || e?.message === 'FORBIDDEN') {
-      return NextResponse.json(
-        { error: 'unauthorized' },
-        { status: e.message === 'FORBIDDEN' ? 403 : 401 },
-      );
-    }
-    console.error('profile fetch failed', e);
-    return NextResponse.json({ error: 'internal_error' }, { status: 500 });
-  }
-}
-
 /** PATCH /api/user/profile — update name and/or avatar */
 export async function PATCH(req: Request) {
   try {
@@ -138,6 +108,10 @@ export async function PATCH(req: Request) {
         role: true,
         membership: true,
         credits: true,
+        // T1-13: the profile client replaces its whole state with this
+        // response — omitting createdAt made "Member since" render
+        // "Invalid Date" after every save.
+        createdAt: true,
       },
     });
 

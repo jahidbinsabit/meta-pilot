@@ -9,15 +9,7 @@ import { ApiKeyRequiredDialog } from '@/components/dashboard/api-key-required-di
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import {
-  AlertCircle,
-  Loader2,
-  Download,
-  GripVertical,
-  Trash2,
-  Plus,
-  LayoutGrid,
-} from 'lucide-react';
+import { AlertCircle, Loader2, Download, Trash2, Plus, LayoutGrid, ChevronLeft, ChevronRight, Minus } from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import type { ToolEntry } from '@/lib/tools/registry';
 import { ToolShell } from '@/components/dashboard/tool-shell';
@@ -71,6 +63,29 @@ export function BentoClient({ tool }: { tool: ToolEntry }) {
     setCells((prev) => prev.filter((c) => c.id !== id));
   };
 
+  // T3-07: `span` used to be dead model data — set at creation, rendered
+  // nowhere, unchangeable. Cells can now be widened/narrowed (1–4,
+  // clamped to the column count) and reordered; the preview grid and
+  // the PNG export both lay out with the same row-packing.
+  const changeSpan = (id: string, delta: number) => {
+    setCells((prev) =>
+      prev.map((c) =>
+        c.id === id ? { ...c, span: Math.max(1, Math.min(4, columns, c.span + delta)) } : c,
+      ),
+    );
+  };
+
+  const moveCell = (id: string, dir: -1 | 1) => {
+    setCells((prev) => {
+      const idx = prev.findIndex((c) => c.id === id);
+      const swap = idx + dir;
+      if (idx < 0 || swap < 0 || swap >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return next;
+    });
+  };
+
   const exportPng = async () => {
     if (cells.length === 0) {
       toast({ title: 'Add images first', variant: 'error' });
@@ -79,24 +94,58 @@ export function BentoClient({ tool }: { tool: ToolEntry }) {
     const canvas = document.createElement('canvas');
     const cellSize = 300;
     const cols = Math.min(columns, cells.length);
-    const rows = Math.ceil(cells.length / cols);
+
+    // Row-pack the cells honouring each span (same layout as the
+    // preview grid): a cell that doesn't fit in the remaining columns
+    // wraps to the next row.
+    const placements: { cell: BentoCell; x: number; y: number; w: number }[] = [];
+    let cx = 0;
+    let cy = 0;
+    for (const cell of cells) {
+      const w = Math.max(1, Math.min(cell.span, cols));
+      if (cx + w > cols) {
+        cx = 0;
+        cy += 1;
+      }
+      placements.push({ cell, x: cx, y: cy, w });
+      cx += w;
+      if (cx >= cols) {
+        cx = 0;
+        cy += 1;
+      }
+    }
+    const rows = placements.reduce((max, p) => Math.max(max, p.y), 0) + 1;
     canvas.width = cols * cellSize;
     canvas.height = rows * cellSize;
     const ctx = canvas.getContext('2d')!;
     ctx.fillStyle = '#0a0a0b';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    for (let i = 0; i < cells.length; i++) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
+    for (const p of placements) {
+      const targetW = p.w * cellSize;
+      const targetH = cellSize;
       const img = new Image();
       await new Promise<void>((resolve) => {
         img.onload = () => {
-          ctx.drawImage(img, col * cellSize, row * cellSize, cellSize, cellSize);
+          // Cover-crop the source into the (possibly wide) cell box.
+          const targetAspect = targetW / targetH;
+          const srcAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
+          let sx = 0;
+          let sy = 0;
+          let sw = img.naturalWidth;
+          let sh = img.naturalHeight;
+          if (srcAspect > targetAspect) {
+            sw = img.naturalHeight * targetAspect;
+            sx = (img.naturalWidth - sw) / 2;
+          } else {
+            sh = img.naturalWidth / targetAspect;
+            sy = (img.naturalHeight - sh) / 2;
+          }
+          ctx.drawImage(img, sx, sy, sw, sh, p.x * cellSize, p.y * cellSize, targetW, targetH);
           resolve();
         };
         img.onerror = () => resolve();
-        img.src = cells[i].url;
+        img.src = p.cell.url;
       });
     }
 
@@ -150,6 +199,7 @@ export function BentoClient({ tool }: { tool: ToolEntry }) {
                 <CardTitle>Bento grid</CardTitle>
                 <CardDescription>
                   {cells.length} cell{cells.length === 1 ? '' : 's'} · {columns} columns
+                  {cells.length > 0 ? ' · hover a cell to resize or reorder' : ''}
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
@@ -185,26 +235,78 @@ export function BentoClient({ tool }: { tool: ToolEntry }) {
                 className="grid gap-2"
                 style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}
               >
-                {cells.map((c) => (
-                  <div
-                    key={c.id}
-                    className="group relative overflow-hidden rounded-lg border border-border"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={c.url} alt={c.name} className="aspect-square w-full object-cover" />
-                    <div className="absolute inset-0 flex items-center justify-between bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-                      <span className="ml-2 truncate text-xs text-foreground">{c.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeCell(c.id)}
-                        className="mr-2 rounded p-1 text-destructive-foreground hover:bg-destructive/20"
-                        aria-label={`Remove ${c.name}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                {cells.map((c, idx) => {
+                  const effSpan = Math.max(1, Math.min(c.span, columns));
+                  return (
+                    <div
+                      key={c.id}
+                      className="group relative overflow-hidden rounded-lg border border-border"
+                      style={{
+                        gridColumn: `span ${effSpan}`,
+                        aspectRatio: `${effSpan} / 1`,
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={c.url} alt={c.name} className="h-full w-full object-cover" />
+                      <div className="absolute inset-0 flex flex-col justify-between bg-black/50 p-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                        <span className="truncate text-xs text-foreground">{c.name}</span>
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => moveCell(c.id, -1)}
+                              disabled={idx === 0}
+                              className="rounded p-1 text-white hover:bg-white/20 disabled:opacity-30"
+                              aria-label={`Move ${c.name} earlier`}
+                            >
+                              <ChevronLeft className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveCell(c.id, 1)}
+                              disabled={idx === cells.length - 1}
+                              className="rounded p-1 text-white hover:bg-white/20 disabled:opacity-30"
+                              aria-label={`Move ${c.name} later`}
+                            >
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => changeSpan(c.id, -1)}
+                              disabled={c.span <= 1}
+                              className="rounded p-1 text-white hover:bg-white/20 disabled:opacity-30"
+                              aria-label={`Make ${c.name} narrower`}
+                            >
+                              <Minus className="h-3.5 w-3.5" />
+                            </button>
+                            <span className="min-w-6 text-center text-[11px] font-medium text-white">
+                              {effSpan}×
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => changeSpan(c.id, 1)}
+                              disabled={c.span >= Math.min(4, columns)}
+                              className="rounded p-1 text-white hover:bg-white/20 disabled:opacity-30"
+                              aria-label={`Make ${c.name} wider`}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeCell(c.id)}
+                            className="rounded p-1 text-destructive-foreground hover:bg-destructive/20"
+                            aria-label={`Remove ${c.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

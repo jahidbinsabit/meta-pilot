@@ -1,8 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { Menu } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { TopBar } from '@/components/dashboard/topbar';
 import { MobileNav } from '@/components/dashboard/mobile-nav';
@@ -25,6 +23,8 @@ interface AppShellProps {
     role: string;
   };
   unlimitedMode?: boolean;
+  /** Active plan's included credits — denominator for the sidebar credit bar. */
+  planCreditsIncluded?: number;
   notifications?: DashboardNotification[];
 }
 
@@ -34,10 +34,34 @@ export function AppShell({
   logoUrl,
   user,
   unlimitedMode = false,
+  planCreditsIncluded = 0,
   notifications = [],
 }: AppShellProps) {
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileOpen, setMobileOpen] = React.useState(false);
+
+  // Apply the login form's "Remember this browser" choice (T1-07): when
+  // the user unchecked it, downgrade the session cookie to a
+  // browser-session cookie once per browser session. The login form
+  // stores the choice in localStorage for both the credentials and the
+  // Google flow (the latter round-trips off-site, so it can't apply the
+  // choice itself).
+  React.useEffect(() => {
+    try {
+      if (localStorage.getItem('sf-remember-me') !== '0') return;
+      if (sessionStorage.getItem('sf-session-mode-applied')) return;
+      sessionStorage.setItem('sf-session-mode-applied', '1');
+      void fetch('/api/account/session-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ remember: false }),
+      }).catch(() => {
+        // best-effort — the 30-day default simply stays in place
+      });
+    } catch {
+      // storage unavailable — nothing to apply
+    }
+  }, []);
 
   return (
     <CreditsProvider initialCredits={user.credits} initialUnlimited={unlimitedMode}>
@@ -54,6 +78,7 @@ export function AppShell({
             user={user}
             siteName={siteName}
             logoUrl={logoUrl}
+            planCreditsIncluded={planCreditsIncluded}
           />
         </aside>
 

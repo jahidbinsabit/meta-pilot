@@ -1,8 +1,10 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 type DailyRow = { day: string; fullDay: string; generations: number };
 type ToolRow = { tool: string; count: number };
@@ -32,20 +34,41 @@ export function AnalyticsClient({
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Analytics
-        </p>
-        <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">Platform Analytics</h1>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Analytics
+          </p>
+          <h1 className="mt-1 font-display text-2xl font-bold tracking-tight">Platform Analytics</h1>
+        </div>
+        {/* T4-59: window switcher (the page reads ?days= server-side). */}
+        <div className="flex items-center gap-1">
+          {[7, 14, 30].map((d) => (
+            <Link
+              key={d}
+              href={`/admin/analytics?days=${d}`}
+              className={cn(
+                'rounded-md border px-2.5 py-1 text-xs font-medium',
+                d === days
+                  ? 'border-accent bg-accent/10 text-accent'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {d}d
+            </Link>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          { label: 'Users', value: stats.users },
-          { label: 'Orders', value: stats.orders },
-          { label: 'Jobs', value: stats.jobs },
-          { label: 'Generations', value: stats.gens },
-          { label: 'Revenue', value: `$${(stats.revenue / 100).toFixed(2)}` },
+          // T4-59: the cards mixed scopes silently — Users/Orders/Jobs/
+          // Revenue are all-time totals; Generations is window-scoped.
+          { label: 'Users', value: stats.users, scope: 'All time' },
+          { label: 'Orders', value: stats.orders, scope: 'All time' },
+          { label: 'Jobs', value: stats.jobs, scope: 'All time' },
+          { label: 'Generations', value: stats.gens, scope: `Last ${days} days` },
+          { label: 'Revenue', value: `$${(stats.revenue / 100).toFixed(2)}`, scope: 'All time' },
         ].map((s) => (
           <Card key={s.label}>
             <CardContent className="p-5">
@@ -53,6 +76,7 @@ export function AnalyticsClient({
                 {s.label}
               </span>
               <div className="mt-2 font-mono text-2xl font-semibold">{s.value}</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">{s.scope}</div>
             </CardContent>
           </Card>
         ))}

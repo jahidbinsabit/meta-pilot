@@ -10,9 +10,17 @@ import {
 // Authenticated page: never prerender at build time (needs session + DB).
 export const dynamic = 'force-dynamic';
 
-const DAYS = 14;
+// T4-59: the window used to be a fixed 14 days with no UI control —
+// selectable via ?days= (7/14/30), defaulting to 14.
+const ALLOWED_DAYS = [7, 14, 30];
 
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage({
+  searchParams,
+}: {
+  searchParams: { days?: string };
+}) {
+  const parsedDays = Number(searchParams?.days);
+  const DAYS = ALLOWED_DAYS.includes(parsedDays) ? parsedDays : 14;
   // Generation stats count IMAGES produced (completed per-image
   // results), not ToolJob rows, and days follow the owner's business
   // timezone (Asia/Dhaka) — the same rule as the admin overview; see

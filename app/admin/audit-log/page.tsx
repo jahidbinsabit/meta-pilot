@@ -15,9 +15,12 @@ export default async function AuditLogPage({
   const adminId = searchParams.adminId?.trim() || undefined;
   const action = searchParams.action?.trim() || undefined;
 
-  const where: { adminId?: string; action?: { contains: string } } = {};
+  // T4-64: action strings are heterogeneous ('CREATE', 'user.edit',
+  // 'payment_gateway_updated', …) — a case-sensitive contains meant
+  // filtering for "create" missed 'CREATE'. Match case-insensitively.
+  const where: { adminId?: string; action?: { contains: string; mode: 'insensitive' } } = {};
   if (adminId) where.adminId = adminId;
-  if (action) where.action = { contains: action };
+  if (action) where.action = { contains: action, mode: 'insensitive' };
 
   const [logs, total, admins] = await Promise.all([
     prisma.auditLog.findMany({

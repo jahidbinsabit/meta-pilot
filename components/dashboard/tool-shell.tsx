@@ -22,7 +22,6 @@ import {
   Sparkles,
 } from 'lucide-react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
 /**
@@ -112,11 +111,14 @@ export function ToolShell({ tool, children, extraActions }: ToolShellProps) {
   );
 }
 
-/** A locked tile shown in the grid when an admin has disabled a tool. */
+/** A locked tile shown in the grid when a tool can't be opened —
+ * admin-disabled by default, or plan-locked with a custom label. */
 export function LockedToolTile({
   tool,
+  label = 'Disabled by admin',
 }: {
   tool: { name: string; description: string; icon: string };
+  label?: string;
 }) {
   const Icon = iconFor(tool.icon);
   return (
@@ -133,7 +135,7 @@ export function LockedToolTile({
       <h3 className="mt-3 font-semibold">{tool.name}</h3>
       <p className="mt-1 text-xs text-muted-foreground">{tool.description}</p>
       <span className="mt-auto pt-3 text-[11px] uppercase tracking-wider text-muted-foreground">
-        Disabled by admin
+        {label}
       </span>
     </div>
   );

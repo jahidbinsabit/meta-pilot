@@ -85,14 +85,26 @@ export function UsersClient({
         stats: StatsRecord;
       }>;
     },
-    initialData: {
-      users: initialUsers,
-      total: initialTotal,
-      page: 1,
-      pageSize: 25,
-      totalPages: Math.ceil(initialTotal / 25),
-      stats: initialStats,
-    },
+    // T4-23: seed ONLY the default query (page 1, no filters, pageSize 25).
+    // Seeding every key made each new filter/page briefly render stale
+    // page-1 rows as if they were that key's results.
+    initialData:
+      debouncedSearch === '' &&
+      roleFilter === 'ALL' &&
+      statusFilter === 'ALL' &&
+      membershipFilter === 'ALL' &&
+      deletedFilter === 'ACTIVE_ONLY' &&
+      page === 1 &&
+      pageSize === 25
+        ? {
+            users: initialUsers,
+            total: initialTotal,
+            page: 1,
+            pageSize: 25,
+            totalPages: Math.ceil(initialTotal / 25),
+            stats: initialStats,
+          }
+        : undefined,
     refetchOnWindowFocus: false,
   });
 
@@ -208,6 +220,7 @@ export function UsersClient({
                 status: u.status === 'SUSPENDED' ? 'ACTIVE' : 'SUSPENDED',
               })
             }
+            statusPendingUserId={statusMutation.isPending ? (statusMutation.variables?.userId ?? null) : null}
             onDelete={(u) => setDeleteConfirmUser(u)}
             onRestore={(u) => setRestoreConfirmUser(u)}
           />

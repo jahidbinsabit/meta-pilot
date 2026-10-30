@@ -1,40 +1,15 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useToast } from '@/components/ui/toast';
 import { useCredits } from '@/components/dashboard/credits-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Loader2, Copy, Check } from 'lucide-react';
+import { Loader2, Copy, Check, Download } from 'lucide-react';
 import { ToolShell } from '@/components/dashboard/tool-shell';
-import { ResultsList } from '@/components/dashboard/tool-results';
 import type { ToolEntry } from '@/lib/tools/registry';
-
-const TOOLS: Record<string, { title: string; desc: string; cost: number }> = {
-  'keyword-clustering': {
-    title: 'Keyword Clustering',
-    desc: 'Group overlapping keywords into themes.',
-    cost: 1,
-  },
-  'title-ab': { title: 'Title A/B', desc: 'Generate title variants and compare SEO fit.', cost: 1 },
-  'alt-text': { title: 'Alt Text', desc: 'Write accessible alt text for your images.', cost: 1 },
-  palette: { title: 'Color Palette', desc: 'Extract a color palette from an image.', cost: 1 },
-  'keyword-density': {
-    title: 'Keyword Density',
-    desc: 'Check keyword usage across a listing.',
-    cost: 1,
-  },
-  'contrast-checker': {
-    title: 'Contrast Checker',
-    desc: 'Verify text/background contrast.',
-    cost: 1,
-  },
-  'batch-export': { title: 'Batch Export', desc: 'Export metadata in CSV / JSON.', cost: 0 },
-};
 
 function humanizeKey(key: string): string {
   const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
@@ -48,16 +23,33 @@ function CsvBlock({ csv }: { csv: string }) {
     setCopiedCsv(true);
     setTimeout(() => setCopiedCsv(false), 1500);
   };
+  // T3-04: a CSV result the user can only copy isn't an export — give it
+  // a real download (the batch-export tool's whole point).
+  const downloadCsv = () => {
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'export.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           CSV
         </span>
-        <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={copyCsv}>
-          {copiedCsv ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          {copiedCsv ? 'Copied' : 'Copy CSV'}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={copyCsv}>
+            {copiedCsv ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {copiedCsv ? 'Copied' : 'Copy CSV'}
+          </Button>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={downloadCsv}>
+            <Download className="h-3 w-3" />
+            Download
+          </Button>
+        </div>
       </div>
       <pre className="overflow-auto rounded-lg border border-border bg-card-2 p-3 font-mono text-[11px] leading-relaxed">
         {csv}
@@ -162,6 +154,39 @@ function ResultView({ result }: { result: any }) {
   );
 }
 
+/**
+ * T3-05: per-tool input guidance for the generic harness. The single
+ * "Paste keywords, titles, or text here…" placeholder told users
+ * nothing about the format each parser actually expects — these mirror
+ * the tools' own validation messages.
+ */
+const INPUT_HINTS: Record<string, { placeholder: string; hint: string }> = {
+  'keyword-clustering': {
+    placeholder: 'One keyword per line…',
+    hint: 'Paste keywords, one per line — related phrases are grouped into clusters.',
+  },
+  'title-ab': {
+    placeholder: 'Your title on the first line…',
+    hint: 'First line: the title. Optional keywords on the following lines sharpen the variants.',
+  },
+  'alt-text': {
+    placeholder: 'Describe the image in a few words…',
+    hint: 'Type a short subject or description — the tool writes the alt text for it. It does not read an uploaded image.',
+  },
+  'keyword-density': {
+    placeholder: 'Paste the text to analyse…',
+    hint: 'Paste your text to see its top keywords. For target keywords: paste the text, then a line with ---, then one keyword per line.',
+  },
+  'contrast-checker': {
+    placeholder: '#1A1A1A and #FFFFFF',
+    hint: 'Paste two hex colors — the first found is the foreground (text), the second the background.',
+  },
+  'batch-export': {
+    placeholder: 'Title | Description | keyword1, keyword2',
+    hint: 'One row per line: Title | Description | keyword1, keyword2 (plain CSV lines also work). The result downloads as a CSV.',
+  },
+};
+
 export function ToolClient({ slug, tool }: { slug: string; tool: ToolEntry }) {
   const [input, setInput] = React.useState('');
   const [result, setResult] = React.useState<null | any>(null);
@@ -215,9 +240,12 @@ export function ToolClient({ slug, tool }: { slug: string; tool: ToolEntry }) {
             <Textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Paste keywords, titles, or text here..."
+              placeholder={INPUT_HINTS[slug]?.placeholder || 'Paste keywords, titles, or text here...'}
               className="min-h-[140px]"
             />
+            {INPUT_HINTS[slug] && (
+              <p className="text-xs text-muted-foreground">{INPUT_HINTS[slug].hint}</p>
+            )}
             <Button onClick={() => mutation.mutate()} disabled={!canRun}>
               {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Run tool

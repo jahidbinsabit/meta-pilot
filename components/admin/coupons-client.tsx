@@ -24,6 +24,7 @@ export function CouponsClient() {
   const [code, setCode] = React.useState('');
   const [credits, setCredits] = React.useState('100');
   const [maxUses, setMaxUses] = React.useState('1');
+  const [expires, setExpires] = React.useState('');
   const [creating, setCreating] = React.useState(false);
   const [error, setError] = React.useState('');
 
@@ -32,7 +33,14 @@ export function CouponsClient() {
     try {
       const res = await fetch('/api/admin/coupons');
       const json = await res.json();
+      // T4-45: a failed load used to render as an empty list — surface it.
+      if (!res.ok) {
+        setError(json.error || 'Failed to load coupons');
+        return;
+      }
       setCoupons(json.coupons || []);
+    } catch {
+      setError('Failed to load coupons');
     } finally {
       setLoading(false);
     }
@@ -54,6 +62,10 @@ export function CouponsClient() {
           code: code.toUpperCase(),
           creditsAmount: parseInt(credits, 10),
           maxUses: parseInt(maxUses, 10),
+          // T4-40: expiresAt was accepted by the API and displayed in the
+          // list but had no input — wire the create form to it (end of the
+          // chosen day, local time).
+          expiresAt: expires ? new Date(`${expires}T23:59:59`).toISOString() : null,
         }),
       });
       const json = await res.json();
@@ -65,6 +77,7 @@ export function CouponsClient() {
       setCode('');
       setCredits('100');
       setMaxUses('1');
+      setExpires('');
     } finally {
       setCreating(false);
     }
@@ -72,8 +85,19 @@ export function CouponsClient() {
 
   const handleDeactivate = async (id: string) => {
     if (!confirm('Deactivate this coupon?')) return;
-    await fetch(`/api/admin/coupons?id=${id}`, { method: 'DELETE' });
-    setCoupons((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: false } : c)));
+    setError('');
+    try {
+      const res = await fetch(`/api/admin/coupons?id=${id}`, { method: 'DELETE' });
+      const json = await res.json().catch(() => ({}));
+      // T4-35: only flip local state when the server actually deactivated.
+      if (!res.ok) {
+        setError(json.error || 'Failed to deactivate coupon');
+        return;
+      }
+      setCoupons((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: false } : c)));
+    } catch {
+      setError('Failed to deactivate coupon');
+    }
   };
 
   return (
@@ -120,6 +144,15 @@ export function CouponsClient() {
                 className="w-28"
                 min={1}
                 required
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Expires (optional)</label>
+              <Input
+                type="date"
+                value={expires}
+                onChange={(e) => setExpires(e.target.value)}
+                className="w-40"
               />
             </div>
             <Button type="submit" disabled={creating}>

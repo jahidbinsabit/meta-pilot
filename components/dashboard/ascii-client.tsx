@@ -9,17 +9,19 @@ import { ApiKeyRequiredDialog } from '@/components/dashboard/api-key-required-di
 import { ImageUploader } from '@/components/dashboard/image-uploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { AlertCircle, Loader2, Download, Copy, Check } from 'lucide-react';
+import { AlertCircle, Loader2, Download, Copy } from 'lucide-react';
 import type { UploadedFile } from '@/lib/generator/types';
 import type { ToolEntry } from '@/lib/tools/registry';
 import { ToolShell } from '@/components/dashboard/tool-shell';
 import { loadFirstImagePixels } from '@/lib/tools/client-image';
-import { buildAscii, asciiToCanvas, charsetPresets, densityPresets } from '@/lib/tools/ascii';
+import { buildAscii, buildAsciiColors, asciiToCanvas, charsetPresets, densityPresets } from '@/lib/tools/ascii';
 import { downloadBlob, canvasToBlob } from '@/lib/tools/client-image';
 
 export function AsciiClient({ tool }: { tool: ToolEntry }) {
   const [files, setFiles] = React.useState<UploadedFile[]>([]);
   const [ascii, setAscii] = React.useState<string>('');
+  // Per-cell source colours for the colored PNG render (T3-10).
+  const [asciiColors, setAsciiColors] = React.useState<string[][]>([]);
   const [charset, setCharset] = React.useState('standard');
   const [density, setDensity] = React.useState<'sparse' | 'normal' | 'dense'>('normal');
   const [invert, setInvert] = React.useState(false);
@@ -33,16 +35,21 @@ export function AsciiClient({ tool }: { tool: ToolEntry }) {
   const mutation = useMutation({
     mutationFn: async () => {
       const { data, width, height } = await loadFirstImagePixels(readyFiles[0]);
-      return buildAscii(data, width, height, {
+      const opts = {
         charset: charsetPresets().find((c) => c.slug === charset)?.chars || '@%#*+=-:. ',
         density,
         invert,
         colored,
         fontSize,
-      });
+      };
+      return {
+        text: buildAscii(data, width, height, opts),
+        colors: buildAsciiColors(data, width, height, opts),
+      };
     },
-    onSuccess: (text) => {
+    onSuccess: ({ text, colors }) => {
       setAscii(text);
+      setAsciiColors(colors);
       queryClient.invalidateQueries({ queryKey: ['credits'] });
       toast({ title: 'ASCII art generated', variant: 'success' });
     },
@@ -73,7 +80,7 @@ export function AsciiClient({ tool }: { tool: ToolEntry }) {
       invert,
       colored,
       fontSize,
-    });
+    }, asciiColors);
     if (!canvas) return;
     const blob = await canvasToBlob(canvas);
     downloadBlob(blob, 'ascii-art.png');

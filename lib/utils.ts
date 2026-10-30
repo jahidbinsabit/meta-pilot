@@ -50,6 +50,11 @@ export function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Lowercase file extension WITH the leading dot ('photo.JPG' → '.jpg'). */
+export function extOf(name: string): string {
+  return '.' + (name.split('.').pop() || '').toLowerCase();
+}
+
 export function randomString(len = 32) {
   // Cryptographically secure: uses crypto.randomInt, not Math.random().
   // Used for OTPs and tokens, so predictability would be a vulnerability.

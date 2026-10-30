@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/db';
+import { getActiveMembership } from '@/lib/plans/membership';
 
 /**
  * Batch upload limit — 100 for everyone (owner's policy, Oct 2026).
@@ -9,11 +9,9 @@ import { prisma } from '@/lib/db';
 export const UNIVERSAL_BATCH_LIMIT = 100;
 
 export async function getBatchLimitForUser(userId: string): Promise<number> {
-  const membership = await prisma.membership.findFirst({
-    where: { userId, status: 'ACTIVE' },
-    include: { plan: true },
-    orderBy: { startedAt: 'desc' },
-  });
+  // B9-01: expiry-aware resolution (see lib/plans/membership) — an
+  // expired plan's batchLimit override no longer applies.
+  const membership = await getActiveMembership(userId);
   const features = (membership?.plan?.features as any) || {};
   const limit = features.batchLimit;
   if (typeof limit === 'number' && limit > 0)

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Sparkles, TrendingUp, Layers, Star, FileSpreadsheet } from 'lucide-react';
+import { Sparkles, TrendingUp, Layers, FileSpreadsheet } from 'lucide-react';
 
 export function LoginShowcase() {
   return (

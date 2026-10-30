@@ -1,11 +1,26 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
+import { rateLimit } from '@/lib/rate-limit';
 import { prisma } from '@/lib/db';
 import { buildCsv, csvFilename, formatLabel, type ExportFormat } from '@/lib/generator/csv';
 
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser();
+
+    // R9 S9-04: exports build an unbounded CSV in memory per call —
+    // cap per user.
+    const rl = rateLimit(`generate-export:${user.id}`, {
+      max: 10,
+      windowMs: 10 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'rate_limited', retryAfter: rl.retryAfter },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+      );
+    }
+
     const body = await req.json();
     const {
       rows,
@@ -52,19 +67,25 @@ export async function POST(req: Request) {
       },
     });
 
+    // T2-04: report the email outcome to the client instead of dropping
+    // it silently. sendMail returns false when SMTP is not configured
+    // (the parked state) and throws on transport errors — both used to
+    // vanish into a log line while the UI implied a copy was emailed.
+    let emailDelivery: 'sent' | 'unavailable' | 'not-requested' = 'not-requested';
     if (sendEmail) {
-      // Fire-and-forget email receipt if a mailer is configured.
       try {
         const { sendMail } = await import('@/lib/email');
         const label = formatLabel(format);
-        await sendMail({
+        const sent = await sendMail({
           to: user.email,
           subject: `${label} export ready`,
           html: `<p>Your <strong>${label}</strong> export (${csvRows.length} rows) is attached.</p><p>Filename: <code>${filename}</code></p>`,
           attachments: [{ filename, content: csv, contentType: 'text/csv' }],
         });
+        emailDelivery = sent ? 'sent' : 'unavailable';
       } catch (e) {
         console.error('export email failed', e);
+        emailDelivery = 'unavailable';
       }
     }
 
@@ -74,6 +95,7 @@ export async function POST(req: Request) {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Cache-Control': 'no-store',
+        'X-Email-Delivery': emailDelivery,
       },
     });
   } catch (e: any) {

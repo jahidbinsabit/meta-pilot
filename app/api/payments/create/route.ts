@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireApiUser } from '@/lib/api/auth';
+import { rateLimit } from '@/lib/rate-limit';
 import { prisma } from '@/lib/db';
 import { paymentMethodFromGateway, toPublicGateway } from '@/lib/payments/public';
 import { getStripe } from '@/lib/payments/stripe';
@@ -11,6 +12,20 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   try {
     const user = await requireApiUser();
+
+    // R9 S9-04: each call mints a PENDING manual payment (admin queue)
+    // or a live Stripe checkout session — cap per user.
+    const rl = rateLimit(`payments-create:${user.id}`, {
+      max: 10,
+      windowMs: 10 * 60 * 1000,
+    });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'rate_limited', retryAfter: rl.retryAfter },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfter) } },
+      );
+    }
+
     const body = await req.json();
     const {
       type = 'credits',
@@ -33,14 +48,21 @@ export async function POST(req: Request) {
 
     if (type === 'plan') {
       const plan = await prisma.plan.findUnique({ where: { id: planId } });
-      if (!plan) return NextResponse.json({ error: 'plan_not_found' }, { status: 400 });
+      // B9-19: a delisted plan is not purchasable, even by direct API
+      // call with a known id — same error shape as a missing plan.
+      if (!plan || plan.isActive === false) {
+        return NextResponse.json({ error: 'plan_not_found' }, { status: 400 });
+      }
       amountUSD = plan.monthlyPriceUSD;
       amountBDT = plan.monthlyPriceBDT;
       productName = `MetaCSV ${plan.name} plan`;
       payload = { type: 'plan', planId, planName: plan.name, credits: plan.creditsIncluded };
     } else if (packageId) {
       const pkg = await prisma.creditPackage.findUnique({ where: { id: packageId } });
-      if (!pkg) return NextResponse.json({ error: 'package_not_found' }, { status: 400 });
+      // B9-19: delisted packages are not purchasable by id either.
+      if (!pkg || pkg.isActive === false) {
+        return NextResponse.json({ error: 'package_not_found' }, { status: 400 });
+      }
       amountUSD = pkg.priceUSD;
       amountBDT = pkg.priceBDT;
       productName = `${pkg.credits} MetaCSV credits`;
@@ -71,6 +93,14 @@ export async function POST(req: Request) {
         ],
       },
     });
+
+    // B9-19: a gateway the admin disabled must not accept new payments,
+    // even when the caller names it directly (the checkout UI filters
+    // disabled gateways out; mirror that server-side). A missing config
+    // row keeps the existing env-fallback behaviour (notably Stripe).
+    if (dbGateway && dbGateway.isEnabled === false) {
+      return NextResponse.json({ error: 'gateway_unavailable' }, { status: 400 });
+    }
 
     const isStripe = providerKey.includes('stripe');
     const isManual =

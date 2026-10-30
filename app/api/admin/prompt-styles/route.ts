@@ -23,6 +23,9 @@ export async function POST(req: Request) {
     }
     const preset = await upsertPreset(
       {
+        // T4-57: pass the row id through so edits (incl. slug renames)
+        // update the existing preset instead of duplicating it.
+        id: id ? String(id) : undefined,
         slug: String(slug).trim().toLowerCase(),
         label: label ? String(label) : undefined,
         systemInstruction: systemInstruction ? String(systemInstruction) : undefined,

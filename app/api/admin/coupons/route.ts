@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireApiAdmin } from '@/lib/api/auth';
 import { prisma } from '@/lib/db';
+import { writeAudit } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,6 +57,15 @@ export async function POST(req: Request) {
         createdById: admin.id,
       },
     });
+    // B9-13: coupon minting is a money-admin action — attribute it in the
+    // audit log, not just via createdById on the row.
+    await writeAudit({
+      adminId: admin.id,
+      action: 'coupon.create',
+      targetType: 'Coupon',
+      targetId: coupon.id,
+      after: { code, creditsAmount, maxUses, expiresAt: coupon.expiresAt, isActive },
+    });
     return NextResponse.json({ coupon }, { status: 201 });
   } catch (e: any) {
     if (e?.message === 'UNAUTHORIZED' || e?.message === 'FORBIDDEN') {
@@ -69,11 +79,22 @@ export async function POST(req: Request) {
 /** DELETE /api/admin/coupons?id=... — deactivate a coupon. */
 export async function DELETE(req: Request) {
   try {
-    await requireApiAdmin(req);
+    const admin = await requireApiAdmin(req);
     const url = new URL(req.url);
     const id = url.searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'invalid_input' }, { status: 400 });
+    const before = await prisma.coupon.findUnique({ where: { id } });
+    if (!before) return NextResponse.json({ error: 'not_found' }, { status: 404 });
     await prisma.coupon.update({ where: { id }, data: { isActive: false } });
+    // B9-13: attribute the deactivation to the acting admin.
+    await writeAudit({
+      adminId: admin.id,
+      action: 'coupon.deactivate',
+      targetType: 'Coupon',
+      targetId: id,
+      before: { code: before.code, isActive: before.isActive },
+      after: { code: before.code, isActive: false },
+    });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     if (e?.message === 'UNAUTHORIZED' || e?.message === 'FORBIDDEN') {

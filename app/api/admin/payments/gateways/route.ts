@@ -1,22 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requireApiAdmin } from '@/lib/api/auth';
-import { listGatewayConfigsAdmin, saveGatewayConfig, maskCredentials } from '@/lib/payments/config';
+import { prisma } from '@/lib/db';
+import { saveGatewayConfig, maskCredentials } from '@/lib/payments/config';
 
 export const runtime = 'nodejs';
-
-export async function GET() {
-  try {
-    await requireApiAdmin();
-    const gateways = await listGatewayConfigsAdmin();
-    // Never return full secrets — mask credential values.
-    const masked = gateways.map((g) => ({ ...g, credentials: maskCredentials(g.credentials) }));
-    return NextResponse.json({ gateways: masked });
-  } catch (error: any) {
-    console.error('Admin get gateways error:', error);
-    const status = error.message === 'FORBIDDEN' ? 403 : error.message === 'UNAUTHORIZED' ? 401 : 500;
-    return NextResponse.json({ error: error.message || 'internal_error' }, { status });
-  }
-}
 
 export async function POST(req: Request) {
   try {
@@ -31,9 +18,28 @@ export async function POST(req: Request) {
       );
     }
 
+    // T4-46: this is the CREATE path — saveGatewayConfig upserts by
+    // gatewayKey, so creating with an existing key silently overwrote the
+    // existing gateway's config (and the client added a duplicate row).
+    // Reject duplicates here; edits go through the [id] route.
+    const normalizedKey = String(gatewayKey).trim().toLowerCase();
+    const existing = await prisma.paymentGatewayConfig.findUnique({
+      where: { gatewayKey: normalizedKey },
+      select: { id: true },
+    });
+    if (existing) {
+      return NextResponse.json(
+        {
+          error: 'gateway_key_exists',
+          message: `A gateway with key "${normalizedKey}" already exists — edit it instead of creating a new one.`,
+        },
+        { status: 409 },
+      );
+    }
+
     const gateway = await saveGatewayConfig(
       {
-        gatewayKey: String(gatewayKey).trim().toLowerCase(),
+        gatewayKey: normalizedKey,
         displayName: String(displayName).trim(),
         isEnabled: isEnabled !== undefined ? Boolean(isEnabled) : undefined,
         isManual: isManual !== undefined ? Boolean(isManual) : undefined,

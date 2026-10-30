@@ -1,52 +1,44 @@
-import Link from 'next/link';
-import {
-  Wrench,
-  Palette,
-  Image,
-  Type,
-  Hash,
-  Contrast,
-  Download,
-  Eraser,
-  Grid3x3,
-  Calendar,
-  Key,
-  FileImage,
-  Dot,
-  Layers,
-  Sparkles,
-} from 'lucide-react';
-
+import { listTools } from '@/lib/tools/registry';
+import { resolveUserTier, tierAllowedForTool } from '@/lib/tools/gate';
 import { prisma } from '@/lib/db';
-import { listTools, type ToolEntry } from '@/lib/tools/registry';
-import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { LockedToolTile } from '@/components/dashboard/tool-shell';
+import getServerSession from '@/lib/server-session';
+import { ToolsGrid, type ToolGridItem } from '@/components/dashboard/tools-grid';
 
 // Authenticated page: never prerender at build time (needs session + DB).
 export const dynamic = 'force-dynamic';
 
-const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  Wrench,
-  Palette,
-  Image,
-  Type,
-  Hash,
-  Contrast,
-  Download,
-  Eraser,
-  Grid3x3,
-  Calendar,
-  Key,
-  FileImage,
-  Dot,
-  Layers,
-  Sparkles,
-};
-
 export default async function ToolsPage() {
-  const tools = await listTools();
-  const visible = tools.filter((t) => t.isEnabled);
+  const [tools, session] = await Promise.all([listTools(), getServerSession()]);
+  const email = session?.user?.email;
+  const dbUser = email
+    ? await prisma.user.findUnique({ where: { email }, select: { id: true, role: true } })
+    : null;
+  const tier = dbUser ? await resolveUserTier(dbUser.id) : 'FREE';
+  const isAdmin = dbUser?.role === 'ADMIN';
+
+  // T3-09: disabled tools are no longer filtered out of the grid — the
+  // header copy always said "locked, not broken", but the filter made
+  // the locked tile unreachable. Tier-restricted tools (Batch C gate,
+  // lib/tools/gate.ts) render locked too, mirroring what the run APIs
+  // enforce server-side.
+  const items: ToolGridItem[] = tools.map((tool) => {
+    let locked: ToolGridItem['locked'] = null;
+    if (!tool.isEnabled) {
+      locked = 'disabled';
+    } else if (!isAdmin && !tierAllowedForTool(tool.enabledForTiers, tier)) {
+      locked = 'tier';
+    }
+    return {
+      slug: tool.slug,
+      name: tool.name,
+      description: tool.description,
+      icon: tool.icon,
+      route: tool.route,
+      isFree: tool.isFree,
+      locked,
+      requiredTiers: tool.enabledForTiers ?? undefined,
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -56,46 +48,12 @@ export default async function ToolsPage() {
           All Tools Collection
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Every tool is a real, working page. Disabled tools are locked, not broken.
+          Every tool is a real, working page. Disabled tools are locked, not broken — and
+          tools your plan doesn&apos;t include are shown locked too.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {visible.map((tool) => (
-          <ToolGridTile key={tool.slug} tool={tool} />
-        ))}
-      </div>
+      <ToolsGrid tools={items} />
     </div>
-  );
-}
-
-function ToolGridTile({ tool }: { tool: ToolEntry }) {
-  if (!tool.isEnabled) {
-    return (
-      <LockedToolTile tool={{ name: tool.name, description: tool.description, icon: tool.icon }} />
-    );
-  }
-
-  const Icon = ICONS[tool.icon] ?? Wrench;
-
-  return (
-    <Link href={tool.route} className="group">
-      <Card className="h-full transition-colors hover:border-accent/40">
-        <CardHeader>
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15 text-accent">
-            <Icon className="h-5 w-5" />
-          </div>
-          <CardTitle className="mt-3 flex items-center gap-2">
-            {tool.name}
-            {tool.isFree && (
-              <Badge variant="success" className="text-[10px]">
-                Free
-              </Badge>
-            )}
-          </CardTitle>
-          <CardDescription>{tool.description}</CardDescription>
-        </CardHeader>
-      </Card>
-    </Link>
   );
 }

@@ -52,6 +52,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, payment });
   } catch (error: any) {
     console.error('Admin create manual payment error:', error);
+    // T4-44: a duplicate TrxID hits the unique index (P2002) — return a
+    // 409 the admin can act on instead of a raw 500.
+    if (error?.code === 'P2002') {
+      return NextResponse.json(
+        {
+          error: 'duplicate_transaction_ref',
+          message: 'A payment with this Transaction ID already exists.',
+        },
+        { status: 409 },
+      );
+    }
     // Validation failures from createManualPaymentAdmin are the caller's
     // error (400), not a server fault.
     const CLIENT_ERRORS = [

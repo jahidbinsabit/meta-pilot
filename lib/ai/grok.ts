@@ -5,7 +5,6 @@
  * Supports Grok 2, Grok 2 Vision, Grok Beta, etc.
  */
 
-import { zodToJsonSchema } from '@/lib/ai/json-schema';
 import { BaseAdapter } from '@/lib/ai/base';
 import type { AiRequest } from '@/lib/ai/types';
 

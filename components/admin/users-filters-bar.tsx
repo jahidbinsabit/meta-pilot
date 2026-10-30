@@ -80,7 +80,6 @@ export function UsersFiltersBar({
           <SelectItem value="ALL">All Statuses</SelectItem>
           <SelectItem value="ACTIVE">Active</SelectItem>
           <SelectItem value="SUSPENDED">Suspended</SelectItem>
-          <SelectItem value="PENDING">Pending</SelectItem>
         </SelectContent>
       </Select>
 

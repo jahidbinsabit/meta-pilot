@@ -3,7 +3,7 @@
 import { Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { gatewayIcon, gatewaysForCurrency, type CheckoutCurrency } from './checkout-helpers';
+import { gatewayIcon, type CheckoutCurrency } from './checkout-helpers';
 import { type PublicGateway } from '@/lib/payments/public';
 
 export function GatewayStep({
